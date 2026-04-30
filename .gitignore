@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Poetry — 保留 poetry.lock（可复现构建）
+# poetry.lock 不应被忽略
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# gRPC generated code
+generated/proto/
+
+# Environment files（含敏感信息）
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Test & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ruff
+.ruff_cache/
+
+# Mypy
+.mypy_cache/
+
+# Pre-commit
+.pre-commit-config.yaml.bak
+
+# Alembic
+alembic/versions/*.pyc

@@ -1,0 +1,76 @@
+// RAG 检索引擎接口
+// 对应概要设计 §3.2.2 RetrievalService
+// 混合检索（BM25 + 向量 + RRF 融合）+ 精排重排
+syntax = "proto3";
+
+package smartcs;
+
+option java_package = "com.smartcs.proto";
+option java_outer_classname = "RetrievalProto";
+
+// 检索服务
+service RetrievalService {
+  // 混合检索（BM25 + 向量 + RRF 融合 + 可选精排）
+  rpc Retrieve(RetrieveRequest) returns (RetrieveResponse);
+
+  // 仅 BM25 检索（降级路径）
+  rpc RetrieveBM25(BM25Request) returns (RetrieveResponse);
+
+  // 仅向量检索（降级路径）
+  rpc RetrieveVector(VectorRequest) returns (RetrieveResponse);
+}
+
+// ── 请求消息 ──
+
+message RetrieveRequest {
+  string query = 1;           // 查询文本
+  int32 top_k = 2;            // 返回数量，默认 5
+  repeated KVPair filters = 3; // 元数据过滤
+  bool rerank = 4;            // 是否启用精排，默认 true
+  SearchType search_type = 5; // 检索类型
+}
+
+message BM25Request {
+  string query = 1;
+  int32 top_k = 2;
+  repeated KVPair filters = 3;
+}
+
+message VectorRequest {
+  string query = 1;
+  int32 top_k = 2;
+  repeated KVPair filters = 3;
+  float score_threshold = 4; // 向量相似度阈值
+}
+
+// ── 枚举 ──
+
+enum SearchType {
+  HYBRID = 0;      // 混合检索（默认）
+  BM25_ONLY = 1;   // 仅 BM25
+  VECTOR_ONLY = 2; // 仅向量
+}
+
+// ── 消息结构 ──
+
+message KVPair {
+  string key = 1;
+  string value = 2;
+}
+
+message RetrievedChunk {
+  string chunk_id = 1;       // 知识块 ID
+  string content = 2;        // 知识块内容
+  float score = 3;           // 综合得分
+  string source_doc = 4;     // 来源文档标题
+  repeated KVPair metadata = 5; // 元数据
+}
+
+// ── 响应消息 ──
+
+message RetrieveResponse {
+  repeated RetrievedChunk results = 1;
+  int32 total_candidates = 2;  // 候选集大小
+  int64 latency_ms = 3;       // 处理耗时
+  SearchType actual_search_type = 4; // 实际使用的检索类型（降级时可能不同）
+}

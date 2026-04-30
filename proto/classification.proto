@@ -1,0 +1,88 @@
+// 分类模型引擎接口
+// 对应概要设计 §3.2.1 ClassificationService
+// 意图分类 + 实体抽取 + 情感分析
+syntax = "proto3";
+
+package smartcs;
+
+option java_package = "com.smartcs.proto";
+option java_outer_classname = "ClassificationProto";
+
+// 分类服务
+service ClassificationService {
+  // 统一分类接口：可同时请求意图/实体/情感分析
+  rpc Classify(ClassifyRequest) returns (ClassifyResponse);
+
+  // 仅意图分类（低延迟路径，< 30ms）
+  rpc ClassifyIntent(IntentRequest) returns (IntentResponse);
+}
+
+// ── 请求消息 ──
+
+message ClassifyRequest {
+  string text = 1;                      // 待分类文本
+  repeated TextTurn history = 2;        // 最近对话历史（上下文消歧）
+  repeated ClassifyType classify_types = 3; // 需要的分类类型
+}
+
+message IntentRequest {
+  string text = 1;                      // 待分类文本
+  repeated TextTurn history = 2;        // 对话历史
+  int32 top_k = 3;                      // 返回 Top-K 意图，默认 3
+}
+
+// ── 枚举 ──
+
+enum ClassifyType {
+  INTENT = 0;
+  ENTITY = 1;
+  SENTIMENT = 2;
+}
+
+// ── 消息结构 ──
+
+message TextTurn {
+  string speaker = 1;   // "customer" | "agent" | "bot"
+  string content = 2;
+}
+
+message IntentLabel {
+  string intent = 1;      // 意图标签：faq/bill_query/installment_inquiry 等
+  float confidence = 2;   // 置信度 0.0-1.0
+}
+
+message Entity {
+  string entity_type = 1; // 实体类型：amount/date/card_last4 等
+  string value = 2;       // 实体值
+  int32 start = 3;        // 起始位置
+  int32 end = 4;          // 结束位置
+  float confidence = 5;   // 置信度
+}
+
+message IntentResult {
+  IntentLabel primary = 1;           // 主意图
+  repeated IntentLabel alternatives = 2; // 备选意图
+}
+
+message EntityResult {
+  repeated Entity entities = 1;
+}
+
+message SentimentResult {
+  string label = 1;     // positive/neutral/negative/angry
+  float score = 2;      // 置信度
+}
+
+// ── 响应消息 ──
+
+message ClassifyResponse {
+  IntentResult intent_result = 1;
+  EntityResult entity_result = 2;
+  SentimentResult sentiment_result = 3;
+  int64 latency_ms = 4;    // 处理耗时
+}
+
+message IntentResponse {
+  IntentResult result = 1;
+  int64 latency_ms = 2;
+}

@@ -1,0 +1,22 @@
+:root {
+  --color-primary: #409eff;
+  --color-bot-bg: #f4f4f5;
+  --color-user-bg: #409eff;
+  --color-user-text: #fff;
+  --color-bot-text: #303133;
+  --header-height: 56px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", Arial, sans-serif;
+}

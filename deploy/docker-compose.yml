@@ -1,0 +1,304 @@
+# SmartCS Docker Compose - 开发环境全套中间件编排
+# 使用方式: docker compose up -d
+# 验证:     docker compose ps
+# 环境变量: 从项目根目录 .env 文件读取
+
+services:
+  # ── PostgreSQL 16 ──────────────────────────────────
+  postgres:
+    image: postgres:16
+    container_name: smartcs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: smartcs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
+      POSTGRES_DB: smartcs
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartcs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartcs-net
+
+  # ── Redis 7.2 ──────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: smartcs-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartcs-net
+
+  # ── Elasticsearch 8.19 + IK 分词 ──────────────────
+  elasticsearch:
+    build:
+      context: ./elasticsearch
+      dockerfile: Dockerfile
+    image: smartcs/elasticsearch-ik:8.19.9
+    container_name: smartcs-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.name=smartcs-es
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - smartcs-net
+
+  # ── etcd（Milvus 元数据）──────────────────────────
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: smartcs-etcd
+    restart: unless-stopped
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    # etcd 仅供 Milvus 内部访问，不暴露到宿主机端口，避免与 VPNKit 代理冲突
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartcs-net
+
+  # ── MinIO（对象存储 + Milvus 依赖）────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    container_name: smartcs-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartcs-net
+
+  # ── Milvus 2.4 Standalone ─────────────────────────
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    container_name: smartcs-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9091/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - smartcs-net
+
+  # ── Kafka 3.7 KRaft 模式 ──────────────────────────
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: smartcs-kafka
+    restart: unless-stopped
+    environment:
+      # KRaft 模式（无需 ZooKeeper）
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,HOST://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # 自动创建 Topic
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # 日志保留
+      KAFKA_LOG_RETENTION_HOURS: 72
+      KAFKA_LOG_RETENTION_BYTES: 5368709120
+      # KRaft 集群 ID（必须设置，可用 kafka-storage.sh random-uuid 生成）
+      KAFKA_CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - smartcs-net
+
+  # ── Redis Exporter ────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: smartcs-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - smartcs-net
+
+  # ── PostgreSQL Exporter ───────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: smartcs-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://smartcs:smartcs_pass@postgres:5432/smartcs?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - smartcs-net
+
+  # ── Kafka Exporter ────────────────────────────────
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: smartcs-kafka-exporter
+    restart: unless-stopped
+    command: --kafka.server=kafka:9092
+    ports:
+      - "9308:9308"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartcs-net
+
+  # ── Prometheus ────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: smartcs-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - postgres
+      - redis
+      - elasticsearch
+      - milvus
+      - kafka
+    networks:
+      - smartcs-net
+
+  # ── Grafana ───────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: smartcs-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - smartcs-net
+
+  # ── Nginx 开发网关 ────────────────────────────────
+  # 生产环境使用 Higress（K8s 原生），开发环境用 Nginx 替代
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: smartcs-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../web/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - prometheus
+    networks:
+      - smartcs-net
+
+# ── 数据卷 ──────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  es_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  kafka_data:
+  prometheus_data:
+  grafana_data:
+
+# ── 网络 ────────────────────────────────────────────
+networks:
+  smartcs-net:
+    driver: bridge

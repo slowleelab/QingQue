@@ -1,0 +1,128 @@
+[tool.poetry]
+name = "smartcs"
+version = "0.1.0"
+description = "银行信用卡智能客服平台 - AI坐席辅助 + 机器人自助问答"
+authors = ["SmartCS Team"]
+readme = "README.md"
+packages = [
+    { include = "smartcs", from = "src" },
+]
+
+[tool.poetry.scripts]
+smartcs-bot = "smartcs.main:bot_app"
+smartcs-assist = "smartcs.main:assist_app"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# Web 框架
+fastapi = "^0.115"
+uvicorn = {extras = ["standard"], version = "^0.30"}
+pydantic = "^2.0"
+pydantic-settings = "^2.0"
+
+# 数据库
+sqlalchemy = {extras = ["asyncio"], version = "^2.0"}
+asyncpg = "^0.29"
+
+# 缓存
+redis = {extras = ["hiredis"], version = "^5.0"}
+
+# 全文检索
+elasticsearch = {extras = ["async"], version = "^8.19"}
+
+# 向量数据库
+pymilvus = "^2.4"
+
+# 对象存储
+minio = "^7.2"
+
+# 消息队列
+aiokafka = "^0.10"
+
+# gRPC
+grpcio = "^1.60"
+grpcio-tools = "^1.60"
+
+# 大模型
+openai = "^1.30"
+
+# Agent 编排
+langchain-core = "^0.3"
+langgraph = "^0.2"
+
+# 可观测性
+opentelemetry-api = "^1.20"
+opentelemetry-sdk = "^1.20"
+prometheus-client = "^0.20"
+greenlet = "^3.5.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.23"
+httpx = "^0.27"
+ruff = "^0.8"
+mypy = "^1.13"
+pre-commit = "^4.0"
+coverage = "^7.6"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+]
+ignore = ["E501"]  # line-too-long handled by formatter
+
+[tool.ruff.lint.isort]
+known-first-party = ["smartcs"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+namespace_packages = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.coverage.run]
+source = ["smartcs"]
+branch = true
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 60
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

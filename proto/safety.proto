@@ -1,0 +1,98 @@
+// 安全过滤引擎接口
+// 对应概要设计 §3.2.4 SafetyFilterService
+// 敏感词检测 + 信息脱敏 + 合规校验
+syntax = "proto3";
+
+package smartcs;
+
+option java_package = "com.smartcs.proto";
+option java_outer_classname = "SafetyProto";
+
+// 安全过滤服务
+service SafetyFilterService {
+  // 输入过滤：检测客户输入中的敏感信息
+  rpc FilterInput(FilterInputRequest) returns (FilterInputResponse);
+
+  // 输出过滤：检测/脱敏 AI 输出中的敏感信息
+  rpc FilterOutput(FilterOutputRequest) returns (FilterOutputResponse);
+
+  // 合规校验：检查输出是否合规
+  rpc CheckCompliance(ComplianceRequest) returns (ComplianceResponse);
+}
+
+// ── 请求消息 ──
+
+message FilterInputRequest {
+  string text = 1;              // 待过滤文本
+  bool enable_detection = 2;    // 是否启用敏感词检测
+  bool enable_masking = 3;      // 是否启用脱敏
+}
+
+message FilterOutputRequest {
+  string text = 1;              // 待过滤文本
+  bool enable_masking = 2;      // 是否启用脱敏
+  bool enable_compliance = 3;   // 是否启用合规检测
+}
+
+message ComplianceRequest {
+  string text = 1;              // 待检查文本
+  string intent = 2;            // 当前意图（合规规则可能按意图区分）
+  repeated string entities = 3; // 当前实体
+}
+
+// ── 枚举 ──
+
+enum FilterAction {
+  PASS = 0;           // 通过
+  MASK = 1;           // 脱敏后通过
+  BLOCK = 2;          // 拦截
+  WARN = 3;           // 警告但通过
+}
+
+enum SensitiveType {
+  PHONE = 0;          // 手机号
+  ID_CARD = 1;        // 身份证号
+  BANK_CARD = 2;      // 银行卡号
+  SENSITIVE_WORD = 3; // 敏感词
+  PROMISSORY = 4;     // 违规承诺
+}
+
+// ── 消息结构 ──
+
+message SensitiveMatch {
+  SensitiveType type = 1;    // 敏感类型
+  string original = 2;       // 原始文本
+  string masked = 3;         // 脱敏后文本
+  int32 start = 4;           // 起始位置
+  int32 end = 5;             // 结束位置
+}
+
+message ComplianceViolation {
+  string rule_id = 1;        // 规则 ID
+  string description = 2;    // 违规描述
+  string severity = 3;       // 严重程度：low/medium/high/critical
+  string suggestion = 4;     // 建议动作
+}
+
+// ── 响应消息 ──
+
+message FilterInputResponse {
+  FilterAction action = 1;                   // 过滤动作
+  string filtered_text = 2;                  // 过滤后文本
+  repeated SensitiveMatch matches = 3;       // 命中的敏感信息
+  int64 latency_ms = 4;
+}
+
+message FilterOutputResponse {
+  FilterAction action = 1;                   // 过滤动作
+  string filtered_text = 2;                  // 过滤后文本（可能脱敏）
+  repeated SensitiveMatch matches = 3;       // 命中的敏感信息
+  repeated ComplianceViolation violations = 4; // 合规违规
+  int64 latency_ms = 5;
+}
+
+message ComplianceResponse {
+  bool is_compliant = 1;                     // 是否合规
+  repeated ComplianceViolation violations = 2; // 违规列表
+  int64 latency_ms = 3;
+}

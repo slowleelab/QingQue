@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Linting
+.ruff_cache/
+.mypy_cache/
+
+# Environment
+.env
+.env.*
+
+# Documentation
+README.md
+LICENSE
+
+# Docker
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# Pre-commit
+.pre-commit-config.yaml
+
+# Generated code
+generated/
+
+# Deployment configs (already in image via COPY)
+deploy/
+
+# Development scripts
+scripts/
+
+# Proto definitions
+proto/
+
+# Alembic (handled separately in production)
+alembic/versions/

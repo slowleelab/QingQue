@@ -1,0 +1,290 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.5},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "up{job=\"bot-service\"}", "refId": "A", "legendFormat": "Bot Service"}],
+      "title": "Bot Service",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.5},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "id": 2,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "up{job=\"assist-service\"}", "refId": "A", "legendFormat": "Assist Service"}],
+      "title": "Assist Service",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.5},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "id": 3,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "up{job=\"redis\"}", "refId": "A", "legendFormat": "Redis"}],
+      "title": "Redis",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.5},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "id": 4,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "up{job=\"postgres\"}", "refId": "A", "legendFormat": "PostgreSQL"}],
+      "title": "PostgreSQL",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.5},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "id": 10,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "up{job=\"kafka\"}", "refId": "A", "legendFormat": "Kafka"}],
+      "title": "Kafka",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.5},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "id": 11,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "up{job=\"milvus\"}", "refId": "A", "legendFormat": "Milvus"}],
+      "title": "Milvus",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Redis 内存使用量",
+      "fieldConfig": {
+        "defaults": {"unit": "bytes", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "id": 20,
+      "targets": [
+        {"expr": "redis_memory_used_bytes", "refId": "A", "legendFormat": "已用内存"},
+        {"expr": "redis_memory_max_bytes", "refId": "B", "legendFormat": "最大内存"}
+      ],
+      "title": "Redis 内存使用",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Redis 连接数与命中率",
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "id": 21,
+      "targets": [
+        {"expr": "redis_connected_clients", "refId": "A", "legendFormat": "连接数"},
+        {"expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))", "refId": "B", "legendFormat": "命中率"}
+      ],
+      "title": "Redis 连接数与命中率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "PostgreSQL 连接数",
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "id": 30,
+      "targets": [
+        {"expr": "pg_stat_activity_count", "refId": "A", "legendFormat": "{{state}}"}
+      ],
+      "title": "PostgreSQL 连接数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "PostgreSQL 数据库大小",
+      "fieldConfig": {
+        "defaults": {"unit": "bytes", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "id": 31,
+      "targets": [
+        {"expr": "pg_database_size_bytes", "refId": "A", "legendFormat": "{{datname}}"}
+      ],
+      "title": "PostgreSQL 数据库大小",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Kafka 各 Topic 消息速率",
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "id": 40,
+      "targets": [
+        {"expr": "rate(kafka_topic_partition_current_offset[5m])", "refId": "A", "legendFormat": "{{topic}}"}
+      ],
+      "title": "Kafka 消息速率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Kafka Consumer Group Lag",
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "id": 41,
+      "targets": [
+        {"expr": "kafka_consumergroup_lag", "refId": "A", "legendFormat": "{{consumergroup}} {{topic}}"}
+      ],
+      "title": "Kafka Consumer Lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Milvus RPC 请求延迟 P99",
+      "fieldConfig": {
+        "defaults": {"unit": "ms", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "id": 50,
+      "targets": [
+        {"expr": "histogram_quantile(0.99, rate(milvus_rpc_latency_bucket[5m]))", "refId": "A", "legendFormat": "{{rpc_name}}"}
+      ],
+      "title": "Milvus RPC 延迟 P99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Bot / Assist 服务请求延迟 P99（需要应用暴露 /metrics 端点后才有数据）",
+      "fieldConfig": {
+        "defaults": {"unit": "ms", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "id": 60,
+      "targets": [
+        {"expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job=\"bot-service\"}[5m]))", "refId": "A", "legendFormat": "Bot P99"},
+        {"expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job=\"assist-service\"}[5m]))", "refId": "B", "legendFormat": "Assist P99"}
+      ],
+      "title": "应用服务延迟 P99",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["smartcs", "middleware"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "SmartCS 中间件监控",
+  "uid": "smartcs-middleware",
+  "version": 1
+}
