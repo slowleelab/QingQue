@@ -127,6 +127,13 @@ class EmbeddingTimeoutError(SmartCSError):
     message = "嵌入服务调用超时"
 
 
+class BM25SearchError(SmartCSError):
+    """4007: BM25 检索异常"""
+
+    code = 4007
+    message = "BM25 检索异常"
+
+
 class MinIOError(SmartCSError):
     """4010: 对象存储读写异常"""
 

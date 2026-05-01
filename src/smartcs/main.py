@@ -12,14 +12,35 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from smartcs.services.bot.app import create_bot_app
 from smartcs.services.assist.app import create_assist_app
+from smartcs.services.bot.app import create_bot_app
+from smartcs.services.common.database import close_db, init_db
+from smartcs.services.common.deps import (
+    close_agent,
+    close_classifier,
+    close_elasticsearch,
+    close_embedding,
+    close_llm,
+    close_milvus,
+    close_minio,
+    close_reranker,
+    close_session_manager,
+    init_agent,
+    init_classifier,
+    init_elasticsearch,
+    init_embedding,
+    init_llm,
+    init_milvus,
+    init_minio,
+    init_reranker,
+    init_session_manager,
+    init_transfer_checker,
+)
+from smartcs.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
+from smartcs.services.common.redis_client import close_redis, init_redis
 from smartcs.shared.config import get_settings
 from smartcs.shared.logger import setup_logger
 from smartcs.shared.middleware import register_exception_handlers
-from smartcs.services.common.database import init_db, close_db
-from smartcs.services.common.redis_client import init_redis, close_redis
-from smartcs.services.common.grpc_clients import init_grpc_channels, close_grpc_channels
 
 
 @asynccontextmanager
@@ -31,13 +52,32 @@ async def bot_lifespan(app: FastAPI):
 
     await init_db(app)
     await init_redis(app)
+    await init_elasticsearch(app)
+    await init_milvus(app)
+    await init_minio(app)
+    await init_embedding(app)
+    await init_reranker(app)
     await init_grpc_channels(app)
+    await init_llm(app)
+    await init_session_manager(app)
+    await init_classifier(app)
+    await init_transfer_checker(app)
+    await init_agent(app)
     logger.info("机器人服务就绪")
 
     yield
 
     logger.info("机器人服务关闭中...")
+    await close_agent(app)
+    await close_classifier(app)
+    await close_session_manager(app)
+    await close_llm(app)
     await close_grpc_channels(app)
+    await close_reranker(app)
+    await close_embedding(app)
+    await close_minio(app)
+    await close_milvus(app)
+    await close_elasticsearch(app)
     await close_redis(app)
     await close_db(app)
     logger.info("机器人服务已关闭")
@@ -52,6 +92,11 @@ async def assist_lifespan(app: FastAPI):
 
     await init_db(app)
     await init_redis(app)
+    await init_elasticsearch(app)
+    await init_milvus(app)
+    await init_minio(app)
+    await init_embedding(app)
+    await init_reranker(app)
     await init_grpc_channels(app)
     logger.info("坐席辅助服务就绪")
 
@@ -59,6 +104,11 @@ async def assist_lifespan(app: FastAPI):
 
     logger.info("坐席辅助服务关闭中...")
     await close_grpc_channels(app)
+    await close_reranker(app)
+    await close_embedding(app)
+    await close_minio(app)
+    await close_milvus(app)
+    await close_elasticsearch(app)
     await close_redis(app)
     await close_db(app)
     logger.info("坐席辅助服务已关闭")

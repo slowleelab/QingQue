@@ -16,10 +16,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 导入 Base metadata（需要根据实际模型路径调整）
-# from smartcs.shared.models import Base
-# target_metadata = Base.metadata
-target_metadata = None
+import smartcs.shared.orm_models  # noqa: E402, F401 — 确保所有模型注册到 Base.metadata
+from smartcs.shared.orm_models import Base  # noqa: E402
+
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
@@ -37,7 +37,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection):
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=True,  # 支持 SQLite 测试环境
+    )
 
     with context.begin_transaction():
         context.run_migrations()
@@ -45,6 +49,12 @@ def do_run_migrations(connection):
 
 async def run_async_migrations() -> None:
     """在线模式：异步执行迁移"""
+    # 从 DatabaseSettings 动态获取 URL，覆盖 alembic.ini 硬编码值
+    from smartcs.shared.config import get_settings
+
+    settings = get_settings()
+    config.set_main_option("sqlalchemy.url", settings.database.dsn)
+
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

@@ -210,6 +210,7 @@ class RetrieveRequest(BaseModel):
     filters: dict = Field(default_factory=dict)
     rerank: bool = True
     search_type: str = "hybrid"  # hybrid / bm25_only / vector_only
+    rrf_k: int | None = None  # 覆盖 RRF k 参数；None 时使用配置默认值
 
 
 class RetrieveResponse(BaseModel):

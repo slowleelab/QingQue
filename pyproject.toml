@@ -46,6 +46,19 @@ grpcio-tools = "^1.60"
 # 大模型
 openai = "^1.30"
 
+# 文档解析
+pymupdf = "^1.24"
+python-docx = "^1.1"
+beautifulsoup4 = "^4.12"
+markdown-it-py = "^3.0"
+openpyxl = "^3.1"
+# 重试
+tenacity = "^8.2"
+# YAML frontmatter
+pyyaml = "^6.0"
+# 同步 PostgreSQL 驱动（脚本用）
+psycopg2-binary = "^2.9"
+
 # Agent 编排
 langchain-core = "^0.3"
 langgraph = "^0.2"
@@ -55,6 +68,8 @@ opentelemetry-api = "^1.20"
 opentelemetry-sdk = "^1.20"
 prometheus-client = "^0.20"
 greenlet = "^3.5.0"
+alembic = "^1.18.4"
+python-multipart = "^0.0.27"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
@@ -91,7 +106,12 @@ select = [
     "SIM",  # flake8-simplify
     "RUF",  # ruff-specific rules
 ]
-ignore = ["E501"]  # line-too-long handled by formatter
+ignore = [
+    "E501",   # line-too-long handled by formatter
+    "RUF001", # ambiguous unicode in strings — Chinese punctuation is intentional
+    "RUF002", # ambiguous unicode in docstrings — Chinese punctuation is intentional
+    "RUF003", # ambiguous unicode in comments — Chinese punctuation is intentional
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["smartcs"]

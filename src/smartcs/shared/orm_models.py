@@ -29,7 +29,8 @@ from sqlalchemy import (
 from sqlalchemy import (
     Enum as SAEnum,
 )
-from sqlalchemy.dialects.postgresql import TIMESTAMP
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 # ── Base ──
@@ -96,9 +97,7 @@ class KbIngestionStatus(str, PyEnum):
 _kb_source_type = SAEnum(KbSourceType, name="kb_source_type", create_constraint=True, validate_strings=True)
 _kb_doc_status = SAEnum(KbDocStatus, name="kb_doc_status", create_constraint=True, validate_strings=True)
 _kb_embed_status = SAEnum(KbEmbedStatus, name="kb_embed_status", create_constraint=True, validate_strings=True)
-_kb_ingestion_stage = SAEnum(
-    KbIngestionStage, name="kb_ingestion_stage", create_constraint=True, validate_strings=True
-)
+_kb_ingestion_stage = SAEnum(KbIngestionStage, name="kb_ingestion_stage", create_constraint=True, validate_strings=True)
 _kb_ingestion_status = SAEnum(
     KbIngestionStatus, name="kb_ingestion_status", create_constraint=True, validate_strings=True
 )
@@ -142,10 +141,14 @@ class KbDocument(Base):
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True, default="system")
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.now
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=datetime.now,
+        onupdate=datetime.now,
+        server_default=text("now()"),
     )
 
     # relationships
@@ -197,8 +200,16 @@ class KbChunk(Base):
     )
     es_indexed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     milvus_indexed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Parent-Child 分块字段
+    parent_chunk_id: Mapped[uuid_utils.UUID | None] = mapped_column(
+        Uuid(native_uuid=False),
+        ForeignKey("kb_chunk.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    chunk_type: Mapped[str] = mapped_column(String(16), nullable=False, default="plain_text")
+    heading_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.now
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()")
     )
 
     # relationships
@@ -221,6 +232,7 @@ class KbChunk(Base):
             "milvus_indexed",
             postgresql_where=text("milvus_indexed = false"),
         ),
+        Index("ix_kb_chunk_parent_chunk_id", "parent_chunk_id"),
     )
 
 
@@ -246,10 +258,10 @@ class KbIngestionLog(Base):
     stage: Mapped[KbIngestionStage] = mapped_column(_kb_ingestion_stage, nullable=False)
     status: Mapped[KbIngestionStatus] = mapped_column(_kb_ingestion_status, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    step_detail: Mapped[str | None] = mapped_column("step_detail_json", Text, nullable=True)
+    step_detail: Mapped[dict | None] = mapped_column("step_detail_json", JSON, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.now
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()")
     )
 
     # relationships

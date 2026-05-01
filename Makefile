@@ -1,7 +1,7 @@
 # SmartCS Makefile — 标准化开发命令
 # 使用: make <target>
 
-.PHONY: help install dev test lint format type-check build up down init verify clean migrate
+.PHONY: help install dev test lint format type-check build up down init init-minio seed seed-dry verify clean migrate
 
 # ── 默认 ──
 help: ## 显示帮助信息
@@ -82,6 +82,15 @@ migrate-create: ## 创建新的迁移脚本（用法: make migrate-create msg="a
 
 migrate-downgrade: ## 回退一个版本
 	poetry run alembic downgrade -1
+
+init-minio: ## 初始化 MinIO Bucket
+	poetry run python scripts/init_minio.py
+
+seed: ## 生成种子知识数据并入库
+	poetry run python scripts/seed_knowledge.py
+
+seed-dry: ## 扫描种子数据（不入库）
+	poetry run python scripts/seed_knowledge.py --dry-run
 
 # ── 清理 ──
 clean: ## 清理生成文件和缓存

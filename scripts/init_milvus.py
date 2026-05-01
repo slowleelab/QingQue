@@ -1,9 +1,10 @@
 """初始化 Milvus Collection
 
-创建 smartcs_knowledge Collection:
+创建 smartcs_knowledge Collection (v2 — 含过滤字段):
 - 向量维度: 1024 (bge-large-zh-v1.5)
 - 索引类型: IVF_FLAT (nlist=128)
 - 度量类型: COSINE
+- 过滤字段: keywords, card_type, customer_tier, effective_date, expiry_date
 
 使用方式:
     poetry run python scripts/init_milvus.py
@@ -35,7 +36,7 @@ def init_milvus():
 
     print(f"🔧 创建 Collection '{collection_name}'...")
 
-    # 定义字段
+    # 定义字段（v2: 含过滤字段）
     fields = [
         FieldSchema(
             name="chunk_id",
@@ -53,7 +54,7 @@ def init_milvus():
         FieldSchema(
             name="content",
             dtype=DataType.VARCHAR,
-            max_length=2000,
+            max_length=65535,
             description="知识块内容",
         ),
         FieldSchema(
@@ -71,8 +72,36 @@ def init_milvus():
         FieldSchema(
             name="doc_type",
             dtype=DataType.VARCHAR,
-            max_length=16,
+            max_length=32,
             description="文档类型: faq/rule/rate/activity/product",
+        ),
+        FieldSchema(
+            name="keywords",
+            dtype=DataType.VARCHAR,
+            max_length=512,
+            description="关键词列表（逗号分隔）",
+        ),
+        FieldSchema(
+            name="card_type",
+            dtype=DataType.VARCHAR,
+            max_length=32,
+            description="卡种: 普卡/金卡/白金卡/钻石卡",
+        ),
+        FieldSchema(
+            name="customer_tier",
+            dtype=DataType.VARCHAR,
+            max_length=32,
+            description="客户等级: 普通/银卡/金卡/白金",
+        ),
+        FieldSchema(
+            name="effective_date",
+            dtype=DataType.INT64,
+            description="生效日期（epoch 毫秒）",
+        ),
+        FieldSchema(
+            name="expiry_date",
+            dtype=DataType.INT64,
+            description="失效日期（epoch 毫秒）",
         ),
     ]
 
@@ -81,6 +110,10 @@ def init_milvus():
         fields=fields,
         description="智能客服知识库向量索引",
     )
+
+    # Parent-Child 分块字段
+    schema.add_field("chunk_type", DataType.VARCHAR, max_length=16, description="分块结构类型")
+    schema.add_field("parent_chunk_id", DataType.VARCHAR, max_length=64, description="父块ID")
 
     # 创建 Collection
     collection = Collection(
