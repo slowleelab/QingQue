@@ -266,3 +266,80 @@ class KbIngestionLog(Base):
 
     # relationships
     document: Mapped[KbDocument] = relationship(back_populates="ingestion_logs")
+
+
+# ── ScriptStatus ──
+
+
+class ScriptStatus(str, PyEnum):
+    """话术模板状态"""
+
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
+_script_status = SAEnum(ScriptStatus, name="script_status", create_constraint=True, validate_strings=True)
+
+
+# ── ScriptTemplate ──
+
+
+class ScriptTemplate(Base):
+    """话术模板表"""
+
+    __tablename__ = "script_template"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False), primary_key=True, default=_uuid_v7,
+    )
+    script_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)  # 对应 IntentLabel
+    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)  # 含占位符
+    variables: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    status: Mapped[ScriptStatus] = mapped_column(_script_status, nullable=False, default=ScriptStatus.ACTIVE)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True, default="system")
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now,
+        onupdate=datetime.now, server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_script_template_category", "category"),
+        Index("ix_script_template_status_priority", "status", "priority"),
+    )
+
+
+# ── ScriptUsageLog ──
+
+
+class ScriptUsageLog(Base):
+    """话术使用统计表"""
+
+    __tablename__ = "script_usage_log"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False), primary_key=True, default=_uuid_v7,
+    )
+    script_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    intent: Mapped[str] = mapped_column(String(32), nullable=False)
+    pushed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    clicked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_script_usage_log_session", "session_id"),
+        Index("ix_script_usage_log_created", "created_at"),
+    )
