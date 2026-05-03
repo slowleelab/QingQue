@@ -3,9 +3,6 @@ package com.example.customerserver.dto;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 转接会话请求 — SmartCS Bot 转接到人工坐席时发送
- */
 public class TransferSessionRequest {
     private String sessionId;
     private String customerId;
@@ -17,19 +14,19 @@ public class TransferSessionRequest {
     private String vipLevel;
 
     public String getSessionId() { return sessionId; }
-    public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+    public void setSessionId(String s) { this.sessionId = s; }
     public String getCustomerId() { return customerId; }
-    public void setCustomerId(String customerId) { this.customerId = customerId; }
+    public void setCustomerId(String s) { this.customerId = s; }
     public String getTransferReason() { return transferReason; }
-    public void setTransferReason(String transferReason) { this.transferReason = transferReason; }
+    public void setTransferReason(String s) { this.transferReason = s; }
     public String getTransferSummary() { return transferSummary; }
-    public void setTransferSummary(String transferSummary) { this.transferSummary = transferSummary; }
+    public void setTransferSummary(String s) { this.transferSummary = s; }
     public List<Map<String, String>> getHistory() { return history; }
-    public void setHistory(List<Map<String, String>> history) { this.history = history; }
+    public void setHistory(List<Map<String, String>> h) { this.history = h; }
     public String getIntent() { return intent; }
-    public void setIntent(String intent) { this.intent = intent; }
+    public void setIntent(String s) { this.intent = s; }
     public String getSentiment() { return sentiment; }
-    public void setSentiment(String sentiment) { this.sentiment = sentiment; }
+    public void setSentiment(String s) { this.sentiment = s; }
     public String getVipLevel() { return vipLevel; }
-    public void setVipLevel(String vipLevel) { this.vipLevel = vipLevel; }
+    public void setVipLevel(String s) { this.vipLevel = s; }
 }

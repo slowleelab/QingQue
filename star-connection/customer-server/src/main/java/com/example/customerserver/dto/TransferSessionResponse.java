@@ -1,8 +1,5 @@
 package com.example.customerserver.dto;
 
-/**
- * 转接会话响应 — 返回给 SmartCS Bot 的会话创建结果
- */
 public class TransferSessionResponse {
     private String sessionId;
     private String pollUrl;
