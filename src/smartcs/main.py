@@ -43,6 +43,7 @@ from smartcs.services.common.deps import (
     init_transfer_checker,
 )
 from smartcs.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
+from smartcs.services.bot.router import start_chat_worker, stop_chat_worker
 from smartcs.services.common.redis_client import close_redis, init_redis
 from smartcs.shared.config import get_settings
 from smartcs.shared.logger import setup_logger
@@ -71,11 +72,13 @@ async def bot_lifespan(app: FastAPI):
     await init_agent(app)
     await init_health_monitor(app)       # 启动后台健康探测
     await init_degradation_manager(app)  # 初始化降级管理器
+    await start_chat_worker(app)         # 启动聊天队列后台工作器
     logger.info("机器人服务就绪")
 
     yield
 
     logger.info("机器人服务关闭中...")
+    await stop_chat_worker(app)
     await close_degradation_manager(app)
     await close_health_monitor(app)       # 停止后台健康探测
     await close_agent(app)

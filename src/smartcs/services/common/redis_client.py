@@ -24,6 +24,7 @@ async def init_redis(app: FastAPI) -> None:
         decode_responses=True,
     )
     app.state.redis_pool = pool
+    app.state.redis_client = aioredis.Redis(connection_pool=pool)
 
 
 async def close_redis(app: FastAPI) -> None:
