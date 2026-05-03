@@ -188,6 +188,35 @@ class SessionSettings(BaseSettings):
     low_confidence_threshold: int = 3
 
 
+class AssistSettings(BaseSettings):
+    """坐席辅助配置"""
+
+    model_config = SettingsConfigDict(env_prefix="ASSIST_")
+
+    # 分支超时（毫秒）
+    script_timeout_ms: int = 500
+    knowledge_timeout_ms: int = 600
+    alert_timeout_ms: int = 300
+    product_timeout_ms: int = 400
+
+    # 推送节流
+    throttle_window_ms: int = 800
+
+    # 话术
+    polish_model: str = "qwen2.5:7b"
+    script_cache_ttl: int = 300  # Redis 缓存秒数
+    max_scripts_per_push: int = 3
+
+    # 知识
+    max_knowledge_per_push: int = 3
+
+    # 情绪趋势
+    sentiment_trend_window: int = 3  # 连续负面轮数触发升级
+
+    # 产品
+    max_recommendations_per_push: int = 2
+
+
 class Settings(BaseSettings):
     """全局配置根"""
 
@@ -220,6 +249,7 @@ class Settings(BaseSettings):
     rag: RAGSettings = Field(default_factory=RAGSettings)
     safety: SafetySettings = Field(default_factory=SafetySettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
+    assist: AssistSettings = Field(default_factory=AssistSettings)
 
 
 @lru_cache
