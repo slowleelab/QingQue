@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import logging
+import uuid as uuid_module
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 
 from smartcs.services.common.deps import (
     AgentDep,
@@ -22,10 +25,16 @@ from smartcs.shared.exceptions import DocumentFormatError
 from smartcs.shared.models import (
     ChatRequest,
     ChatResponse,
+    ChatSendRequest,
+    ChatSendResponse,
+    PollResponse,
     RetrieveRequest,
     RetrieveResponse,
+    SessionPhase,
 )
 from smartcs.shared.orm_models import KbDocStatus, KbDocument, KbSourceType
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["bot"])
 
@@ -90,6 +99,98 @@ async def chat(request: ChatRequest, agent: AgentDep, session_manager: SessionMa
         source=result.get("response_source", "fallback"),
         is_transfer=is_transfer,
     )
+
+
+@router.post("/chat/send")
+async def chat_send(body: ChatSendRequest, request: Request) -> ChatSendResponse:
+    """客户发送消息 — 入 Redis 队列后立即返回"""
+    app = request.app
+    redis = getattr(app.state, "redis_client", None)
+    if redis is None:
+        raise HTTPException(status_code=503, detail="Redis 未就绪")
+    session_id = body.session_id or uuid_module.uuid4().hex
+
+    message_id = uuid_module.uuid4().hex
+    task_data = {
+        "session_id": session_id,
+        "customer_id": body.customer_id,
+        "message": body.message,
+        "channel": body.channel.value,
+        "message_id": message_id,
+    }
+    await redis.lpush("smartcs:chat:queue", json.dumps(task_data))
+    return ChatSendResponse(accepted=True, message_id=message_id, session_id=session_id)
+
+
+@router.get("/chat/poll")
+async def chat_poll(
+    session_id: str = Query(...),
+    since: str | None = Query(default=None),
+    timeout: int = Query(default=25),
+    request: Request = None,
+) -> PollResponse:
+    """长轮询 — 阻塞等待新消息，超时后返回空"""
+    app = request.app
+    redis = getattr(app.state, "redis_client", None)
+    if redis is None:
+        return PollResponse(has_message=False)
+    response_key = f"smartcs:response:{session_id}"
+
+    poll_interval = 0.5
+    waited = 0.0
+    while waited < timeout:
+        raw = await redis.get(response_key)
+        if raw:
+            data = json.loads(raw) if isinstance(raw, bytes) else json.loads(raw)
+            await redis.delete(response_key)
+            return PollResponse(**data)
+        await asyncio.sleep(poll_interval)
+        waited += poll_interval
+
+    return PollResponse(has_message=False)
+
+
+# ── 后台消息处理（lifespan 中启动） ──
+
+
+async def process_chat_queue(app):
+    """轮询 chat:queue，调用 Agent 处理并写回 Redis 响应"""
+    redis = app.state.redis_client
+    agent = app.state.agent
+
+    while True:
+        try:
+            _, raw = await redis.brpop("smartcs:chat:queue", timeout=1)
+            if raw is None:
+                continue
+            task = json.loads(raw) if isinstance(raw, bytes) else json.loads(raw)
+
+            session_id = task["session_id"]
+            message = task.get("message", "")
+            customer_id = task.get("customer_id")
+
+            result = await agent.run(session_id, message)
+
+            intent = result.get("intent")
+            poll_data: dict = {
+                "has_message": True,
+                "reply": result.get("response", "抱歉，我暂时无法处理您的请求。"),
+                "intent": intent.primary_intent if intent else None,
+                "confidence": intent.primary_confidence if intent else 0.0,
+                "source": result.get("response_source", "fallback"),
+                "is_transfer": result.get("should_transfer", False),
+                "transfer_url": result.get("transfer_url", ""),
+                "transfer_reason": result.get("transfer_reason", ""),
+            }
+
+            response_key = f"smartcs:response:{session_id}"
+            await redis.set(response_key, json.dumps(poll_data, default=str), ex=120)
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("消息处理失败: %s", e, exc_info=True)
+            continue
 
 
 @router.post("/kb/retrieve", response_model=RetrieveResponse)
