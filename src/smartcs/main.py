@@ -18,8 +18,10 @@ from smartcs.services.common.database import close_db, init_db
 from smartcs.services.common.deps import (
     close_agent,
     close_classifier,
+    close_degradation_manager,
     close_elasticsearch,
     close_embedding,
+    close_health_monitor,
     close_llm,
     close_milvus,
     close_minio,
@@ -27,8 +29,10 @@ from smartcs.services.common.deps import (
     close_session_manager,
     init_agent,
     init_classifier,
+    init_degradation_manager,
     init_elasticsearch,
     init_embedding,
+    init_health_monitor,
     init_llm,
     init_milvus,
     init_minio,
@@ -63,11 +67,15 @@ async def bot_lifespan(app: FastAPI):
     await init_classifier(app)
     await init_transfer_checker(app)
     await init_agent(app)
+    await init_health_monitor(app)       # 启动后台健康探测
+    await init_degradation_manager(app)  # 初始化降级管理器
     logger.info("机器人服务就绪")
 
     yield
 
     logger.info("机器人服务关闭中...")
+    await close_degradation_manager(app)
+    await close_health_monitor(app)       # 停止后台健康探测
     await close_agent(app)
     await close_classifier(app)
     await close_session_manager(app)
