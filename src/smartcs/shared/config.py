@@ -109,6 +109,16 @@ class LLMSettings(BaseSettings):
     max_tokens: int = 2048
     timeout_seconds: float = 2.0
 
+    # 健康探测
+    health_probe_interval_seconds: float = 1.0   # 初始探测间隔
+    health_probe_max_interval: float = 30.0      # 指数退避上限
+    health_probe_timeout: float = 5.0            # 探测超时
+    health_probe_fail_threshold: int = 2         # 连续失败降级阈值
+    health_probe_success_threshold: int = 2      # 连续成功恢复阈值
+    # 各类独立超时
+    classify_timeout: float = 1.5                # 分类独立超时
+    generate_timeout: float = 2.0                # 生成独立超时
+
 
 class ClassificationSettings(BaseSettings):
     """分类模型配置"""

@@ -68,6 +68,13 @@ class TransferTriggerLevel(str, Enum):
     L3 = "L3"  # 连续低置信度
 
 
+class DegradationLevel(str, Enum):
+    """LLM 降级级别"""
+    NORMAL = "normal"        # LLM 可用，正常调用
+    DEGRADED = "degraded"    # LLM 降级，跳过 LLM 用检索摘要
+    FALLBACK = "fallback"    # LLM 不可用，跳过检索直接用模板
+
+
 # ── 基础数据结构 ──
 
 
