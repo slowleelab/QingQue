@@ -97,6 +97,7 @@ class LLMClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        timeout: float | None = None,
     ) -> str:
         """调用 ChatCompletion 接口
 
@@ -127,6 +128,10 @@ class LLMClient:
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
+        if timeout is not None:
+            kwargs["timeout"] = timeout  # OpenAI SDK per-request timeout override
+
+        _start = time.monotonic()
         last_error: Exception | None = None
         max_retries = 2  # 1 次初始 + 1 次重试
 
@@ -135,6 +140,13 @@ class LLMClient:
                 response = await self._client.chat.completions.create(**kwargs)
                 content = response.choices[0].message.content or ""
                 self._breaker.record_success()
+                elapsed = time.monotonic() - _start
+                logger.debug(
+                    "LLM call succeeded: model=%s, latency_ms=%d, tokens=%d",
+                    kwargs["model"],
+                    int(elapsed * 1000),
+                    response.usage.total_tokens if response.usage else 0,
+                )
                 return content
             except asyncio.TimeoutError as exc:
                 last_error = exc
@@ -156,6 +168,7 @@ class LLMClient:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """调用 ChatCompletion 并解析 JSON 输出
 
@@ -166,6 +179,7 @@ class LLMClient:
             model: 模型名称
             temperature: 采样温度
             max_tokens: 最大生成 token 数
+            timeout: 单次调用超时时间（秒）
 
         Returns:
             解析后的 JSON 字典
@@ -180,6 +194,7 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
             json_mode=True,
+            timeout=timeout,
         )
         try:
             return json.loads(content)
@@ -192,6 +207,7 @@ class LLMClient:
         user_input: str,
         *,
         model: str | None = None,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """意图分类专用接口
 
@@ -202,6 +218,7 @@ class LLMClient:
             system_prompt: 系统 prompt（含 few-shot 示例和输出格式约束）
             user_input: 用户输入文本
             model: 模型名称，None 时使用 fallback_model
+            timeout: 单次调用超时时间（秒）
 
         Returns:
             分类结果字典，预期包含: intent, entities, sentiment, confidence
@@ -214,6 +231,7 @@ class LLMClient:
             model=model or self._settings.fallback_model,
             temperature=0.1,
             max_tokens=512,
+            timeout=timeout,
         )
 
     async def generate(
