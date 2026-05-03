@@ -382,24 +382,22 @@ async def init_agent(app) -> None:
     from smartcs.services.bot.agent import SmartCSAgent
 
     classifier: IntentClassifier = app.state.classifier
-    llm_client: LLMClient = app.state.llm_client
+    degradation_mgr: DegradationManager = app.state.degradation_manager
     transfer_checker: TransferChecker = app.state.transfer_checker
     session_manager: SessionManager = app.state.session_manager
 
     es_client = getattr(app.state, "es_client", None)
     milvus_collection = getattr(app.state, "milvus_collection", None)
     embedding_breaker = getattr(app.state, "embedding_breaker", None)
-    reranker_provider = getattr(app.state, "reranker_provider", None)
 
     agent = SmartCSAgent(
         classifier=classifier,
-        llm_client=llm_client,
+        degradation_mgr=degradation_mgr,
         transfer_checker=transfer_checker,
         session_manager=session_manager,
         es_client=es_client,
         milvus_collection=milvus_collection,
         embedding_breaker=embedding_breaker,
-        reranker=reranker_provider,
     )
     app.state.agent = agent
     _logger.info("对话 Agent 初始化完成")

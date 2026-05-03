@@ -83,21 +83,13 @@ async def chat(request: ChatRequest, agent: AgentDep, session_manager: SessionMa
     # 构造响应
     intent = result.get("intent")
     is_transfer = result.get("should_transfer", False)
-    classify_source = result.get("classify_source", "fallback")
-
-    # 确定回复来源
-    source = "fallback"
-    if result.get("retrieval_context"):
-        source = "rag"
-    elif classify_source in ("rule", "llm"):
-        source = "rag"
 
     return ChatResponse(
         session_id=session.session_id,
         reply=result.get("response", "抱歉，我暂时无法处理您的请求。"),
         intent=intent.primary_intent if intent else None,
         confidence=intent.primary_confidence if intent else 0.0,
-        source=source,
+        source=result.get("response_source", "fallback"),
         is_transfer=is_transfer,
     )
 

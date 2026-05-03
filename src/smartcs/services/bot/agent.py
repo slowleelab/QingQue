@@ -33,14 +33,12 @@ from smartcs.services.bot.prompts import (
     BUSINESS_SYSTEM_PROMPT,
     BUSINESS_TRANSFER_TEMPLATE,
     FALLBACK_SYSTEM_PROMPT,
-    FALLBACK_TEMPLATE,
     FAREWELL_RESPONSE,
     GREETING_RESPONSE,
-    KNOWLEDGE_NO_CONTEXT,
     KNOWLEDGE_SYSTEM_PROMPT,
 )
 from smartcs.services.common.classifier import IntentClassifier, get_domain
-from smartcs.services.common.llm import LLMClient
+from smartcs.services.common.degradation import DegradationManager
 from smartcs.services.common.transfer import TransferChecker
 
 if TYPE_CHECKING:
@@ -48,8 +46,6 @@ if TYPE_CHECKING:
     from pymilvus import Collection
 
     from smartcs.services.common.embedding import EmbeddingCircuitBreaker
-    from smartcs.services.common.reranker import RerankerProvider
-    from smartcs.services.common.retrieval import retrieve
     from smartcs.services.common.session import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -79,6 +75,7 @@ class AgentState(dict):
     retrieval_context: str
     # 生成回复
     response: str
+    response_source: str  # "llm" | "retrieval" | "template" | "fallback"
     # 转人工
     should_transfer: bool
     transfer_reason: str
@@ -98,6 +95,7 @@ def _initial_state(session_id: str, user_input: str) -> AgentState:
         domain="fallback",
         retrieval_context="",
         response="",
+        response_source="",
         should_transfer=False,
         transfer_reason="",
         session_state=None,
@@ -148,126 +146,113 @@ def supervisor_router(state: AgentState) -> str:
 async def knowledge_agent_node(
     state: AgentState,
     *,
-    llm_client: LLMClient,
+    degradation_mgr: DegradationManager,
     es_client: AsyncElasticsearch | None,
     milvus_collection: Collection | None,
     embedding_breaker: EmbeddingCircuitBreaker | None,
-    reranker: RerankerProvider | None,
 ) -> AgentState:
-    """知识问答 Agent：RAG 检索 + LLM 生成"""
+    """知识问答 Agent：RAG 检索 + 降级管理器生成"""
     from smartcs.services.common.retrieval import retrieve as do_retrieve
+    from smartcs.shared.models import DegradationLevel
 
     settings = get_settings()
     user_input = state["user_input"]
+    intent = state.get("intent")
 
-    # RAG 检索
-    embedding_provider = embedding_breaker.provider if embedding_breaker and embedding_breaker.is_available else None
-    logger.info(
-        "knowledge_agent retrieve: query=%s, es_client=%s, milvus=%s, embedding=%s",
-        user_input, es_client is not None, milvus_collection is not None, embedding_provider is not None,
-    )
-    retrieve_response: RetrieveResponse = await do_retrieve(
-        request=RetrieveRequest(
-            query=user_input,
-            top_k=settings.rag.top_k,
-            rerank=False,  # Sprint 3: 关闭 reranker 避免依赖问题
-        ),
-        es_client=es_client,
-        milvus_collection=milvus_collection,
-        embedding_provider=embedding_provider,
-        reranker=None,  # Sprint 3: 不传 reranker
-    )
-    logger.info("knowledge_agent retrieve results: %d chunks, latency=%dms", len(retrieve_response.results), retrieve_response.latency_ms)
-
-    # 拼接检索上下文
-    if retrieve_response.results:
-        context_parts = [f"[{i+1}] {r.content}" for i, r in enumerate(retrieve_response.results)]
-        context = "\n\n".join(context_parts)
-        state["retrieval_context"] = context
+    # 检索（FALLBACK 跳过）
+    context = ""
+    if degradation_mgr.level != DegradationLevel.FALLBACK:
+        embedding_provider = embedding_breaker.provider if embedding_breaker and embedding_breaker.is_available else None
+        retrieve_response: RetrieveResponse = await do_retrieve(
+            request=RetrieveRequest(query=user_input, top_k=settings.rag.top_k, rerank=False),
+            es_client=es_client,
+            milvus_collection=milvus_collection,
+            embedding_provider=embedding_provider,
+            reranker=None,
+        )
+        if retrieve_response.results:
+            context_parts = [f"[{i+1}] {r.content}" for i, r in enumerate(retrieve_response.results)]
+            context = "\n\n".join(context_parts)
+            state["retrieval_context"] = context
+        else:
+            state["retrieval_context"] = ""
     else:
         state["retrieval_context"] = ""
 
-    # LLM 生成
-    if state["retrieval_context"]:
-        try:
-            response = await llm_client.generate(
-                system_prompt=KNOWLEDGE_SYSTEM_PROMPT,
-                user_input=user_input,
-                context=state["retrieval_context"],
-            )
-            state["response"] = response
-        except Exception:
-            logger.warning("知识问答 LLM 生成失败，使用检索摘要降级")
-            # 降级：直接返回检索结果摘要
-            state["response"] = f"根据相关信息：{retrieve_response.results[0].content[:200]}..."
-    else:
-        state["response"] = KNOWLEDGE_NO_CONTEXT
-
+    # 通过降级管理器生成
+    result = await degradation_mgr.generate_with_fallback(
+        system_prompt=KNOWLEDGE_SYSTEM_PROMPT,
+        user_input=user_input,
+        context=context,
+        intent_label=intent.primary_intent if intent else None,
+    )
+    state["response"] = result.content
+    state["response_source"] = result.source
     return state
 
 
 async def business_agent_node(
     state: AgentState,
     *,
-    llm_client: LLMClient,
+    degradation_mgr: DegradationManager,
 ) -> AgentState:
-    """业务办理 Agent：实体填充 + 工具调用（Sprint 3 简化版）"""
+    """业务办理 Agent：实体填充 + 转人工判断 + 降级管理器生成"""
     user_input = state["user_input"]
     intent = state.get("intent")
 
-    # Sprint 3 简化：挂失和投诉直接引导转人工
+    # 挂失/投诉/转人工 → 直接触发转人工
     if intent and intent.primary_intent in (IntentLabel.CARD_LOSS, IntentLabel.COMPLAINT, IntentLabel.TRANSFER_AGENT):
         reason = {
             IntentLabel.CARD_LOSS: "挂失业务",
             IntentLabel.COMPLAINT: "投诉处理",
             IntentLabel.TRANSFER_AGENT: "客户主动请求",
         }.get(intent.primary_intent, "业务办理")
-
         state["should_transfer"] = True
         state["transfer_reason"] = reason
         state["response"] = BUSINESS_TRANSFER_TEMPLATE.format(reason=reason)
+        state["response_source"] = "template"
         return state
 
-    # 其他业务咨询用 LLM 生成
-    try:
-        response = await llm_client.generate(
-            system_prompt=BUSINESS_SYSTEM_PROMPT,
-            user_input=user_input,
-        )
-        state["response"] = response
-    except Exception:
-        state["response"] = FALLBACK_TEMPLATE
-
+    # 其他业务咨询通过降级管理器生成
+    result = await degradation_mgr.generate_with_fallback(
+        system_prompt=BUSINESS_SYSTEM_PROMPT,
+        user_input=user_input,
+        context="",
+        intent_label=intent.primary_intent if intent else None,
+    )
+    state["response"] = result.content
+    state["response_source"] = result.source
     return state
 
 
 async def fallback_agent_node(
     state: AgentState,
     *,
-    llm_client: LLMClient,
+    degradation_mgr: DegradationManager,
 ) -> AgentState:
-    """闲聊/兜底 Agent"""
+    """闲聊/兜底 Agent：快速匹配 + 降级管理器生成"""
     user_input = state["user_input"]
 
-    # 快速匹配闲聊模式
+    # 快速匹配闲聊模式（不调 LLM）
     if _is_greeting(user_input):
         state["response"] = GREETING_RESPONSE
+        state["response_source"] = "template"
         return state
 
     if _is_farewell(user_input):
         state["response"] = FAREWELL_RESPONSE
+        state["response_source"] = "template"
         return state
 
-    # LLM 闲聊
-    try:
-        response = await llm_client.generate(
-            system_prompt=FALLBACK_SYSTEM_PROMPT,
-            user_input=user_input,
-        )
-        state["response"] = response
-    except Exception:
-        state["response"] = FALLBACK_TEMPLATE
-
+    # 通过降级管理器生成
+    result = await degradation_mgr.generate_with_fallback(
+        system_prompt=FALLBACK_SYSTEM_PROMPT,
+        user_input=user_input,
+        context="",
+        intent_label=IntentLabel.CHITCHAT,
+    )
+    state["response"] = result.content
+    state["response_source"] = result.source
     return state
 
 
@@ -386,22 +371,20 @@ class SmartCSAgent:
     def __init__(
         self,
         classifier: IntentClassifier,
-        llm_client: LLMClient,
+        degradation_mgr: DegradationManager,
         transfer_checker: TransferChecker,
         session_manager: SessionManager,
         es_client: AsyncElasticsearch | None = None,
         milvus_collection: Collection | None = None,
         embedding_breaker: EmbeddingCircuitBreaker | None = None,
-        reranker: RerankerProvider | None = None,
     ) -> None:
         self._classifier = classifier
-        self._llm = llm_client
+        self._degradation_mgr = degradation_mgr
         self._transfer_checker = transfer_checker
         self._session_manager = session_manager
         self._es_client = es_client
         self._milvus_collection = milvus_collection
         self._embedding_breaker = embedding_breaker
-        self._reranker = reranker
         self._graph = self._build_graph()
 
     def _build_graph(self) -> StateGraph:
@@ -471,18 +454,17 @@ class SmartCSAgent:
     async def _knowledge_agent(self, state: AgentState) -> AgentState:
         return await knowledge_agent_node(
             state,
-            llm_client=self._llm,
+            degradation_mgr=self._degradation_mgr,
             es_client=self._es_client,
             milvus_collection=self._milvus_collection,
             embedding_breaker=self._embedding_breaker,
-            reranker=self._reranker,
         )
 
     async def _business_agent(self, state: AgentState) -> AgentState:
-        return await business_agent_node(state, llm_client=self._llm)
+        return await business_agent_node(state, degradation_mgr=self._degradation_mgr)
 
     async def _fallback_agent(self, state: AgentState) -> AgentState:
-        return await fallback_agent_node(state, llm_client=self._llm)
+        return await fallback_agent_node(state, degradation_mgr=self._degradation_mgr)
 
     async def _transfer_check(self, state: AgentState) -> AgentState:
         return await transfer_check_node(
