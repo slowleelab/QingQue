@@ -113,3 +113,16 @@ web-build: ## 构建前端生产版本
 
 web-install: ## 安装前端依赖
 	cd web && pnpm install
+
+# ── star-connection（在线客服系统） ──
+star-build: ## 编译 star-connection（Maven）
+	mvn -f star-connection/pom.xml clean package -DskipTests -q
+
+star-up: ## 启动 star-connection（customer-server :8080 + agent-server :8081）
+	java -jar star-connection/customer-server/target/customer-server-1.0.0.jar &
+	sleep 3
+	java -jar star-connection/agent-server/target/agent-server-1.0.0.jar --server.port=8081 &
+
+star-down: ## 停止 star-connection
+	pkill -f "customer-server" || true
+	pkill -f "agent-server" || true

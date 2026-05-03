@@ -270,6 +270,18 @@ services:
     networks:
       - smartcs-net
 
+  # ── ZooKeeper（star-connection 在线客服） ──────────
+  zookeeper:
+    image: zookeeper:3.8
+    container_name: smartcs-zk
+    restart: unless-stopped
+    environment:
+      ZOO_4LW_COMMANDS_WHITELIST: "*"
+    ports:
+      - "2182:2181"
+    networks:
+      - smartcs-net
+
   # ── Nginx 开发网关 ────────────────────────────────
   # 生产环境使用 Higress（K8s 原生），开发环境用 Nginx 替代
   nginx:
