@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 from smartcs.shared.config import get_settings
 from smartcs.shared.models import (
@@ -142,9 +141,8 @@ class TransferChecker:
         if intent.primary_intent == IntentLabel.COMPLAINT:
             return True, "L2_INTENT_COMPLAINT: 投诉意图"
 
-        if sentiment in (SentimentLabel.NEGATIVE, SentimentLabel.ANGRY):
-            if intent.primary_confidence > 0.8:
-                return True, f"L2_NEGATIVE_SENTIMENT: 情感={sentiment.value}, 置信度={intent.primary_confidence:.2f}"
+        if sentiment in (SentimentLabel.NEGATIVE, SentimentLabel.ANGRY) and intent.primary_confidence > 0.8:
+            return True, f"L2_NEGATIVE_SENTIMENT: 情感={sentiment.value}, 置信度={intent.primary_confidence:.2f}"
 
         return False, ""
 

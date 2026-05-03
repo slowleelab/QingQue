@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from datetime import datetime
-from uuid import uuid4
 from typing import Any
+from uuid import uuid4
 
 from redis.asyncio import Redis
 
@@ -23,7 +22,6 @@ from smartcs.shared.models import (
     Entity,
     IntentLabel,
     IntentResult,
-    SentimentLabel,
     SessionPhase,
     SessionState,
 )

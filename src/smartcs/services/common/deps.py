@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
@@ -25,7 +26,7 @@ from smartcs.services.common.embedding import (
     EmbeddingProvider,
     create_embedding_provider,
 )
-from smartcs.services.common.llm import LLMClient, LLMCircuitBreaker
+from smartcs.services.common.llm import LLMCircuitBreaker, LLMClient
 from smartcs.services.common.redis_client import get_redis
 from smartcs.services.common.reranker import (
     RerankerProvider,
@@ -170,10 +171,8 @@ async def close_milvus(app) -> None:
 
     collection = getattr(app.state, "milvus_collection", None)
     if collection:
-        try:
+        with contextlib.suppress(Exception):
             connections.disconnect("default")
-        except Exception:
-            pass
         app.state.milvus_collection = None
 
 

@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import time
 
-from prometheus_client import Counter, Histogram, generate_latest, REGISTRY
+from prometheus_client import REGISTRY, Counter, Histogram, generate_latest
 from starlette.requests import Request
 from starlette.responses import Response
-
 
 # ── 指标定义 ──
 

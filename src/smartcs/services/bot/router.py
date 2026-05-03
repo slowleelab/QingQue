@@ -6,16 +6,6 @@ import asyncio
 import hashlib
 
 from fastapi import APIRouter, File, Form, UploadFile
-from smartcs.shared.exceptions import DocumentFormatError
-from smartcs.shared.models import (
-    ChatRequest,
-    ChatResponse,
-    IntentLabel,
-    RetrieveRequest,
-    RetrieveResponse,
-    SessionPhase,
-)
-from smartcs.shared.orm_models import KbDocStatus, KbDocument, KbSourceType
 
 from smartcs.services.common.deps import (
     AgentDep,
@@ -28,6 +18,14 @@ from smartcs.services.common.deps import (
     SessionManagerDep,
 )
 from smartcs.services.common.retrieval import retrieve
+from smartcs.shared.exceptions import DocumentFormatError
+from smartcs.shared.models import (
+    ChatRequest,
+    ChatResponse,
+    RetrieveRequest,
+    RetrieveResponse,
+)
+from smartcs.shared.orm_models import KbDocStatus, KbDocument, KbSourceType
 
 router = APIRouter(tags=["bot"])
 
@@ -63,8 +61,8 @@ async def chat(request: ChatRequest, agent: AgentDep, session_manager: SessionMa
     )
 
     # 记录用户消息
-    from datetime import datetime
     import uuid
+    from datetime import datetime
 
     from smartcs.shared.models import DialogueTurn
 
@@ -124,7 +122,7 @@ async def upload_document(
     milvus_collection: MilvusCollectionDep,
     minio_client: MinioClientDep,
     embedding_breaker: EmbeddingBreakerDep,
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     category: str = Form(...),
     doc_type: str = Form(...),
     card_type: str | None = Form(None),
@@ -213,11 +211,7 @@ async def upload_document(
     embedding_provider = embedding_breaker.provider if embedding_breaker.is_available else None
 
     # 根据文件类型解码文本内容
-    if source_type_str == "MARKDOWN":
-        text_content = content_bytes.decode("utf-8")
-    elif source_type_str == "TXT":
-        text_content = content_bytes.decode("utf-8")
-    elif source_type_str == "HTML":
+    if source_type_str == "MARKDOWN" or source_type_str == "TXT" or source_type_str == "HTML":
         text_content = content_bytes.decode("utf-8")
     else:
         # PDF/DOCX/XLSX: 摄入管线内部处理文件路径

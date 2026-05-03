@@ -53,7 +53,7 @@ class Section:
 class StructuredChunk:
     """结构化分块结果"""
 
-    __slots__ = ("content", "chunk_type", "heading_path", "metadata", "char_count", "is_parent", "child_indices", "parent_index")
+    __slots__ = ("char_count", "child_indices", "chunk_type", "content", "heading_path", "is_parent", "metadata", "parent_index")
 
     def __init__(
         self,
@@ -231,14 +231,11 @@ def _reconstruct_table(tokens: list[Any], start_idx: int) -> str:
     end_idx = start_idx
     while end_idx < len(tokens):
         if tokens[end_idx].type == "table_close":
-            if tokens[end_idx].map is not None:
-                line_end = tokens[end_idx].map[1]
-            else:
-                line_end = line_start + 1
+            tokens[end_idx].map[1] if tokens[end_idx].map is not None else line_start + 1
             break
         end_idx += 1
     else:
-        line_end = line_start + 1
+        line_start + 1
 
     # 从 token 的源文本重建
     # 使用 token 内容重建表格
@@ -270,10 +267,7 @@ def _reconstruct_table(tokens: list[Any], start_idx: int) -> str:
     separator = "| " + " | ".join(["---"] * num_cols) + " |"
 
     # 插入分隔行到 header 之后
-    if len(rows) >= 1:
-        result_lines = [rows[0], separator] + rows[1:]
-    else:
-        result_lines = rows
+    result_lines = [rows[0], separator] + rows[1:] if len(rows) >= 1 else rows
 
     return "\n".join(result_lines)
 
@@ -363,7 +357,7 @@ def _split_table_rows(table_text: str, max_size: int) -> list[str]:
 
     for line in data_lines:
         # 如果添加此行会超限，且当前已有数据行，则分割
-        candidate = header_block + "\n" + "\n".join(current_lines + [line])
+        candidate = header_block + "\n" + "\n".join([*current_lines, line])
         if len(candidate) > max_size and current_lines:
             # 输出当前段
             segments.append(header_block + "\n" + "\n".join(current_lines))
@@ -572,9 +566,9 @@ def _split_section_with_parent_child(
     for child in section.children:
         if child.heading_text:
             subsection_summaries.append(f"- {child.heading_text}")
-    for table in section.tables:
+    for _table in section.tables:
         subsection_summaries.append("- [表格]")
-    for lst in section.lists:
+    for _lst in section.lists:
         subsection_summaries.append("- [列表]")
 
     if subsection_summaries:
@@ -658,7 +652,7 @@ def _add_list_child(
         for item in items:
             if not item.strip():
                 continue
-            candidate = "\n".join(current_parts + [item]) if current_parts else item
+            candidate = "\n".join([*current_parts, item]) if current_parts else item
             if len(candidate) > max_size and current_parts:
                 # 输出当前累积
                 child_idx = len(chunks)

@@ -12,7 +12,6 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from smartcs.shared.config import get_settings
 from smartcs.shared.models import Entity, IntentLabel, IntentResult, SentimentLabel
 
 if TYPE_CHECKING:
@@ -193,7 +192,6 @@ class RuleClassifier:
         """
         best_intent = IntentLabel.FAQ
         best_confidence = 0.0
-        matched_entities: list[Entity] = []
 
         for rule in self._compiled:
             matched = False

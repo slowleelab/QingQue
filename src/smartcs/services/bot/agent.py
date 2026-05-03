@@ -12,22 +12,9 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from langgraph.graph import END, StateGraph
-
-from smartcs.shared.config import get_settings
-from smartcs.shared.models import (
-    DialogueTurn,
-    Entity,
-    IntentLabel,
-    IntentResult,
-    RetrieveRequest,
-    RetrieveResponse,
-    SentimentLabel,
-    SessionPhase,
-    SessionState,
-)
 
 from smartcs.services.bot.prompts import (
     BUSINESS_SYSTEM_PROMPT,
@@ -40,6 +27,18 @@ from smartcs.services.bot.prompts import (
 from smartcs.services.common.classifier import IntentClassifier, get_domain
 from smartcs.services.common.degradation import DegradationManager
 from smartcs.services.common.transfer import TransferChecker
+from smartcs.shared.config import get_settings
+from smartcs.shared.models import (
+    DialogueTurn,
+    Entity,
+    IntentLabel,
+    IntentResult,
+    RetrieveRequest,
+    RetrieveResponse,
+    SentimentLabel,
+    SessionPhase,
+    SessionState,
+)
 
 if TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch

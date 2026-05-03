@@ -15,6 +15,7 @@ from enum import Enum as PyEnum
 
 import uuid_utils
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     Date,
@@ -29,8 +30,7 @@ from sqlalchemy import (
 from sqlalchemy import (
     Enum as SAEnum,
 )
-from sqlalchemy import JSON
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
+from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 # ── Base ──

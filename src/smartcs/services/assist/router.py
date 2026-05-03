@@ -22,7 +22,7 @@ async def assist_websocket(websocket: WebSocket, session_id: str):
     await websocket.accept()
     try:
         while True:
-            data = await websocket.receive_text()
+            await websocket.receive_text()
             await websocket.send_json({
                 "type": "assist_push",
                 "session_id": session_id,

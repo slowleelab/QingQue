@@ -47,9 +47,7 @@ class LLMCircuitBreaker:
         if not self._is_open:
             return True
         # 冷却期后进入半开状态
-        if time.monotonic() - self._last_failure_time >= self._recovery_timeout:
-            return True
-        return False
+        return time.monotonic() - self._last_failure_time >= self._recovery_timeout
 
     def record_success(self) -> None:
         """记录成功调用"""
@@ -148,7 +146,7 @@ class LLMClient:
                     response.usage.total_tokens if response.usage else 0,
                 )
                 return content
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 last_error = exc
                 logger.warning("LLM 调用超时 (attempt %d/%d)", attempt + 1, max_retries)
             except Exception as exc:
