@@ -68,6 +68,11 @@ async def assist_websocket(websocket: WebSocket, session_id: str):
         while True:
             raw = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
 
+            # 兼容前端纯文本 ping
+            if raw == "ping":
+                await websocket.send_text("pong")
+                continue
+
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
