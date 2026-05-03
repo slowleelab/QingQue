@@ -33,6 +33,7 @@ from smartcs.services.common.reranker import (
     create_reranker_provider,
 )
 from smartcs.services.common.session import SessionManager
+from smartcs.services.common.star_client import StarConnectionClient
 from smartcs.services.common.transfer import TransferChecker
 from smartcs.shared.config import get_settings
 
@@ -472,6 +473,24 @@ async def close_assist_orchestrator(app) -> None:
     app.state.assist_orchestrator = None
 
 
+# ── star-connection 客户端 ──
+
+
+async def init_star_client(app) -> None:
+    """初始化 star-connection HTTP 客户端，存储到 app.state"""
+    app.state.star_client = StarConnectionClient(base_url="http://localhost:8080")
+
+
+async def close_star_client(app) -> None:
+    """关闭 star-connection 客户端"""
+    app.state.star_client = None
+
+
+def get_star_client(request: Request) -> StarConnectionClient:
+    """获取 star-connection 客户端（FastAPI 依赖注入）"""
+    return request.app.state.star_client
+
+
 # ── 类型别名 ──
 
 EmbeddingProviderDep = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
@@ -488,3 +507,4 @@ AgentDep = Annotated[Any, Depends(get_agent)]
 HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
 DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
 AssistOrchestratorDep = Annotated[Any, Depends(lambda r: r.app.state.assist_orchestrator)]
+StarClientDep = Annotated[StarConnectionClient, Depends(get_star_client)]
