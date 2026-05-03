@@ -8,35 +8,35 @@ import json
 import logging
 import uuid as uuid_module
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 
 from smartcs.services.common.deps import (
-    AgentDep,
     DbSession,
     EmbeddingBreakerDep,
     ESClientDep,
     MilvusCollectionDep,
     MinioClientDep,
     RerankerProviderDep,
-    SessionManagerDep,
 )
 from smartcs.services.common.retrieval import retrieve
 from smartcs.shared.exceptions import DocumentFormatError
 from smartcs.shared.models import (
-    ChatRequest,
-    ChatResponse,
     ChatSendRequest,
     ChatSendResponse,
     PollResponse,
     RetrieveRequest,
     RetrieveResponse,
-    SessionPhase,
 )
 from smartcs.shared.orm_models import KbDocStatus, KbDocument, KbSourceType
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["bot"])
+
+# Redis 队列与响应键
+CHAT_QUEUE_KEY = "smartcs:chat:queue"
+RESPONSE_KEY_PREFIX = "smartcs:response"
+RESPONSE_TTL = 120
 
 # 支持的文件扩展名 → KbSourceType 映射
 _EXT_TO_SOURCE: dict[str, str] = {
@@ -56,141 +56,165 @@ async def health_check():
     return {"status": "healthy", "service": "bot"}
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, agent: AgentDep, session_manager: SessionManagerDep):
-    """机器人聊天接口
+@router.post("/chat/send", response_model=ChatSendResponse)
+async def chat_send(body: ChatSendRequest, req: Request):
+    """客户端发送消息接口
 
-    基于 LangGraph Agent 编排：意图分类 → 路由 → RAG/业务/兜底 → 转人工判断 → 回复
+    消息进入 Redis 队列，由后台 worker 异步处理。
+    客户端通过 GET /api/chat/poll 轮询获取结果。
     """
-    # 获取或创建会话
-    session = await session_manager.get_or_create(
-        request.session_id,
-        customer_id=request.customer_id,
-        channel_type=request.channel,
-    )
+    from fastapi import HTTPException
 
-    # 记录用户消息
-    import uuid
-    from datetime import datetime
-
-    from smartcs.shared.models import DialogueTurn
-
-    user_turn = DialogueTurn(
-        turn_id=uuid.uuid4().hex,
-        session_id=session.session_id,
-        speaker="customer",
-        content=request.message,
-        timestamp=datetime.now(),
-    )
-    await session_manager.add_turn(session.session_id, user_turn)
-
-    # 运行 Agent 图
-    result = await agent.run(session.session_id, request.message)
-
-    # 构造响应
-    intent = result.get("intent")
-    is_transfer = result.get("should_transfer", False)
-
-    return ChatResponse(
-        session_id=session.session_id,
-        reply=result.get("response", "抱歉，我暂时无法处理您的请求。"),
-        intent=intent.primary_intent if intent else None,
-        confidence=intent.primary_confidence if intent else 0.0,
-        source=result.get("response_source", "fallback"),
-        is_transfer=is_transfer,
-    )
-
-
-@router.post("/chat/send")
-async def chat_send(body: ChatSendRequest, request: Request) -> ChatSendResponse:
-    """客户发送消息 — 入 Redis 队列后立即返回"""
-    app = request.app
-    redis = getattr(app.state, "redis_client", None)
-    if redis is None:
+    redis_client = getattr(req.app.state, "redis_client", None)
+    if redis_client is None:
         raise HTTPException(status_code=503, detail="Redis 未就绪")
     session_id = body.session_id or uuid_module.uuid4().hex
-
     message_id = uuid_module.uuid4().hex
-    task_data = {
+
+    queue_msg = {
         "session_id": session_id,
-        "customer_id": body.customer_id,
-        "message": body.message,
-        "channel": body.channel.value,
         "message_id": message_id,
+        "message": body.message,
+        "customer_id": body.customer_id,
+        "channel": body.channel.value if body.channel else "web",
     }
-    await redis.lpush("smartcs:chat:queue", json.dumps(task_data))
-    return ChatSendResponse(accepted=True, message_id=message_id, session_id=session_id)
+
+    await redis_client.lpush(CHAT_QUEUE_KEY, json.dumps(queue_msg, ensure_ascii=False))
+
+    return ChatSendResponse(
+        accepted=True,
+        message_id=message_id,
+        session_id=session_id,
+    )
 
 
-@router.get("/chat/poll")
+@router.get("/chat/poll", response_model=PollResponse)
 async def chat_poll(
+    req: Request,
     session_id: str = Query(...),
-    since: str | None = Query(default=None),
-    timeout: int = Query(default=25),
-    request: Request = None,
-) -> PollResponse:
-    """长轮询 — 阻塞等待新消息，超时后返回空"""
-    app = request.app
-    redis = getattr(app.state, "redis_client", None)
-    if redis is None:
-        return PollResponse(has_message=False)
-    response_key = f"smartcs:response:{session_id}"
+    timeout: int = Query(default=25, ge=1, le=60),
+):
+    """长轮询获取机器人回复
 
-    poll_interval = 0.5
-    waited = 0.0
-    while waited < timeout:
-        raw = await redis.get(response_key)
+    每 0.5 秒检查一次 Redis 响应键，直到超时后返回空消息。
+    """
+    redis_client = getattr(req.app.state, "redis_client", None)
+    if redis_client is None:
+        return PollResponse(has_message=False)
+    response_key = f"{RESPONSE_KEY_PREFIX}:{session_id}"
+
+    elapsed = 0.0
+    interval = 0.5
+    while elapsed < timeout:
+        raw = await redis_client.get(response_key)
         if raw:
-            data = json.loads(raw) if isinstance(raw, bytes) else json.loads(raw)
-            await redis.delete(response_key)
+            await redis_client.delete(response_key)
+            data = json.loads(raw)
             return PollResponse(**data)
-        await asyncio.sleep(poll_interval)
-        waited += poll_interval
+        await asyncio.sleep(interval)
+        elapsed += interval
 
     return PollResponse(has_message=False)
 
 
-# ── 后台消息处理（lifespan 中启动） ──
+async def process_chat_queue(app) -> None:
+    """后台工作器：从 Redis 队列消费消息，调用 Agent 处理并写回响应
 
-
-async def process_chat_queue(app):
-    """轮询 chat:queue，调用 Agent 处理并写回 Redis 响应"""
-    redis = app.state.redis_client
+    由 lifespan 启动，BRPOP 阻塞等待消息，处理结果存入 Redis 响应键并设置 TTL。
+    """
+    redis_client = app.state.redis_client
     agent = app.state.agent
 
-    while True:
-        try:
-            _, raw = await redis.brpop("smartcs:chat:queue", timeout=1)
-            if raw is None:
+    logger.info("聊天队列工作器已启动")
+
+    try:
+        while True:
+            result = await redis_client.brpop(CHAT_QUEUE_KEY, timeout=1)
+            if result is None:
                 continue
-            task = json.loads(raw) if isinstance(raw, bytes) else json.loads(raw)
 
-            session_id = task["session_id"]
+            _, raw = result
+            try:
+                task = json.loads(raw)
+            except json.JSONDecodeError:
+                logger.warning("队列消息 JSON 解析失败: %s", raw[:100])
+                continue
+
+            session_id = task.get("session_id", "")
             message = task.get("message", "")
-            customer_id = task.get("customer_id")
 
-            result = await agent.run(session_id, message)
+            if not session_id or not message:
+                logger.warning("队列消息缺少必填字段: %s", task)
+                continue
 
-            intent = result.get("intent")
-            poll_data: dict = {
-                "has_message": True,
-                "reply": result.get("response", "抱歉，我暂时无法处理您的请求。"),
-                "intent": intent.primary_intent if intent else None,
-                "confidence": intent.primary_confidence if intent else 0.0,
-                "source": result.get("response_source", "fallback"),
-                "is_transfer": result.get("should_transfer", False),
-                "transfer_url": result.get("transfer_url", ""),
-                "transfer_reason": result.get("transfer_reason", ""),
-            }
+            try:
+                agent_result = await agent.run(session_id, message)
 
-            response_key = f"smartcs:response:{session_id}"
-            await redis.set(response_key, json.dumps(poll_data, default=str), ex=120)
+                intent = agent_result.get("intent")
+                if intent is not None:
+                    primary_intent = intent.primary_intent if hasattr(intent, "primary_intent") else None
+                    primary_confidence = intent.primary_confidence if hasattr(intent, "primary_confidence") else 0.0
+                else:
+                    primary_intent = None
+                    primary_confidence = 0.0
 
+                poll_data = {
+                    "has_message": True,
+                    "reply": agent_result.get("response", "抱歉，我暂时无法处理您的请求。"),
+                    "intent": primary_intent,
+                    "confidence": primary_confidence,
+                    "source": agent_result.get("response_source", "fallback"),
+                    "is_transfer": agent_result.get("should_transfer", False),
+                    "transfer_url": agent_result.get("transfer_url", ""),
+                    "transfer_reason": agent_result.get("transfer_reason", ""),
+                }
+
+                response_key = f"{RESPONSE_KEY_PREFIX}:{session_id}"
+                await redis_client.setex(response_key, RESPONSE_TTL, json.dumps(poll_data, default=str))
+
+                logger.info(
+                    "消息处理完成: session_id=%s, intent=%s",
+                    session_id,
+                    primary_intent.value if primary_intent and hasattr(primary_intent, "value") else "unknown",
+                )
+
+            except Exception:
+                logger.exception("Agent 处理失败: session_id=%s", session_id)
+                error_response = {
+                    "has_message": True,
+                    "reply": "抱歉，系统处理您的请求时出现错误，请稍后再试。",
+                    "intent": None,
+                    "confidence": 0.0,
+                    "source": "fallback",
+                    "is_transfer": False,
+                    "transfer_url": "",
+                    "transfer_reason": "",
+                }
+                response_key = f"{RESPONSE_KEY_PREFIX}:{session_id}"
+                await redis_client.setex(response_key, RESPONSE_TTL, json.dumps(error_response, ensure_ascii=False))
+
+    except asyncio.CancelledError:
+        logger.info("聊天队列工作器收到取消信号，正在关闭")
+        raise
+
+
+async def start_chat_worker(app) -> None:
+    """启动聊天队列后台工作器（在 lifespan 中调用）"""
+    task = asyncio.create_task(process_chat_queue(app))
+    app.state._chat_worker_task = task
+    logger.info("聊天队列后台工作器已启动")
+
+
+async def stop_chat_worker(app) -> None:
+    """停止聊天队列后台工作器（在 lifespan 中调用）"""
+    task = getattr(app.state, "_chat_worker_task", None)
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
         except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error("消息处理失败: %s", e, exc_info=True)
-            continue
+            pass
+    logger.info("聊天队列后台工作器已停止")
 
 
 @router.post("/kb/retrieve", response_model=RetrieveResponse)
