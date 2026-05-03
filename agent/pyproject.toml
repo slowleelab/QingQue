@@ -5,7 +5,7 @@ description = "银行信用卡智能客服平台 - AI坐席辅助 + 机器人自
 authors = ["SmartCS Team"]
 readme = "README.md"
 packages = [
-    { include = "smartcs", from = "src" },
+    { include = "smartcs", from = "." },
 ]
 
 [tool.poetry.scripts]
@@ -91,7 +91,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-src = ["src", "tests"]
+src = ["smartcs", "tests"]
 
 [tool.ruff.lint]
 select = [
