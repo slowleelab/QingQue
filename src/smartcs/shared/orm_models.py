@@ -343,3 +343,77 @@ class ScriptUsageLog(Base):
         Index("ix_script_usage_log_session", "session_id"),
         Index("ix_script_usage_log_created", "created_at"),
     )
+
+
+# ── 质检规则枚举 ──
+
+
+class AlertRuleCategory(str, PyEnum):
+    COMPLIANCE = "COMPLIANCE"
+    EMOTION = "EMOTION"
+    SILENCE = "SILENCE"
+    PROCESS = "PROCESS"
+
+
+class AlertRuleLevel(str, PyEnum):
+    INFO = "INFO"
+    WARNING = "WARNING"
+    CRITICAL = "CRITICAL"
+
+
+_alert_rule_category = SAEnum(AlertRuleCategory, name="alert_rule_category", create_constraint=True, validate_strings=True)
+_alert_rule_level = SAEnum(AlertRuleLevel, name="alert_rule_level", create_constraint=True, validate_strings=True)
+
+
+class AlertRule(Base):
+    """质检规则表"""
+
+    __tablename__ = "alert_rule"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False), primary_key=True, default=_uuid_v7,
+    )
+    rule_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    category: Mapped[AlertRuleCategory] = mapped_column(_alert_rule_category, nullable=False)
+    level: Mapped[AlertRuleLevel] = mapped_column(_alert_rule_level, nullable=False)
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)  # 正则或关键词
+    message: Mapped[str] = mapped_column(Text, nullable=False)  # 告警提示文案
+    suggestion: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    status: Mapped[ScriptStatus] = mapped_column(_script_status, nullable=False, default=ScriptStatus.ACTIVE)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True, default="system")
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now,
+        onupdate=datetime.now, server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_alert_rule_category_status", "category", "status"),
+    )
+
+
+class AlertLog(Base):
+    """质检告警日志表"""
+
+    __tablename__ = "alert_log"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False), primary_key=True, default=_uuid_v7,
+    )
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    rule_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    level: Mapped[str] = mapped_column(String(16), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    turn_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_alert_log_session", "session_id"),
+        Index("ix_alert_log_created", "created_at"),
+    )
