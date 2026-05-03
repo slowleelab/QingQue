@@ -113,3 +113,32 @@ export interface SessionInfo {
   lastActiveAt: Date
   customerName?: string
 }
+
+// ── Long Poll ──
+
+export interface ChatSendResponse {
+  accepted: boolean
+  message_id: string
+  session_id: string
+}
+
+export interface PollResponse {
+  has_message: boolean
+  reply: string
+  intent?: IntentLabel
+  confidence: number
+  source: string
+  is_transfer: boolean
+  transfer_url: string
+  transfer_reason: string
+}
+
+export interface CustomerPollResponse {
+  has_message: boolean
+  messages?: Array<{
+    sender: "customer" | "agent" | "system"
+    content: string
+    timestamp: string
+  }>
+  session_ended?: boolean
+}
