@@ -412,6 +412,66 @@ def get_agent(request: Request) -> Any:
     return request.app.state.agent
 
 
+# ── 坐席辅助编排器 ──
+
+
+async def init_assist_orchestrator(app) -> None:
+    """初始化坐席辅助编排器"""
+    from smartcs.services.assist.agent import AssistOrchestrator
+    from smartcs.services.assist.alert_engine import AlertEngine
+    from smartcs.services.assist.product_catalog import ProductCatalog
+    from smartcs.services.assist.script_service import ScriptService
+
+    # 话术服务（从 DB 加载，fallback 到内存）
+    script_service = ScriptService()
+    try:
+        session_factory = app.state.db_session_factory
+        async with session_factory() as db_session:
+            await script_service.load_from_db(db_session)
+    except Exception as e:
+        _logger.warning("从数据库加载话术失败，使用内存种子数据: %s", e)
+        script_service.load_from_memory()
+
+    # 告警引擎
+    alert_engine = AlertEngine()
+    try:
+        session_factory = app.state.db_session_factory
+        async with session_factory() as db_session:
+            await alert_engine.load_from_db(db_session)
+    except Exception as e:
+        _logger.warning("从数据库加载告警规则失败，使用内存种子数据: %s", e)
+        alert_engine.load_from_memory()
+
+    # 产品目录
+    product_catalog = ProductCatalog()
+
+    # 检索依赖（直接传参给 retrieve() 函数）
+    es_client = getattr(app.state, "es_client", None)
+    milvus_col = getattr(app.state, "milvus_collection", None)
+    embedding_provider = getattr(app.state, "embedding_provider", None)
+    reranker = getattr(app.state, "reranker_provider", None)
+
+    llm_client = getattr(app.state, "llm_client", None)
+
+    orchestrator = AssistOrchestrator(
+        script_service=script_service,
+        alert_engine=alert_engine,
+        product_catalog=product_catalog,
+        llm_client=llm_client,
+        es_client=es_client,
+        milvus_collection=milvus_col,
+        embedding_provider=embedding_provider,
+        reranker=reranker,
+    )
+    app.state.assist_orchestrator = orchestrator
+    _logger.info("坐席辅助编排器初始化完成")
+
+
+async def close_assist_orchestrator(app) -> None:
+    """关闭坐席辅助编排器"""
+    app.state.assist_orchestrator = None
+
+
 # ── 类型别名 ──
 
 EmbeddingProviderDep = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
@@ -427,3 +487,4 @@ TransferCheckerDep = Annotated[TransferChecker, Depends(get_transfer_checker)]
 AgentDep = Annotated[Any, Depends(get_agent)]
 HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
 DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
+AssistOrchestratorDep = Annotated[Any, Depends(lambda r: r.app.state.assist_orchestrator)]

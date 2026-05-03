@@ -17,6 +17,7 @@ from smartcs.services.bot.app import create_bot_app
 from smartcs.services.common.database import close_db, init_db
 from smartcs.services.common.deps import (
     close_agent,
+    close_assist_orchestrator,
     close_classifier,
     close_degradation_manager,
     close_elasticsearch,
@@ -28,6 +29,7 @@ from smartcs.services.common.deps import (
     close_reranker,
     close_session_manager,
     init_agent,
+    init_assist_orchestrator,
     init_classifier,
     init_degradation_manager,
     init_elasticsearch,
@@ -106,11 +108,17 @@ async def assist_lifespan(app: FastAPI):
     await init_embedding(app)
     await init_reranker(app)
     await init_grpc_channels(app)
+    await init_llm(app)
+    await init_session_manager(app)
+    await init_assist_orchestrator(app)
     logger.info("坐席辅助服务就绪")
 
     yield
 
     logger.info("坐席辅助服务关闭中...")
+    await close_assist_orchestrator(app)
+    await close_session_manager(app)
+    await close_llm(app)
     await close_grpc_channels(app)
     await close_reranker(app)
     await close_embedding(app)
