@@ -326,3 +326,50 @@ class ChatResponse(BaseModel):
     confidence: float = 0.0
     source: str = "rag"  # rag / fallback / bank_api
     is_transfer: bool = False
+
+
+# ── 长轮询 ──
+
+
+class ChatSendRequest(BaseModel):
+    """客户端发送消息请求"""
+
+    session_id: str | None = None
+    customer_id: str | None = None
+    message: str
+    channel: ChannelType = ChannelType.WEB
+
+
+class ChatSendResponse(BaseModel):
+    """发送消息响应"""
+
+    accepted: bool = True
+    message_id: str
+    session_id: str
+
+
+class PollResponse(BaseModel):
+    """长轮询响应"""
+
+    has_message: bool = False
+    reply: str = ""
+    intent: IntentLabel | None = None
+    confidence: float = 0.0
+    source: str = "rag"
+    is_transfer: bool = False
+    transfer_url: str = ""
+    transfer_reason: str = ""
+
+
+class SessionUpdateRequest(BaseModel):
+    """会话状态更新请求（star-connection 回调）"""
+
+    session_id: str
+    phase: str  # "ASSIST" | "ENDED"
+    agent_id: str | None = None
+
+
+class SessionUpdateResponse(BaseModel):
+    """会话状态更新响应"""
+
+    status: str = "ok"
