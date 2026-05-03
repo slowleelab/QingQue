@@ -15,6 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from smartcs.services.common.classifier import IntentClassifier, LLMClassifier, RuleClassifier
 from smartcs.services.common.database import get_db
+from smartcs.services.common.degradation import (
+    ContentDegrader,
+    DegradationManager,
+    HealthMonitor,
+)
 from smartcs.services.common.embedding import (
     EmbeddingCircuitBreaker,
     EmbeddingProvider,
@@ -250,6 +255,66 @@ def get_llm_client(request: Request) -> LLMClient:
     return request.app.state.llm_client
 
 
+# ── 健康监控 ──
+
+
+async def init_health_monitor(app) -> None:
+    """初始化健康监控器，存储到 app.state"""
+    llm_client = app.state.llm_client
+    breaker = app.state.llm_breaker
+    settings = get_settings()
+    monitor = HealthMonitor(
+        llm_client=llm_client,
+        breaker=breaker,
+        probe_interval=settings.llm.health_probe_interval_seconds,
+        probe_max_interval=settings.llm.health_probe_max_interval,
+        probe_timeout=settings.llm.health_probe_timeout,
+        fail_threshold=settings.llm.health_probe_fail_threshold,
+        success_threshold=settings.llm.health_probe_success_threshold,
+    )
+    await monitor.start()
+    app.state.health_monitor = monitor
+
+
+async def close_health_monitor(app) -> None:
+    """关闭健康监控器"""
+    monitor = getattr(app.state, "health_monitor", None)
+    if monitor:
+        await monitor.stop()
+        app.state.health_monitor = None
+
+
+def get_health_monitor(request: Request) -> HealthMonitor:
+    """获取健康监控器（FastAPI 依赖注入）"""
+    return request.app.state.health_monitor
+
+
+# ── 降级管理 ──
+
+
+async def init_degradation_manager(app) -> None:
+    """初始化降级管理器，存储到 app.state"""
+    llm_client = app.state.llm_client
+    health_monitor = app.state.health_monitor
+    content_degrader = ContentDegrader()
+    mgr = DegradationManager(
+        llm_client=llm_client,
+        health_monitor=health_monitor,
+        content_degrader=content_degrader,
+    )
+    app.state.degradation_manager = mgr
+
+
+async def close_degradation_manager(app) -> None:
+    """关闭降级管理器（无需特殊清理）"""
+    app.state.degradation_manager = None
+
+
+def get_degradation_manager(request: Request) -> DegradationManager:
+    """获取降级管理器（FastAPI 依赖注入）"""
+    return request.app.state.degradation_manager
+
+
 # ── 会话管理 ──
 
 
@@ -363,3 +428,5 @@ SessionManagerDep = Annotated[SessionManager, Depends(get_session_manager)]
 ClassifierDep = Annotated[IntentClassifier, Depends(get_classifier)]
 TransferCheckerDep = Annotated[TransferChecker, Depends(get_transfer_checker)]
 AgentDep = Annotated[Any, Depends(get_agent)]
+HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
+DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
