@@ -1,0 +1,62 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: customer-frontend
+
+# 客户服务配置
+customerserver:
+  service-id: frontend-1
+  service-name: customer-frontend-service
+  register-to-zookeeper: true
+  cluster:
+    enabled: true
+
+logging:
+  level:
+    com.example: DEBUG
+    root: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+netty:
+  server:
+    port: 8888
+    boss-threads: 1
+    worker-threads: 8
+    so-backlog: 128
+    keep-alive: true
+    idle-timeout-seconds: 60
+
+zookeeper:
+  connect-string: localhost:2181
+  session-timeout: 60000
+  connection-timeout: 15000
+  base-sleep-time: 1000
+  max-retries: 3
+  namespace: star-connection
+  service-path: /services
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# WebSocket 配置（客户连接）
+websocket:
+  customer:
+    enabled: true
+    path: /ws/customer
+    port: 8889
+    max-wait-time-seconds: 300
+    heartbeat-interval-seconds: 30
+
+# 会话配置
+session:
+  max-wait-time-seconds: 300
+  heartbeat-interval-seconds: 30

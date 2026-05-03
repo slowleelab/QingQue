@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>在线客服系统 - 监控中心</title>
+
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- Refined Typography Stack -->
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="css/monitor.css">
+</head>
+<body>
+    <!-- Atmospheric Background Layers -->
+    <div class="bg-layer bg-grid"></div>
+    <div class="bg-layer bg-radial"></div>
+    <div class="bg-layer bg-noise"></div>
+
+    <div class="app">
+        <!-- Command Bar Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </div>
+                    <span class="logo-text">Customer Service Platform</span>
+                </div>
+                <span class="header-badge">LIVE</span>
+            </div>
+            <div class="header-right">
+                <div class="status-indicator" id="systemStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">系统正常</span>
+                </div>
+                <div class="status-indicator zk-status" id="zkStatus" style="cursor: pointer;" title="点击查看ZooKeeper详情">
+                    <span class="status-dot"></span>
+                    <span class="status-text">ZK: 检测中...</span>
+                </div>
+                <div class="last-update">
+                    <span class="last-update-label">最后更新</span>
+                    <span class="last-update-time" id="lastUpdateTime">--:--:--</span>
+                </div>
+                <button class="btn-refresh" id="refreshBtn" title="刷新数据" aria-label="刷新数据">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 4v6h-6"/>
+                        <path d="M1 20v-6h6"/>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-container">
+            <!-- Metrics Sidebar -->
+            <aside class="sidebar">
+                <!-- Session Statistics -->
+                <div class="stat-card session-stat">
+                    <div class="stat-header">
+                        <div class="stat-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                            </svg>
+                        </div>
+                        <div class="stat-title">会话统计</div>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-row">
+                            <span class="stat-label">等待中</span>
+                            <span class="stat-value waiting" id="waitingSessions">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">进行中</span>
+                            <span class="stat-value active" id="activeSessions">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">总会话</span>
+                            <span class="stat-value total" id="totalSessions">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Agent Statistics -->
+                <div class="stat-card agent-stat">
+                    <div class="stat-header">
+                        <div class="stat-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                <circle cx="9" cy="7" r="4"/>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                            </svg>
+                        </div>
+                        <div class="stat-title">坐席状态</div>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-row">
+                            <span class="stat-label">在线</span>
+                            <span class="stat-value online" id="onlineAgents">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">忙碌</span>
+                            <span class="stat-value busy" id="busyAgents">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">离线</span>
+                            <span class="stat-value offline" id="offlineAgents">0</span>
+                        </div>
+                    </div>
+                    <div class="stat-dots" id="agentDots">
+                        <!-- Dynamic agent status dots -->
+                    </div>
+                </div>
+
+                <!-- Netty Connections -->
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div class="stat-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                            </svg>
+                        </div>
+                        <div class="stat-title">Netty 连接</div>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-main">
+                            <span class="stat-number" id="totalConnections">0</span>
+                        </div>
+                        <span class="stat-label">坐席后台连接</span>
+                    </div>
+                </div>
+
+                <!-- WebSocket Connections -->
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div class="stat-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                <polyline points="22,6 12,13 2,6"/>
+                            </svg>
+                        </div>
+                        <div class="stat-title">WebSocket 连接</div>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-main">
+                            <span class="stat-number" id="webSocketConnections">0</span>
+                        </div>
+                        <span class="stat-label">客户连接</span>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content Area -->
+            <main class="main">
+                <!-- System Topology -->
+                <section class="section topology-section">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3"/>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                            </svg>
+                            系统架构
+                        </h2>
+                        <div class="topology-legend">
+                            <div class="legend-item">
+                                <span class="legend-dot router"></span>
+                                <span>客户前端</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-dot client connected"></span>
+                                <span>已连接</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-dot client disconnected"></span>
+                                <span>未连接</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="topology-container" id="topologyContainer">
+                        <svg class="topology-svg" id="topologySvg"></svg>
+                    </div>
+                </section>
+
+                <!-- Frontend Nodes Section -->
+                <section class="section frontends-section">
+                    <div class="section-header collapsible" data-target="frontendsList">
+                        <h2 class="section-title">
+                            <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                                <line x1="8" y1="21" x2="16" y2="21"/>
+                                <line x1="12" y1="17" x2="12" y2="21"/>
+                            </svg>
+                            客户前端节点
+                        </h2>
+                        <span class="section-count" id="frontendCount">0 个节点</span>
+                        <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </div>
+                    <div class="section-content" id="frontendsList">
+                        <div class="frontend-cards" id="frontendCards">
+                            <!-- Dynamic frontend cards -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Backend Nodes Section -->
+                <section class="section backends-section">
+                    <div class="section-header collapsible" data-target="backendsList">
+                        <h2 class="section-title">
+                            <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="4" y="4" width="16" height="16" rx="2" ry="2"/>
+                                <rect x="9" y="9" width="6" height="6"/>
+                                <line x1="9" y1="1" x2="9" y2="4"/>
+                                <line x1="15" y1="1" x2="15" y2="4"/>
+                                <line x1="9" y1="20" x2="9" y2="23"/>
+                                <line x1="15" y1="20" x2="15" y2="23"/>
+                                <line x1="20" y1="9" x2="23" y2="9"/>
+                                <line x1="20" y1="14" x2="23" y2="14"/>
+                                <line x1="1" y1="9" x2="4" y2="9"/>
+                                <line x1="1" y1="14" x2="4" y2="14"/>
+                            </svg>
+                            坐席后台节点
+                        </h2>
+                        <span class="section-count" id="backendCount">0 个节点</span>
+                        <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </div>
+                    <div class="section-content" id="backendsList">
+                        <div class="backend-cards" id="backendCards">
+                            <!-- Dynamic backend cards -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Sessions Section -->
+                <section class="section sessions-section">
+                    <div class="section-header collapsible" data-target="sessionsList">
+                        <h2 class="section-title">
+                            <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            会话监控
+                        </h2>
+                        <span class="section-count" id="sessionCount">0 个会话</span>
+                        <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </div>
+                    <div class="section-content" id="sessionsList">
+                        <!-- Filter Bar -->
+                        <div class="filter-bar">
+                            <div class="filter-group">
+                                <label>会话号</label>
+                                <input type="text" id="filterSessionId" placeholder="搜索会话 ID...">
+                            </div>
+                            <div class="filter-group">
+                                <label>客户ID</label>
+                                <input type="text" id="filterCustomerId" placeholder="搜索客户 ID...">
+                            </div>
+                            <div class="filter-group">
+                                <label>状态</label>
+                                <select id="filterStatus">
+                                    <option value="">全部状态</option>
+                                    <option value="WAITING">等待中</option>
+                                    <option value="ACTIVE">进行中</option>
+                                    <option value="CLOSED">已关闭</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>开始时间</label>
+                                <input type="datetime-local" id="filterStartTime">
+                            </div>
+                            <div class="filter-group">
+                                <label>结束时间</label>
+                                <input type="datetime-local" id="filterEndTime">
+                            </div>
+                            <div class="filter-actions">
+                                <button class="btn btn-primary" id="searchBtn">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="11" cy="11" r="8"/>
+                                        <path d="M21 21l-4.35-4.35"/>
+                                    </svg>
+                                    搜索
+                                </button>
+                                <button class="btn btn-secondary" id="resetBtn">重置</button>
+                            </div>
+                        </div>
+                        <div class="session-cards" id="sessionCards">
+                            <!-- Dynamic session cards -->
+                        </div>
+                        <!-- Pagination -->
+                        <div class="pagination" id="pagination">
+                            <button class="btn btn-page" id="prevPage" disabled>上一页</button>
+                            <span class="page-info" id="pageInfo">第 1 页</span>
+                            <button class="btn btn-page" id="nextPage" disabled>下一页</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Agents Section -->
+                <section class="section agents-section">
+                    <div class="section-header collapsible" data-target="agentsList">
+                        <h2 class="section-title">
+                            <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                <circle cx="9" cy="7" r="4"/>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                            </svg>
+                            坐席列表
+                        </h2>
+                        <span class="section-count" id="agentCount">0 位坐席</span>
+                        <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </div>
+                    <div class="section-content" id="agentsList">
+                        <div class="agent-cards" id="agentCards">
+                            <!-- Dynamic agent cards -->
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Footer Status Bar -->
+        <footer class="footer">
+            <div class="footer-left">
+                <span class="footer-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <span>自动刷新: 5秒</span>
+                </span>
+            </div>
+            <div class="footer-right">
+                <span class="footer-item">Customer Service Platform v1.0.0</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Session Detail Modal -->
+    <div class="modal-overlay" id="sessionModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>会话详情</h3>
+                <button class="modal-close" id="closeModal" aria-label="关闭">&times;</button>
+            </div>
+            <div class="modal-body" id="sessionDetail">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Metrics Modal -->
+    <div class="modal-overlay" id="nodeModal">
+        <div class="modal modal-large">
+            <div class="modal-header">
+                <h3>节点指标</h3>
+                <button class="modal-close" id="closeNodeModal" aria-label="关闭">&times;</button>
+            </div>
+            <div class="modal-body" id="nodeDetail">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ZooKeeper Modal -->
+    <div class="modal-overlay" id="zkModal">
+        <div class="modal modal-large">
+            <div class="modal-header">
+                <h3>ZooKeeper 元数据</h3>
+                <button class="modal-close" id="closeZkModal" aria-label="关闭">&times;</button>
+            </div>
+            <div class="modal-body" id="zkDetail">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+
+    <script src="js/monitor.js?v=20260310f"></script>
+</body>
+</html>

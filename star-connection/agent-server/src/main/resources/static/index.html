@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>坐席工作台 - 在线客服系统</title>
+    <link rel="stylesheet" href="css/agent.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <div class="header-left">
+                <h1 class="logo"><i class="fas fa-headset"></i> 在线客服工作台</h1>
+            </div>
+            <div class="header-center">
+                <span class="agent-status-badge" id="agentStatusBadge">
+                    <i class="fas fa-circle"></i> 离线
+                </span>
+            </div>
+            <div class="header-right">
+                <div class="agent-info">
+                    <span id="agentName">未登录</span>
+                    <span class="agent-id" id="agentId"></span>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-status" id="toggleStatusBtn" title="切换状态">
+                        <i class="fas fa-toggle-on"></i> 上线
+                    </button>
+                    <button class="btn btn-logout" id="logoutBtn" title="退出">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- 登录区域 -->
+        <div class="login-overlay" id="loginOverlay">
+            <div class="login-card">
+                <div class="login-header">
+                    <i class="fas fa-user-circle"></i>
+                    <h2>坐席登录</h2>
+                </div>
+                <div class="login-form">
+                    <div class="form-group">
+                        <label for="loginAgentId">坐席ID</label>
+                        <input type="text" id="loginAgentId" placeholder="请输入坐席ID" value="agent-001">
+                    </div>
+                    <div class="form-group">
+                        <label for="loginAgentName">坐席名称</label>
+                        <input type="text" id="loginAgentName" placeholder="请输入坐席名称" value="客服小王">
+                    </div>
+                    <button class="btn btn-primary btn-login" id="loginBtn">
+                        <i class="fas fa-sign-in-alt"></i> 登录
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主内容区域 -->
+        <main class="main-content">
+            <!-- 左侧：会话列表 -->
+            <aside class="session-panel">
+                <div class="panel-header">
+                    <h3><i class="fas fa-comments"></i> 会话列表</h3>
+                    <div class="session-stats">
+                        <span class="stat-item">
+                            <span class="stat-label">进行中</span>
+                            <span class="stat-value" id="activeSessionCount">0</span>
+                        </span>
+                        <span class="stat-item">
+                            <span class="stat-label">等待中</span>
+                            <span class="stat-value waiting" id="waitingSessionCount">0</span>
+                        </span>
+                    </div>
+                </div>
+                <div class="session-list" id="sessionList">
+                    <!-- 会话项将通过JS动态添加 -->
+                    <div class="empty-state" id="emptySessionState">
+                        <i class="fas fa-inbox"></i>
+                        <p>暂无会话</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 中间：聊天区域 -->
+            <section class="chat-panel">
+                <div class="chat-header" id="chatHeader">
+                    <div class="chat-header-info">
+                        <span class="customer-name" id="currentCustomerName">选择会话开始聊天</span>
+                        <span class="session-status" id="currentSessionStatus"></span>
+                    </div>
+                    <div class="chat-header-actions">
+                        <button class="btn btn-icon" id="transferBtn" title="转接" disabled>
+                            <i class="fas fa-exchange-alt"></i>
+                        </button>
+                        <button class="btn btn-icon btn-danger" id="closeSessionBtn" title="结束会话" disabled>
+                            <i class="fas fa-phone-slash"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chatMessages">
+                    <div class="empty-state" id="emptyChatState">
+                        <i class="fas fa-comments"></i>
+                        <p>选择左侧会话开始聊天</p>
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <div class="input-toolbar">
+                        <button class="toolbar-btn" title="表情">
+                            <i class="far fa-smile"></i>
+                        </button>
+                        <button class="toolbar-btn" title="图片">
+                            <i class="far fa-image"></i>
+                        </button>
+                        <button class="toolbar-btn" title="文件">
+                            <i class="far fa-folder"></i>
+                        </button>
+                    </div>
+                    <div class="input-compose">
+                        <div class="input-wrapper">
+                            <textarea id="messageInput" placeholder="输入消息..." disabled rows="1"></textarea>
+                        </div>
+                        <button class="btn-send" id="sendBtn" disabled title="发送">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 右侧：客户信息 -->
+            <aside class="customer-panel">
+                <div class="panel-header">
+                    <h3><i class="fas fa-user"></i> 客户信息</h3>
+                </div>
+                <div class="customer-info-content" id="customerInfoContent">
+                    <div class="empty-state" id="emptyCustomerState">
+                        <i class="fas fa-user-slash"></i>
+                        <p>暂无客户信息</p>
+                    </div>
+                </div>
+                <div class="customer-details" id="customerDetails" style="display: none;">
+                    <div class="info-item">
+                        <label>客户ID</label>
+                        <span id="infoCustomerId">-</span>
+                    </div>
+                    <div class="info-item">
+                        <label>客户名称</label>
+                        <span id="infoCustomerName">-</span>
+                    </div>
+                    <div class="info-item">
+                        <label>会话ID</label>
+                        <span id="infoSessionId">-</span>
+                    </div>
+                    <div class="info-item">
+                        <label>会话状态</label>
+                        <span id="infoSessionStatus">-</span>
+                    </div>
+                    <div class="info-item">
+                        <label>开始时间</label>
+                        <span id="infoStartTime">-</span>
+                    </div>
+                    <div class="info-item">
+                        <label>消息数</label>
+                        <span id="infoMessageCount">0</span>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- 通知提示 -->
+    <div class="notification-container" id="notificationContainer"></div>
+
+    <!-- 音频提示 -->
+    <audio id="notificationSound" preload="auto">
+        <source src="sounds/notification.mp3" type="audio/mpeg">
+    </audio>
+
+    <!-- 配置文件 (需在 agent.js 之前加载) -->
+    <script src="js/config.js"></script>
+    <!-- 主脚本 -->
+    <script src="js/agent.js"></script>
+</body>
+</html>

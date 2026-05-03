@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.example</groupId>
+        <artifactId>customer-service-platform</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>transport</artifactId>
+    <packaging>pom</packaging>
+    <name>transport</name>
+    <description>Transport Module - Connection management, heartbeat, and message routing abstractions</description>
+
+    <modules>
+        <module>transport-core</module>
+        <module>transport-netty</module>
+        <module>transport-zookeeper</module>
+        <module>transport-spring-boot-starter</module>
+    </modules>
+</project>

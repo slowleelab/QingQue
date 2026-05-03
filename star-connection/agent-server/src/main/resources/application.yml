@@ -1,0 +1,74 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: agent-backend
+  main:
+    allow-circular-references: true
+
+# 坐席服务配置
+agentserver:
+  service-id: backend-1
+  service-name: agent-backend-service
+  auth-token: star-connection-token
+  connection:
+    discovery-enabled: true
+    router-service-name: customer-frontend-service
+    reconnect-interval-ms: 5000
+    discovery-refresh-interval-ms: 10000
+    connect-to-all-routers: true
+
+logging:
+  level:
+    com.example: DEBUG
+    root: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+netty:
+  server:
+    host: localhost
+    port: 8888
+    connect-timeout: 10000
+    idle-timeout-seconds: 60
+    heartbeat-interval-seconds: 20
+
+zookeeper:
+  connect-string: localhost:2181
+  session-timeout: 60000
+  connection-timeout: 5000
+  base-sleep-time: 1000
+  max-retries: 3
+  namespace: star-connection
+  service-path: /services
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# WebSocket 配置（坐席连接）
+websocket:
+  agent:
+    enabled: true
+    path: /ws/agent
+    port: 8890
+    max-concurrent-sessions: 10
+    heartbeat-interval-seconds: 30
+
+# 坐席配置
+agent:
+  max-concurrent-sessions: 10
+  heartbeat-interval-seconds: 30
+
+# CORS 跨域配置（前后端分离部署时使用）
+cors:
+  # 允许的前端域名，多个用逗号分隔
+  # 前后端一体部署使用 * 即可
+  # 前后端分离部署示例: https://agent.example.com,http://localhost:3000
+  allowed-origins: "*"
