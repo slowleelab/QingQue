@@ -59,3 +59,9 @@ htmlcov/
 
 # Alembic
 alembic/versions/*.pyc
+
+# star-connection (Java)
+star-connection/target/
+star-connection/**/target/
+star-connection/**/*.iml
+star-connection/.idea/
