@@ -54,5 +54,8 @@ htmlcov/
 # Pre-commit
 .pre-commit-config.yaml.bak
 
+# Worktrees
+.worktrees/
+
 # Alembic
 alembic/versions/*.pyc
