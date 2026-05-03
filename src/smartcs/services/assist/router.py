@@ -7,12 +7,15 @@ import json
 import logging
 import time
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from smartcs.shared.models import (
     AssistPushMessage,
     IntentLabel,
     SentimentLabel,
+    SessionPhase,
+    SessionUpdateRequest,
+    SessionUpdateResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,6 +27,26 @@ router = APIRouter(tags=["assist"])
 async def health_check():
     """坐席辅助服务健康检查"""
     return {"status": "healthy", "service": "assist"}
+
+
+@router.post("/session/update")
+async def session_update(body: SessionUpdateRequest, request: Request):
+    """Receive session state callback from star-connection"""
+    app = request.app
+    session_manager = app.state.session_manager
+
+    try:
+        phase = SessionPhase(body.phase.upper())
+        await session_manager.transition_phase(
+            session_id=body.session_id,
+            new_phase=phase,
+            reason=body.agent_id or "",
+        )
+        logger.info("Session %s updated to %s", body.session_id, phase.value)
+        return SessionUpdateResponse(status="ok")
+    except Exception as e:
+        logger.error("Session update failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.websocket("/ws/{session_id}")
