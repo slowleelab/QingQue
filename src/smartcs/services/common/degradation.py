@@ -197,8 +197,8 @@ class DegradationManager:
             except Exception:
                 logger.warning("LLM generate 失败，进入内容降级")
 
-        # DEGRADED or LLM failed: use retrieval if available
-        if context:
+        # DEGRADED or LLM failed: use retrieval if available (FALLBACK skips retrieval)
+        if level != DegradationLevel.FALLBACK and context:
             return GenerateResult(
                 content=self._degrader.retrieval_summary(context),
                 source="retrieval",

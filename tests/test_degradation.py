@@ -232,7 +232,7 @@ async def test_generate_fallback_skips_llm_and_retrieval(mock_llm_client_fixture
     mock_health_monitor_fixture.level = DegradationLevel.FALLBACK
     mock_llm_client_fixture.generate = AsyncMock()
     mgr = DegradationManager(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture)
-    result = await mgr.generate_with_fallback(system_prompt="你是客服", user_input="账单怎么查", context="", intent_label=IntentLabel.BILL_QUERY)
+    result = await mgr.generate_with_fallback(system_prompt="你是客服", user_input="账单怎么查", context="账单查询相关信息...", intent_label=IntentLabel.BILL_QUERY)
     assert result.source == "template"
     mock_llm_client_fixture.generate.assert_not_called()
     mock_content_degrader_fixture.get_template.assert_called_once_with(IntentLabel.BILL_QUERY)
