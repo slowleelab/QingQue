@@ -310,13 +310,22 @@ class IntentClassifier:
             logger.debug("Slow Path 不可用，使用 Fast Path 低置信度结果")
             return rule_result, [], SentimentLabel.NEUTRAL, "fallback"
 
+        # 熔断器打开 → 跳过 LLM
+        if not self._llm._breaker.is_available:
+            logger.debug("LLM 熔断器打开，跳过 Slow Path")
+            return rule_result, [], SentimentLabel.NEUTRAL, "fallback"
+
         logger.debug(
             "Fast Path 置信度不足 (%.2f < %.2f)，进入 Slow Path",
             rule_result.primary_confidence,
             self._threshold,
         )
 
-        llm_result, entities, sentiment = await self._llm.classify(text)
+        try:
+            llm_result, entities, sentiment = await self._llm.classify(text)
+        except Exception:
+            logger.warning("LLM 分类调用失败，使用规则结果兜底")
+            return rule_result, [], SentimentLabel.NEUTRAL, "fallback"
 
         # LLM 结果置信度也很低时，标记来源为 fallback
         source = "llm" if llm_result.primary_confidence >= 0.3 else "fallback"
