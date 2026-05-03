@@ -65,3 +65,8 @@ star-connection/target/
 star-connection/**/target/
 star-connection/**/*.iml
 star-connection/.idea/
+star-connection/logs/
+star-connection/*.log
+
+# gRPC 生成代码
+generated/
