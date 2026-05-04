@@ -121,30 +121,32 @@ async function scrollToBottom() {
   }
 }
 
-// 轮询 star-connection 获取新消息（客户 + 坐席双向）
-let pollTimer: ReturnType<typeof setInterval> | null = null
+// HTTP 长轮询 star-connection 获取新消息
+let pollActive = false
 const seenMsgIds = new Set<string>()
 
 async function pollMessages(sessionId: string) {
-  try {
-    const resp = await fetch(`/api/star/sessions/${sessionId}/messages`)
-    if (!resp.ok) return
-    const msgs: Array<{ sender: string; content: string; messageId: string }> = await resp.json()
-    for (const m of msgs) {
-      if (!seenMsgIds.has(m.messageId)) {
-        seenMsgIds.add(m.messageId)
-        assistStore.addMessage(sessionId, m.sender === "agent" ? "agent" : "customer", m.content)
+  pollActive = true
+  while (pollActive && assistStore.activeSessionId === sessionId) {
+    try {
+      const resp = await fetch(`/api/star/sessions/${sessionId}/poll?timeout=25000`)
+      if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
+      const msgs: Array<{ sender: string; content: string; messageId: string }> = await resp.json()
+      for (const m of msgs) {
+        if (!seenMsgIds.has(m.messageId)) {
+          seenMsgIds.add(m.messageId)
+          assistStore.addMessage(sessionId, m.sender === "agent" ? "agent" : "customer", m.content)
+        }
       }
-    }
-  } catch { /* silent */ }
+    } catch { await new Promise(r => setTimeout(r, 1000)) }
+  }
 }
 
 watch(() => assistStore.activeSessionId, (newId) => {
-  if (pollTimer) clearInterval(pollTimer)
+  pollActive = false
   seenMsgIds.clear()
   if (newId) {
-    pollMessages(newId)
-    pollTimer = setInterval(() => pollMessages(newId), 2000)
+    setTimeout(() => pollMessages(newId), 0)
   }
 })
 

@@ -11,8 +11,7 @@ export const useChatStore = defineStore("chat", () => {
   const agentConnected = ref(false)
 
   let msgCounter = 0
-  let agentPollTimer: ReturnType<typeof setInterval> | null = null
-  const seenMessageIds = new Set<string>()  // 防止轮询重复消息
+  const seenMessageIds = new Set<string>()
 
   async function send(text: string) {
     const userMsg: ChatMessage = {
@@ -74,16 +73,17 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  function startAgentPolling() {
-    if (agentPollTimer) clearInterval(agentPollTimer)
-    agentPollTimer = setInterval(async () => {
-      if (!transferUrl.value) return
+  let agentPollActive = false
+
+  async function startAgentPolling() {
+    if (agentPollActive) return
+    agentPollActive = true
+    while (agentPollActive && transferUrl.value) {
       try {
-        // 用相对路径，Vite 代理到 star-connection
         const sid = transferUrl.value.match(/session_id=([^&]+)/)?.[1]
-        if (!sid) return
-        const resp = await fetch("/api/star/sessions/" + sid + "/messages")
-        if (!resp.ok) return
+        if (!sid) break
+        const resp = await fetch("/api/star/sessions/" + sid + "/poll?timeout=25000")
+        if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
         const msgs: Array<{ sender: string; content: string; messageId: string; timestamp: number }> = await resp.json()
         for (const m of msgs) {
           if (m.sender === "agent" && !seenMessageIds.has(m.messageId)) {
@@ -96,8 +96,9 @@ export const useChatStore = defineStore("chat", () => {
             })
           }
         }
-      } catch { /* silent */ }
-    }, 2000)
+        // 有消息立即继续轮询，无消息等 500ms 避免空转
+      } catch { await new Promise(r => setTimeout(r, 1000)) }
+    }
   }
 
   function clearSession() {
@@ -105,9 +106,8 @@ export const useChatStore = defineStore("chat", () => {
     sessionId.value = null
     transferUrl.value = null
     agentConnected.value = false
+    agentPollActive = false
     seenMessageIds.clear()
-    if (agentPollTimer) clearInterval(agentPollTimer)
-    agentPollTimer = null
   }
 
   return { messages, sessionId, isLoading, transferUrl, agentConnected, send, clearSession }

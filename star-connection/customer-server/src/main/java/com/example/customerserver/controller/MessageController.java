@@ -40,11 +40,31 @@ public class MessageController {
         return ResponseEntity.ok(resp);
     }
 
+    /** 非阻塞读取（不删除，多端共享） */
     @GetMapping("/{sessionId}/messages")
     public ResponseEntity<List<Map<String, Object>>> getMessages(@PathVariable String sessionId) {
         List<ChatMessage> pending = messageStore.getPendingMessages(sessionId);
         List<Map<String, Object>> result = new ArrayList<>();
         for (ChatMessage m : pending) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("messageId", m.getMessageId());
+            item.put("sessionId", m.getSessionId());
+            item.put("sender", m.getSenderType() == SenderType.AGENT ? "agent" : "customer");
+            item.put("content", m.getContent());
+            item.put("timestamp", m.getTimestamp());
+            result.add(item);
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /** HTTP 长轮询：阻塞等待新消息，超时返回空列表 */
+    @GetMapping("/{sessionId}/poll")
+    public ResponseEntity<List<Map<String, Object>>> pollMessages(
+            @PathVariable String sessionId,
+            @RequestParam(defaultValue = "25000") long timeout) {
+        List<ChatMessage> messages = messageStore.pollMessages(sessionId, timeout);
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ChatMessage m : messages) {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("messageId", m.getMessageId());
             item.put("sessionId", m.getSessionId());
