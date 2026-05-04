@@ -12,6 +12,7 @@ export const useChatStore = defineStore("chat", () => {
 
   let msgCounter = 0
   let agentPollTimer: ReturnType<typeof setInterval> | null = null
+  const seenMessageIds = new Set<string>()  // 防止轮询重复消息
 
   async function send(text: string) {
     const userMsg: ChatMessage = {
@@ -85,16 +86,14 @@ export const useChatStore = defineStore("chat", () => {
         if (!resp.ok) return
         const msgs: Array<{ sender: string; content: string; messageId: string; timestamp: number }> = await resp.json()
         for (const m of msgs) {
-          if (m.sender === "agent") {
-            const exists = messages.value.some(existing => existing.id === m.messageId)
-            if (!exists) {
-              messages.value.push({
-                id: m.messageId,
-                role: "agent",
-                content: m.content,
-                timestamp: new Date(m.timestamp),
-              })
-            }
+          if (m.sender === "agent" && !seenMessageIds.has(m.messageId)) {
+            seenMessageIds.add(m.messageId)
+            messages.value.push({
+              id: m.messageId,
+              role: "agent",
+              content: m.content,
+              timestamp: new Date(m.timestamp),
+            })
           }
         }
       } catch { /* silent */ }
@@ -106,6 +105,7 @@ export const useChatStore = defineStore("chat", () => {
     sessionId.value = null
     transferUrl.value = null
     agentConnected.value = false
+    seenMessageIds.clear()
     if (agentPollTimer) clearInterval(agentPollTimer)
     agentPollTimer = null
   }

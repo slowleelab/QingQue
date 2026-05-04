@@ -121,27 +121,30 @@ async function scrollToBottom() {
   }
 }
 
-// 轮询 star-connection 获取客户新消息
+// 轮询 star-connection 获取新消息（客户 + 坐席双向）
 let pollTimer: ReturnType<typeof setInterval> | null = null
+const seenMsgIds = new Set<string>()
 
-async function pollCustomerMessages(sessionId: string) {
+async function pollMessages(sessionId: string) {
   try {
     const resp = await fetch(`/api/star/sessions/${sessionId}/messages`)
     if (!resp.ok) return
     const msgs: Array<{ sender: string; content: string; messageId: string }> = await resp.json()
     for (const m of msgs) {
-      if (m.sender === "customer") {
-        assistStore.addMessage(sessionId, "customer", m.content)
+      if (!seenMsgIds.has(m.messageId)) {
+        seenMsgIds.add(m.messageId)
+        assistStore.addMessage(sessionId, m.sender === "agent" ? "agent" : "customer", m.content)
       }
     }
   } catch { /* silent */ }
 }
 
-watch(() => assistStore.activeSessionId, (newId, oldId) => {
+watch(() => assistStore.activeSessionId, (newId) => {
   if (pollTimer) clearInterval(pollTimer)
+  seenMsgIds.clear()
   if (newId) {
-    pollCustomerMessages(newId)
-    pollTimer = setInterval(() => pollCustomerMessages(newId), 2000)
+    pollMessages(newId)
+    pollTimer = setInterval(() => pollMessages(newId), 2000)
   }
 })
 
