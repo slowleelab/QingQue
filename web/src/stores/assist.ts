@@ -3,7 +3,7 @@ import { ref, computed } from "vue"
 import type { SessionInfo, AssistPushPayload, AssistPushMessage, ChatMessage } from "@/api/types"
 
 // star-connection 会话 API
-const STAR_SESSIONS_URL = "http://localhost:8080/api/monitor/customer-service/sessions"
+const STAR_SESSIONS_URL = "/api/star/monitor/customer-service/sessions"
 
 export const useAssistStore = defineStore("assist", () => {
   const sessions = ref<SessionInfo[]>([])
