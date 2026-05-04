@@ -95,10 +95,22 @@ const wsLabel = computed(() => {
   return map[assistStore.wsStatus] ?? "未知"
 })
 
-function handleSend() {
+async function handleSend() {
   if (!inputText.value.trim() || !assistStore.activeSessionId) return
-  assistStore.addMessage(assistStore.activeSessionId, "agent", inputText.value.trim())
+  const sid = assistStore.activeSessionId
+  const text = inputText.value.trim()
+  assistStore.addMessage(sid, "agent", text)
   inputText.value = ""
+
+  // 发送坐席消息到 star-connection
+  try {
+    await fetch(`/api/star/sessions/${sid}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sender: "agent", content: text }),
+    })
+  } catch { /* star-connection 不可用时静默 */ }
+
   scrollToBottom()
 }
 
@@ -109,10 +121,34 @@ async function scrollToBottom() {
   }
 }
 
+// 轮询 star-connection 获取客户新消息
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+async function pollCustomerMessages(sessionId: string) {
+  try {
+    const resp = await fetch(`/api/star/sessions/${sessionId}/messages`)
+    if (!resp.ok) return
+    const msgs: Array<{ sender: string; content: string; messageId: string }> = await resp.json()
+    for (const m of msgs) {
+      if (m.sender === "customer") {
+        assistStore.addMessage(sessionId, "customer", m.content)
+      }
+    }
+  } catch { /* silent */ }
+}
+
+watch(() => assistStore.activeSessionId, (newId, oldId) => {
+  if (pollTimer) clearInterval(pollTimer)
+  if (newId) {
+    pollCustomerMessages(newId)
+    pollTimer = setInterval(() => pollCustomerMessages(newId), 2000)
+  }
+})
+
 // 会话切换时自动滚动到底部
 watch(() => assistStore.activeMessages.length, () => scrollToBottom())
 
-// 选中会话时滚动到底部（WebSocket 连接由 useWebSocket composable 内部 watch 自动管理）
+// 选中会话时滚动到底部
 watch(() => assistStore.activeSessionId, () => scrollToBottom())
 </script>
 
