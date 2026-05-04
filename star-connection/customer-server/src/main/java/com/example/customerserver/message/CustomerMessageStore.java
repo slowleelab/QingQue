@@ -88,14 +88,24 @@ public class CustomerMessageStore {
     }
 
     /**
-     * 非阻塞获取所有待处理消息
+     * 非阻塞获取所有待处理消息（不删除，多端共享读取）
      */
     public List<ChatMessage> getPendingMessages(String sessionId) {
         LinkedBlockingQueue<ChatMessage> queue = sessionMessages.get(sessionId);
         if (queue == null) {
             return new ArrayList<>();
         }
+        return new ArrayList<>(queue);
+    }
 
+    /**
+     * 取出并清空待处理消息（用于长轮询消费端）
+     */
+    public List<ChatMessage> drainMessages(String sessionId) {
+        LinkedBlockingQueue<ChatMessage> queue = sessionMessages.get(sessionId);
+        if (queue == null) {
+            return new ArrayList<>();
+        }
         List<ChatMessage> messages = new ArrayList<>();
         queue.drainTo(messages);
         return messages;
