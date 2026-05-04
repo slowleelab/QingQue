@@ -2,13 +2,12 @@ import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 import type { SessionInfo, AssistPushPayload, AssistPushMessage, ChatMessage } from "@/api/types"
 
+// star-connection 会话 API
+const STAR_SESSIONS_URL = "http://localhost:8080/api/monitor/customer-service/sessions"
+
 export const useAssistStore = defineStore("assist", () => {
-  // 会话列表（Sprint 1 用 mock 数据，后续替换为 API）
-  const sessions = ref<SessionInfo[]>([
-    { sessionId: "S20260428001", phase: "assist", lastActiveAt: new Date(), customerName: "张三" },
-    { sessionId: "S20260428002", phase: "bot", lastActiveAt: new Date(Date.now() - 300000), customerName: "李四" },
-    { sessionId: "S20260428003", phase: "handoff", lastActiveAt: new Date(Date.now() - 600000), customerName: "王五" },
-  ])
+  const sessions = ref<SessionInfo[]>([])
+  const fetching = ref(false)
 
   const activeSessionId = ref<string | null>(null)
   const wsStatus = ref<"connecting" | "connected" | "disconnected" | "error">("disconnected")
@@ -64,32 +63,57 @@ export const useAssistStore = defineStore("assist", () => {
     wsStatus.value = status
   }
 
-  // 初始化 mock 对话数据
-  function initMockMessages() {
-    messagesMap.value.set("S20260428001", [
-      { id: "m1", role: "customer", content: "你好，我想查一下我的信用卡账单", timestamp: new Date(Date.now() - 120000) },
-      { id: "m2", role: "bot", content: "您好！请提供您的卡号后四位，我来帮您查询。", timestamp: new Date(Date.now() - 115000) },
-      { id: "m3", role: "customer", content: "6225", timestamp: new Date(Date.now() - 60000) },
-      { id: "m4", role: "bot", content: "已查到您的账单，本期应还金额为 3,256.80 元，到期还款日为 5 月 15 日。", timestamp: new Date(Date.now() - 55000) },
-      { id: "m5", role: "customer", content: "能分期吗？", timestamp: new Date(Date.now() - 10000) },
-    ])
-    messagesMap.value.set("S20260428002", [
-      { id: "m6", role: "customer", content: "积分怎么兑换？", timestamp: new Date(Date.now() - 300000) },
-      { id: "m7", role: "bot", content: "您可以在「我的积分」页面选择兑换商品或抵扣年费。", timestamp: new Date(Date.now() - 295000) },
-    ])
-    messagesMap.value.set("S20260428003", [
-      { id: "m8", role: "customer", content: "我要投诉！", timestamp: new Date(Date.now() - 600000) },
-      { id: "m9", role: "bot", content: "非常抱歉给您带来不便，正在为您转接人工坐席...", timestamp: new Date(Date.now() - 595000), isTransfer: true },
-    ])
+  // 从 star-connection 拉取实时会话列表
+  async function fetchSessions() {
+    fetching.value = true
+    try {
+      const resp = await fetch(STAR_SESSIONS_URL)
+      if (!resp.ok) return
+      const data: Array<{
+        sessionId: string
+        status: string
+        agentId: string | null
+        createTime: number
+        customerId: string | null
+      }> = await resp.json()
+
+      // 转换 star-connection 会话为前端 SessionInfo
+      const starSessions: SessionInfo[] = data
+        .filter((s) => s.status !== "CLOSED")
+        .map((s) => ({
+          sessionId: s.sessionId,
+          phase: s.status === "ACTIVE" ? "assist" as const : "handoff" as const,
+          lastActiveAt: new Date(s.createTime),
+          customerName: s.customerId || "访客",
+          agentId: s.agentId || undefined,
+        }))
+
+      // 合并已有会话和 star-connection 会话
+      const existingIds = new Set(sessions.value.map((s) => s.sessionId))
+      for (const s of starSessions) {
+        if (!existingIds.has(s.sessionId)) {
+          sessions.value.push(s)
+        }
+      }
+    } catch {
+      // star-connection 不可用时静默失败
+    } finally {
+      fetching.value = false
+    }
   }
 
-  // 仅开发环境初始化 mock 数据，生产构建不包含
-  if (import.meta.env.DEV) {
-    initMockMessages()
+  // 启动时拉取，之后每 5 秒轮询
+  fetchSessions()
+  const pollTimer = setInterval(fetchSessions, 5000)
+
+  // 页面卸载时清理定时器
+  if (typeof window !== "undefined") {
+    window.addEventListener("beforeunload", () => clearInterval(pollTimer))
   }
 
   return {
     sessions, activeSessionId, wsStatus, activePushData, activeMessages, activeSession,
+    fetching, fetchSessions,
     onPushMessage, addMessage, selectSession, setWsStatus,
   }
 })

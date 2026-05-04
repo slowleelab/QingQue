@@ -112,6 +112,7 @@ export interface SessionInfo {
   phase: SessionPhase
   lastActiveAt: Date
   customerName?: string
+  agentId?: string
 }
 
 // ── Long Poll ──
