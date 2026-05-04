@@ -28,6 +28,7 @@ from smartcs.services.common.deps import (
     close_minio,
     close_reranker,
     close_session_manager,
+    close_star_client,
     init_agent,
     init_assist_orchestrator,
     init_classifier,
@@ -40,6 +41,7 @@ from smartcs.services.common.deps import (
     init_minio,
     init_reranker,
     init_session_manager,
+    init_star_client,
     init_transfer_checker,
 )
 from smartcs.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
@@ -66,12 +68,13 @@ async def bot_lifespan(app: FastAPI):
     await init_reranker(app)
     await init_grpc_channels(app)
     await init_llm(app)
+    await init_health_monitor(app)       # 启动后台健康探测（依赖 llm_client）
+    await init_degradation_manager(app)  # 初始化降级管理器（依赖 llm_client + health_monitor）
     await init_session_manager(app)
     await init_classifier(app)
     await init_transfer_checker(app)
-    await init_agent(app)
-    await init_health_monitor(app)       # 启动后台健康探测
-    await init_degradation_manager(app)  # 初始化降级管理器
+    await init_star_client(app)          # star-connection HTTP 客户端（转人工桥接）
+    await init_agent(app)                # 依赖 degradation_manager
     await start_chat_worker(app)         # 启动聊天队列后台工作器
     logger.info("机器人服务就绪")
 
@@ -79,11 +82,12 @@ async def bot_lifespan(app: FastAPI):
 
     logger.info("机器人服务关闭中...")
     await stop_chat_worker(app)
-    await close_degradation_manager(app)
-    await close_health_monitor(app)       # 停止后台健康探测
+    await close_star_client(app)
     await close_agent(app)
     await close_classifier(app)
     await close_session_manager(app)
+    await close_degradation_manager(app)
+    await close_health_monitor(app)       # 停止后台健康探测
     await close_llm(app)
     await close_grpc_channels(app)
     await close_reranker(app)

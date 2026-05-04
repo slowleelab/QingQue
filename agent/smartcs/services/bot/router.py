@@ -158,15 +158,43 @@ async def process_chat_queue(app) -> None:
                     primary_intent = None
                     primary_confidence = 0.0
 
+                is_transfer = agent_result.get("should_transfer", False)
+                transfer_url = ""
+                transfer_reason = agent_result.get("transfer_reason", "")
+
+                # 转人工：调用 star-connection 创建会话，获取客户连接信息
+                if is_transfer:
+                    star_client = getattr(app.state, "star_client", None)
+                    if star_client:
+                        try:
+                            transfer_req = star_client.build_transfer_request(
+                                session_id=session_id,
+                                customer_id=task.get("customer_id"),
+                                transfer_reason=transfer_reason,
+                                transfer_summary=agent_result.get("response", ""),
+                                intent=str(primary_intent.value) if primary_intent and hasattr(primary_intent, "value") else "",
+                                sentiment="neutral",
+                            )
+                            transfer_resp = await star_client.create_session(transfer_req)
+                            # star-connection Java 返回 camelCase: pollUrl, sessionId
+                            transfer_url = transfer_resp.get("pollUrl", "") or transfer_resp.get("poll_url", "")
+                            if transfer_url:
+                                logger.info("转人工会话已创建: bot_session=%s star_session=%s", session_id, transfer_resp.get("sessionId", transfer_resp.get("session_id", "")))
+                        except Exception:
+                            logger.exception("转人工调用 star-connection 失败")
+                            transfer_reason += "（人工客服系统暂不可用）"
+                    else:
+                        logger.warning("star_client 未初始化，跳过转人工桥接")
+
                 poll_data = {
                     "has_message": True,
                     "reply": agent_result.get("response", "抱歉，我暂时无法处理您的请求。"),
                     "intent": primary_intent,
                     "confidence": primary_confidence,
                     "source": agent_result.get("response_source", "fallback"),
-                    "is_transfer": agent_result.get("should_transfer", False),
-                    "transfer_url": agent_result.get("transfer_url", ""),
-                    "transfer_reason": agent_result.get("transfer_reason", ""),
+                    "is_transfer": is_transfer,
+                    "transfer_url": transfer_url,
+                    "transfer_reason": transfer_reason,
                 }
 
                 response_key = f"{RESPONSE_KEY_PREFIX}:{session_id}"
