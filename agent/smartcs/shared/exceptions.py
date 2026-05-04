@@ -15,8 +15,10 @@ class SmartCSError(Exception):
     message: str = "系统内部错误"
 
     def __init__(self, message: str | None = None, code: int | None = None):
-        self.message = message or self.message
-        self.code = code or self.code
+        if message is not None:
+            self.message = message
+        if code is not None:
+            self.code = code
         super().__init__(self.message)
 
 
@@ -146,6 +148,14 @@ class DualWriteError(SmartCSError):
 
     code = 4012
     message = "双写部分失败"
+
+
+class CircuitBreakerOpenError(SmartCSError):
+    """4020: 熔断器打开，执行器不可用"""
+
+    def __init__(self, executor_name: str = "") -> None:
+        msg = f"熔断器打开: {executor_name}" if executor_name else "熔断器打开"
+        super().__init__(code=4020, message=msg)
 
 
 # ── 系统错误 5xxx ──
