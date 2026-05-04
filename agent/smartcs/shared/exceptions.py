@@ -173,3 +173,17 @@ class ServiceOverloadedError(SmartCSError):
 
     code = 5002
     message = "服务过载"
+
+
+class StateConflictError(SmartCSError):
+    """CAS 状态版本冲突"""
+
+    def __init__(self, current_version: int = 0, expected_version: int = 0) -> None:
+        super().__init__(code=5003, message=f"状态版本冲突: 期望={expected_version}, 当前={current_version}")
+
+
+class OrchestrationTimeoutError(SmartCSError):
+    """编排全局超时"""
+
+    def __init__(self, session_id: str = "", timeout_ms: int = 5000) -> None:
+        super().__init__(code=5004, message=f"编排超时: session={session_id}, timeout={timeout_ms}ms")

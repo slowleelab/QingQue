@@ -19,6 +19,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Date,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -416,4 +417,53 @@ class AlertLog(Base):
     __table_args__ = (
         Index("ix_alert_log_session", "session_id"),
         Index("ix_alert_log_created", "created_at"),
+    )
+
+
+# ── 编排决策日志 ──
+
+
+class OrchestrationLog(Base):
+    """编排决策日志"""
+    __tablename__ = "orchestration_logs"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False), primary_key=True, default=_uuid_v7,
+    )
+    session_id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=True), nullable=False, index=True,
+    )
+    oe_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    d1_activated: Mapped[bool] = mapped_column(Boolean, default=False)
+    d2_activated: Mapped[bool] = mapped_column(Boolean, default=False)
+    d3_activated: Mapped[bool] = mapped_column(Boolean, default=True)
+    activation_history: Mapped[list] = mapped_column(JSON, default=list)
+    fusion_type: Mapped[str] = mapped_column(String(30), default="service_only")
+    decision_reason: Mapped[str] = mapped_column(Text, default="")
+    elapsed_ms: Mapped[int] = mapped_column(Integer, default=0)
+    trace_id: Mapped[str] = mapped_column(String(36), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()"),
+    )
+
+
+# ── 反馈日志 ──
+
+
+class FeedbackLog(Base):
+    """反馈日志"""
+    __tablename__ = "feedback_logs"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False), primary_key=True, default=_uuid_v7,
+    )
+    session_id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=True), nullable=False, index=True,
+    )
+    agent_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float, default=0.0)
+    modify_fields: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()"),
     )

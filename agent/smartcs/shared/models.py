@@ -5,8 +5,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -75,6 +76,22 @@ class DegradationLevel(str, Enum):
     FALLBACK = "fallback"    # LLM 不可用，跳过检索直接用模板
 
 
+class RiskActionEnum(str, Enum):
+    """风控动作"""
+    PASS = "PASS"
+    WARN = "WARN"
+    BLOCK = "BLOCK"
+
+
+class OEState(str, Enum):
+    """编排引擎状态"""
+    IDLE = "IDLE"
+    EVALUATING = "EVALUATING"
+    DISPATCHING = "DISPATCHING"
+    WAITING_RESULTS = "WAITING_RESULTS"
+    COMPLETED = "COMPLETED"
+
+
 # ── 基础数据结构 ──
 
 
@@ -103,16 +120,34 @@ class SentimentResult(BaseModel):
     score: float
 
 
+class EmotionVector(BaseModel):
+    """情绪向量（带时间衰减）
+
+    对应设计文档 §3.1 情绪向量衰减公式:
+    emotion_vector(t) = emotion_raw × exp(-λ × Δt)
+    λ = 0.005 (半衰期约 2.3 分钟, 适配客服对话节奏)
+    """
+    label: SentimentLabel
+    score: float = Field(ge=0.0, le=1.0)
+    decay_lambda: float = 0.005
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    def decayed_score(self, delta_seconds: float) -> float:
+        """计算衰减后的情绪分数"""
+        import math
+        return self.score * math.exp(-self.decay_lambda * delta_seconds)
+
+
 class DialogueTurn(BaseModel):
     """对话轮次"""
 
     turn_id: str
     session_id: str
-    speaker: str  # "customer" | "agent" | "bot"
+    speaker: Literal["customer", "agent", "bot"]
     content: str
     emotion_label: SentimentLabel | None = None
     emotion_score: float | None = None
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 # ── 会话状态 ──
@@ -147,12 +182,19 @@ class SessionState(BaseModel):
 
     # 坐席阶段状态
     agent_id: str | None = None
+    # 编排层扩展字段（对应设计文档 §3.2）
+    intent_stack: list[IntentLabel] = Field(default_factory=list)
+    entity_pool: list[Entity] = Field(default_factory=list)
+    emotion_vector: EmotionVector | None = None
+    suppress_flag: bool = False  # 营销压制标记（单向门 false→true，对应文档 §3.2 覆写规则）
+    node_position: str = ""  # LangGraph DAG 节点位置
+    risk_pending_audit: bool = False  # 风控待审标记
     transfer_reason: str | None = None
     transfer_summary: str | None = None
 
     # 元数据
-    created_at: datetime = Field(default_factory=datetime.now)
-    last_active_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_active_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     version: int = 1
 
 
@@ -216,7 +258,7 @@ class RetrieveRequest(BaseModel):
     top_k: int = 5
     filters: dict = Field(default_factory=dict)
     rerank: bool = True
-    search_type: str = "hybrid"  # hybrid / bm25_only / vector_only
+    search_type: Literal["hybrid", "bm25_only", "vector_only"] = "hybrid"
     rrf_k: int | None = None  # 覆盖 RRF k 参数；None 时使用配置默认值
 
 
@@ -246,7 +288,7 @@ class KnowledgeSnippet(BaseModel):
     chunk_id: str
     summary: str
     source: str
-    confidence: str = "medium"  # high / medium / low
+    confidence: Literal["high", "medium", "low"] = "medium"
 
 
 class AlertObject(BaseModel):
@@ -283,9 +325,60 @@ class AssistPushMessage(BaseModel):
 
     type: str = "assist_push"
     session_id: str
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     trigger: str = ""
     payload: AssistPushPayload = Field(default_factory=AssistPushPayload)
+
+
+class ExecutorResult(BaseModel):
+    """执行器结果"""
+    executor_id: str
+    ui_schema: dict = Field(default_factory=dict)
+    latency_ms: int = 0
+    success: bool = True
+    degraded: bool = False
+    degradation_type: str = ""
+    risk_action: RiskActionEnum | None = None
+    trace_id: str = ""
+
+
+class ArbitrationResult(BaseModel):
+    """仲裁结果"""
+    primary_card: dict | None = None
+    risk_badge: dict | None = None
+    marketing_slot: dict | None = None
+    fusion_type: str = "service_only"
+    trace_id: str = ""
+
+
+class OrchestrationState(BaseModel):
+    """编排引擎状态（每次 OE 调度周期的快照）"""
+    session_id: str
+    oe_state: OEState = OEState.IDLE
+    d1_activated: bool = False
+    d2_activated: bool = False
+    d3_activated: bool = True  # 风控始终激活
+    d1_cooldown_remaining: int = 0
+    d2_cooldown_remaining: int = 0
+    activation_history: list[dict] = Field(default_factory=list)
+    global_timeout_ms: int = 5000
+
+
+class FeedbackSignal(BaseModel):
+    """隐式反馈信号
+
+    对应设计文档 §3.6 反馈闭环层:
+    - 直接发送 → accept, confidence 1.0
+    - 修改后发送 → modify, confidence 0.5
+    - 复制部分内容 → partial_accept, confidence 0.3
+    - 忽略 → reject, confidence 0.0
+    """
+    session_id: str
+    agent_id: str
+    action: Literal["accept", "modify", "partial_accept", "reject"] = "reject"
+    confidence: float = 0.0
+    modify_fields: list[str] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 # ── 话后小结 ──
@@ -331,13 +424,10 @@ class ChatResponse(BaseModel):
 # ── 长轮询 ──
 
 
-class ChatSendRequest(BaseModel):
-    """客户端发送消息请求"""
+class ChatSendRequest(ChatRequest):
+    """客户端发送消息请求（复用 ChatRequest 字段）"""
 
-    session_id: str | None = None
-    customer_id: str | None = None
-    message: str
-    channel: ChannelType = ChannelType.WEB
+    pass
 
 
 class ChatSendResponse(BaseModel):
@@ -352,6 +442,7 @@ class PollResponse(BaseModel):
     """长轮询响应"""
 
     has_message: bool = False
+    session_id: str = ""
     reply: str = ""
     intent: IntentLabel | None = None
     confidence: float = 0.0
@@ -365,7 +456,7 @@ class SessionUpdateRequest(BaseModel):
     """会话状态更新请求（star-connection 回调）"""
 
     session_id: str
-    phase: str  # "ASSIST" | "ENDED"
+    phase: Literal["ASSIST", "ENDED", "assist", "ended"]
     agent_id: str | None = None
 
 

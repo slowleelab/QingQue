@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import quote_plus
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,11 +26,11 @@ class DatabaseSettings(BaseSettings):
 
     @property
     def dsn(self) -> str:
-        return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        return f"postgresql+asyncpg://{self.user}:{quote_plus(self.password)}@{self.host}:{self.port}/{self.database}"
 
     @property
     def sync_dsn(self) -> str:
-        return f"postgresql+psycopg2://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        return f"postgresql+psycopg2://{self.user}:{quote_plus(self.password)}@{self.host}:{self.port}/{self.database}"
 
 
 class RedisSettings(BaseSettings):
@@ -41,10 +42,11 @@ class RedisSettings(BaseSettings):
     port: int = 6379
     password: str = ""
     db: int = 0
+    max_connections: int = 20
 
     @property
     def url(self) -> str:
-        auth = f":{self.password}@" if self.password else ""
+        auth = f":{quote_plus(self.password)}@" if self.password else ""
         return f"redis://{auth}{self.host}:{self.port}/{self.db}"
 
 
@@ -227,6 +229,69 @@ class AssistSettings(BaseSettings):
     max_recommendations_per_push: int = 2
 
 
+class OrchestrationSettings(BaseSettings):
+    """编排层配置（对应设计文档 §3.3）"""
+    model_config = SettingsConfigDict(env_prefix="ORCH_")
+
+    # 评估器冷却轮数（对应文档 §3.3 三路评估器表）
+    d1_cooldown_turns: int = 2
+    d2_cooldown_turns: int = 5
+    d3_always_active: bool = True
+
+    # 评估器激活阈值
+    d1_intent_confidence_threshold: float = 0.5
+    d2_emotion_score_threshold: float = 0.3
+
+    # 全局超时（对应文档 §3.5 仲裁超时兜底）
+    global_timeout_ms: int = 5000
+
+    # 执行器 SLA（对应文档 §3.4 执行器 SLA 表）
+    e1_sla_ms: int = 3000   # AI 服务
+    e2_sla_ms: int = 500    # 营销
+    e3_sla_ms: int = 100    # 风控
+
+    # 营销延迟（对应文档 §3.3 策略: marketing_deferred）
+    marketing_defer_ms: int = 500
+
+
+class TemporalSettings(BaseSettings):
+    """Temporal 配置"""
+    model_config = SettingsConfigDict(env_prefix="TEMPORAL_")
+
+    host: str = "localhost"
+    port: int = 7233
+    namespace: str = "default"
+    task_queue: str = "smartcs-assist"
+    workflow_timeout_seconds: int = 10
+
+
+class CircuitBreakerConfigSettings(BaseSettings):
+    """熔断器配置（各执行器独立，对应文档 §3.4 熔断器配置表）"""
+    model_config = SettingsConfigDict(env_prefix="CB_")
+
+    # AI 服务执行器
+    ai_failure_rate_threshold: float = 0.5
+    ai_slow_call_rate_threshold: float = 0.6
+    ai_slow_call_duration_ms: int = 3000
+    ai_wait_duration_open_s: float = 30.0
+    ai_half_open_max_calls: int = 3
+    ai_sliding_window_size: int = 20
+
+    # 营销执行器
+    mkt_failure_rate_threshold: float = 0.5
+    mkt_slow_call_rate_threshold: float = 0.5
+    mkt_slow_call_duration_ms: int = 500
+    mkt_wait_duration_open_s: float = 20.0
+    mkt_sliding_window_size: int = 20
+
+    # 风控执行器
+    risk_failure_rate_threshold: float = 0.3
+    risk_slow_call_rate_threshold: float = 0.3
+    risk_slow_call_duration_ms: int = 100
+    risk_wait_duration_open_s: float = 10.0
+    risk_sliding_window_size: int = 20
+
+
 class Settings(BaseSettings):
     """全局配置根"""
 
@@ -241,8 +306,12 @@ class Settings(BaseSettings):
     # 服务标识
     service_name: str = "smartcs"
     environment: str = "development"
-    debug: bool = True
+    debug: bool = False
     log_level: str = "INFO"
+    service_host: str = "127.0.0.1"
+
+    # star-connection 客户端
+    star_connection_url: str = "http://localhost:8080"
 
     # CORS
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
@@ -260,6 +329,9 @@ class Settings(BaseSettings):
     safety: SafetySettings = Field(default_factory=SafetySettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
     assist: AssistSettings = Field(default_factory=AssistSettings)
+    orchestration: OrchestrationSettings = Field(default_factory=OrchestrationSettings)
+    temporal: TemporalSettings = Field(default_factory=TemporalSettings)
+    circuit_breaker: CircuitBreakerConfigSettings = Field(default_factory=CircuitBreakerConfigSettings)
 
 
 @lru_cache
