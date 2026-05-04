@@ -2,12 +2,15 @@ package com.example.customerserver.controller;
 
 import com.example.common.model.Agent;
 import com.example.common.model.AgentStatus;
+import com.example.common.model.ChatMessage;
+import com.example.common.model.SenderType;
 import com.example.common.model.Session;
 import com.example.common.model.SessionStatus;
 import com.example.customerserver.agent.AgentRegistry;
 import com.example.customerserver.dto.CustomerInfo;
 import com.example.customerserver.dto.TransferSessionRequest;
 import com.example.customerserver.dto.TransferSessionResponse;
+import com.example.customerserver.message.CustomerMessageStore;
 import com.example.customerserver.session.SessionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,10 +27,13 @@ public class TransferController {
     private static final Logger log = LoggerFactory.getLogger(TransferController.class);
     private final SessionManager sessionManager;
     private final AgentRegistry agentRegistry;
+    private final CustomerMessageStore messageStore;
 
-    public TransferController(SessionManager sessionManager, AgentRegistry agentRegistry) {
+    public TransferController(SessionManager sessionManager, AgentRegistry agentRegistry,
+                              CustomerMessageStore messageStore) {
         this.sessionManager = sessionManager;
         this.agentRegistry = agentRegistry;
+        this.messageStore = messageStore;
     }
 
     @PostMapping("/sessions")
@@ -54,7 +60,29 @@ public class TransferController {
         Session session = sessionManager.createSession(customerInfo);
 
         String status = session.getStatus() == SessionStatus.ACTIVE ? "ACTIVE" : "WAITING";
+        String agentName = session.getAgentId() != null ? "坐席" : null;
         log.info("Session {} status={} agent={}", session.getSessionId(), status, session.getAgentId());
+
+        // 发送坐席欢迎语
+        if (session.getAgentId() != null) {
+            Agent agent = agentRegistry.findById(session.getAgentId()).orElse(null);
+            agentName = agent != null ? agent.getAgentName() : "客服";
+            String summary = request.getTransferSummary();
+            if (summary == null || summary.isEmpty()) {
+                summary = request.getTransferReason();
+            }
+            if (summary == null || summary.isEmpty()) {
+                summary = "转人工请求";
+            }
+            String welcome = "您好，我是" + agentName + "，已收到您的问题，正在为您处理。";
+            ChatMessage welcomeMsg = new ChatMessage(
+                session.getSessionId(), SenderType.AGENT, session.getAgentId(), welcome
+            );
+            welcomeMsg.setMessageId(UUID.randomUUID().toString());
+            welcomeMsg.setSenderName(agentName);
+            messageStore.addMessage(session.getSessionId(), welcomeMsg);
+            log.info("Sent agent welcome message for session {}", session.getSessionId());
+        }
 
         String token = Base64.getUrlEncoder().encodeToString(
             (session.getSessionId() + ":" + System.currentTimeMillis()).getBytes()
