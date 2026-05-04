@@ -23,10 +23,20 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": {
-        target: "http://localhost:8080",
+      "/api/bot": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/bot/, "/api"),
+      },
+      "/api/assist": {
+        target: "http://localhost:8001",
         changeOrigin: true,
         ws: true,
+        rewrite: (path) => path.replace(/^\/api\/assist/, "/api"),
+      },
+      "/customer": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
       },
     },
   },

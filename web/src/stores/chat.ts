@@ -1,6 +1,6 @@
 import { defineStore } from "pinia"
 import { ref } from "vue"
-import { sendMessage } from "@/api/bot"
+import { sendMessage, pollReply } from "@/api/bot"
 import type { ChatMessage, ChatRequest } from "@/api/types"
 
 export const useChatStore = defineStore("chat", () => {
@@ -26,20 +26,24 @@ export const useChatStore = defineStore("chat", () => {
         message: text,
         session_id: sessionId.value ?? undefined,
       }
-      const response = await sendMessage(request)
-      sessionId.value = response.session_id
+      // 发送消息
+      const sendResp = await sendMessage(request)
+      sessionId.value = sendResp.session_id
 
-      // 添加机器人回复
-      const botMsg: ChatMessage = {
-        id: `msg-${++msgCounter}`,
-        role: "bot",
-        content: response.reply,
-        timestamp: new Date(),
-        intent: response.intent,
-        confidence: response.confidence,
-        isTransfer: response.is_transfer,
+      // 长轮询等待回复
+      const pollResp = await pollReply(sendResp.session_id, 30)
+      if (pollResp.has_message) {
+        const botMsg: ChatMessage = {
+          id: `msg-${++msgCounter}`,
+          role: "bot",
+          content: pollResp.reply || "抱歉，我暂时无法处理。",
+          timestamp: new Date(),
+          intent: pollResp.intent,
+          confidence: pollResp.confidence,
+          isTransfer: pollResp.is_transfer,
+        }
+        messages.value.push(botMsg)
       }
-      messages.value.push(botMsg)
     } catch {
       // 错误已在 Axios 拦截器中处理
     } finally {
