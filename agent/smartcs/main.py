@@ -8,6 +8,8 @@
     uvicorn smartcs.main:assist_app --reload --port 8001
 """
 
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -29,6 +31,9 @@ from smartcs.services.common.deps import (
     close_reranker,
     close_session_manager,
     close_star_client,
+    close_state_manager,
+    close_temporal_client,
+    close_temporal_worker,
     init_agent,
     init_assist_orchestrator,
     init_classifier,
@@ -42,6 +47,9 @@ from smartcs.services.common.deps import (
     init_reranker,
     init_session_manager,
     init_star_client,
+    init_state_manager,
+    init_temporal_client,
+    init_temporal_worker,
     init_transfer_checker,
 )
 from smartcs.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
@@ -52,6 +60,64 @@ from smartcs.shared.logger import setup_logger
 from smartcs.shared.middleware import register_exception_handlers
 
 
+class _suppress_exceptions:
+    """上下文管理器：抑制异常并记录日志，用于关闭阶段避免一个失败阻塞后续清理"""
+
+    def __init__(self, logger_obj: logging.Logger):
+        self._logger = logger_obj
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_val is not None:
+            self._logger.warning("关闭步骤异常（已忽略）: %s", exc_val)
+        return True
+
+
+import logging
+
+# 机器人服务启动/关闭步骤（按依赖顺序）
+_BOT_INIT_STEPS = [
+    init_db,
+    init_redis,
+    init_elasticsearch,
+    init_milvus,
+    init_minio,
+    init_embedding,
+    init_reranker,
+    init_grpc_channels,
+    init_llm,
+    init_health_monitor,
+    init_degradation_manager,
+    init_session_manager,
+    init_classifier,
+    init_transfer_checker,
+    init_star_client,
+    init_agent,
+    start_chat_worker,
+]
+
+_BOT_CLOSE_STEPS = [
+    stop_chat_worker,
+    close_star_client,
+    close_agent,
+    close_classifier,
+    close_session_manager,
+    close_degradation_manager,
+    close_health_monitor,
+    close_llm,
+    close_grpc_channels,
+    close_reranker,
+    close_embedding,
+    close_minio,
+    close_milvus,
+    close_elasticsearch,
+    close_redis,
+    close_db,
+]
+
+
 @asynccontextmanager
 async def bot_lifespan(app: FastAPI):
     """机器人服务生命周期"""
@@ -59,45 +125,87 @@ async def bot_lifespan(app: FastAPI):
     logger = setup_logger("smartcs.bot", settings.log_level, json_format=settings.environment == "production")
     logger.info("机器人服务启动中...")
 
-    await init_db(app)
-    await init_redis(app)
-    await init_elasticsearch(app)
-    await init_milvus(app)
-    await init_minio(app)
-    await init_embedding(app)
-    await init_reranker(app)
-    await init_grpc_channels(app)
-    await init_llm(app)
-    await init_health_monitor(app)       # 启动后台健康探测（依赖 llm_client）
-    await init_degradation_manager(app)  # 初始化降级管理器（依赖 llm_client + health_monitor）
-    await init_session_manager(app)
-    await init_classifier(app)
-    await init_transfer_checker(app)
-    await init_star_client(app)          # star-connection HTTP 客户端（转人工桥接）
-    await init_agent(app)                # 依赖 degradation_manager
-    await start_chat_worker(app)         # 启动聊天队列后台工作器
-    logger.info("机器人服务就绪")
+    initialized: list[tuple[str, object]] = []
+    try:
+        for step in _BOT_INIT_STEPS:
+            await step(app)
+            initialized.append((step.__name__, app))
+        logger.info("机器人服务就绪")
+    except Exception:
+        # 启动失败：按逆序清理已初始化的资源，避免泄漏
+        logger.exception("机器人服务启动失败，正在清理已初始化的资源...")
+        for step_name, _ in reversed(initialized):
+            close_fn_name = step_name.replace("init_", "close_").replace("start_", "stop_")
+            for close_step in _BOT_CLOSE_STEPS:
+                if close_step.__name__ == close_fn_name:
+                    with _suppress_exceptions(logger):
+                        await close_step(app)
+                    break
+        raise
 
     yield
 
     logger.info("机器人服务关闭中...")
-    await stop_chat_worker(app)
-    await close_star_client(app)
-    await close_agent(app)
-    await close_classifier(app)
-    await close_session_manager(app)
-    await close_degradation_manager(app)
-    await close_health_monitor(app)       # 停止后台健康探测
-    await close_llm(app)
-    await close_grpc_channels(app)
-    await close_reranker(app)
-    await close_embedding(app)
-    await close_minio(app)
-    await close_milvus(app)
-    await close_elasticsearch(app)
-    await close_redis(app)
-    await close_db(app)
+    for step in _BOT_CLOSE_STEPS:
+        with _suppress_exceptions(logger):
+            await step(app)
     logger.info("机器人服务已关闭")
+
+
+# 坐席辅助服务启动/关闭步骤
+async def _init_assist_ws_pool(app: FastAPI) -> None:
+    """初始化 WebSocket 连接池"""
+    app.state.assist_ws_connections = {}
+
+
+async def _close_assist_ws_pool(app: FastAPI) -> None:
+    """清理 WebSocket 连接池"""
+    ws_pool: dict = getattr(app.state, "assist_ws_connections", {})
+    for ws in list(ws_pool.values()):
+        try:
+            await ws.close()
+        except Exception:
+            pass
+    ws_pool.clear()
+
+
+_ASSIST_INIT_STEPS = [
+    init_db,
+    init_redis,
+    init_elasticsearch,
+    init_milvus,
+    init_minio,
+    init_embedding,
+    init_reranker,
+    init_grpc_channels,
+    init_llm,
+    init_session_manager,
+    init_classifier,
+    init_assist_orchestrator,
+    init_state_manager,
+    init_temporal_client,
+    init_temporal_worker,
+    _init_assist_ws_pool,
+]
+
+_ASSIST_CLOSE_STEPS = [
+    _close_assist_ws_pool,
+    close_temporal_worker,
+    close_temporal_client,
+    close_state_manager,
+    close_assist_orchestrator,
+    close_classifier,
+    close_session_manager,
+    close_llm,
+    close_grpc_channels,
+    close_reranker,
+    close_embedding,
+    close_minio,
+    close_milvus,
+    close_elasticsearch,
+    close_redis,
+    close_db,
+]
 
 
 @asynccontextmanager
@@ -107,33 +215,30 @@ async def assist_lifespan(app: FastAPI):
     logger = setup_logger("smartcs.assist", settings.log_level, json_format=settings.environment == "production")
     logger.info("坐席辅助服务启动中...")
 
-    await init_db(app)
-    await init_redis(app)
-    await init_elasticsearch(app)
-    await init_milvus(app)
-    await init_minio(app)
-    await init_embedding(app)
-    await init_reranker(app)
-    await init_grpc_channels(app)
-    await init_llm(app)
-    await init_session_manager(app)
-    await init_assist_orchestrator(app)
-    logger.info("坐席辅助服务就绪")
+    initialized: list[tuple[str, object]] = []
+    try:
+        for step in _ASSIST_INIT_STEPS:
+            await step(app)
+            initialized.append((step.__name__, app))
+        logger.info("坐席辅助服务就绪")
+    except Exception:
+        # 启动失败：按逆序清理已初始化的资源，避免泄漏
+        logger.exception("坐席辅助服务启动失败，正在清理已初始化的资源...")
+        for step_name, _ in reversed(initialized):
+            close_fn_name = step_name.replace("init_", "close_").replace("start_", "stop_")
+            for close_step in _ASSIST_CLOSE_STEPS:
+                if close_step.__name__ == close_fn_name:
+                    with _suppress_exceptions(logger):
+                        await close_step(app)
+                    break
+        raise
 
     yield
 
     logger.info("坐席辅助服务关闭中...")
-    await close_assist_orchestrator(app)
-    await close_session_manager(app)
-    await close_llm(app)
-    await close_grpc_channels(app)
-    await close_reranker(app)
-    await close_embedding(app)
-    await close_minio(app)
-    await close_milvus(app)
-    await close_elasticsearch(app)
-    await close_redis(app)
-    await close_db(app)
+    for step in _ASSIST_CLOSE_STEPS:
+        with _suppress_exceptions(logger):
+            await step(app)
     logger.info("坐席辅助服务已关闭")
 
 
@@ -149,4 +254,4 @@ register_exception_handlers(assist_app)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("smartcs.main:bot_app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("smartcs.main:bot_app", host=get_settings().service_host, port=8000, reload=True)

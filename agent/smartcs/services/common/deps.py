@@ -10,7 +10,10 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
-from fastapi import Depends, Request
+from elasticsearch import AsyncElasticsearch
+from fastapi import Depends, FastAPI, Request
+from minio import Minio
+from pymilvus import Collection
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +37,7 @@ from smartcs.services.common.reranker import (
 )
 from smartcs.services.common.session import SessionManager
 from smartcs.services.common.star_client import StarConnectionClient
+from smartcs.services.common.state_manager import StateManager
 from smartcs.services.common.transfer import TransferChecker
 from smartcs.shared.config import get_settings
 
@@ -61,7 +65,7 @@ DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 RedisClient = Annotated[Redis, Depends(get_redis_client)]
 
 
-async def init_embedding(app) -> None:
+async def init_embedding(app: FastAPI) -> None:
     """初始化嵌入服务，存储到 app.state"""
     settings = get_settings()
     ollama_base = settings.llm.base_url.replace("/v1", "").rstrip("/")
@@ -83,9 +87,9 @@ async def init_embedding(app) -> None:
         if actual_dim != settings.milvus.vector_dim:
             raise RuntimeError(f"嵌入维度不匹配: 模型输出 {actual_dim} 维, Milvus 配置 {settings.milvus.vector_dim} 维")
     except Exception as e:
-        import logging
-
-        logging.getLogger(__name__).warning(f"嵌入服务维度自检失败: {e}")
+        _logger.warning("嵌入服务维度自检失败: %s", e)
+        if settings.environment != "development":
+            raise
 
     breaker = EmbeddingCircuitBreaker(provider)
     await breaker.start_probe()
@@ -93,14 +97,14 @@ async def init_embedding(app) -> None:
     app.state.embedding_provider = provider
 
 
-async def close_embedding(app) -> None:
+async def close_embedding(app: FastAPI) -> None:
     """关闭嵌入服务"""
     breaker: EmbeddingCircuitBreaker | None = getattr(app.state, "embedding_breaker", None)
     if breaker:
         await breaker.stop_probe()
 
 
-async def init_reranker(app) -> None:
+async def init_reranker(app: FastAPI) -> None:
     """初始化重排服务，存储到 app.state"""
     settings = get_settings()
     ollama_base = settings.llm.base_url.replace("/v1", "").rstrip("/")
@@ -114,12 +118,12 @@ async def init_reranker(app) -> None:
     app.state.reranker_provider = provider
 
 
-async def close_reranker(app) -> None:
+async def close_reranker(app: FastAPI) -> None:
     """关闭重排服务（无需特殊清理）"""
     pass
 
 
-async def init_elasticsearch(app) -> None:
+async def init_elasticsearch(app: FastAPI) -> None:
     """初始化 Elasticsearch 异步客户端，存储到 app.state"""
     from elasticsearch import AsyncElasticsearch
 
@@ -133,12 +137,11 @@ async def init_elasticsearch(app) -> None:
         await client.ping()
         app.state.es_client = client
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("Elasticsearch 连接失败，将使用降级模式: %s", e)
+        _logger.warning("Elasticsearch 连接失败，将使用降级模式: %s", e)
         app.state.es_client = None
 
 
-async def close_elasticsearch(app) -> None:
+async def close_elasticsearch(app: FastAPI) -> None:
     """关闭 Elasticsearch 客户端"""
     client = getattr(app.state, "es_client", None)
     if client:
@@ -146,7 +149,7 @@ async def close_elasticsearch(app) -> None:
         app.state.es_client = None
 
 
-async def init_milvus(app) -> None:
+async def init_milvus(app: FastAPI) -> None:
     """初始化 Milvus Collection，存储到 app.state"""
     from pymilvus import Collection, connections
 
@@ -161,12 +164,11 @@ async def init_milvus(app) -> None:
         collection.load()
         app.state.milvus_collection = collection
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("Milvus 连接失败，将使用降级模式: %s", e)
+        _logger.warning("Milvus 连接失败，将使用降级模式: %s", e)
         app.state.milvus_collection = None
 
 
-async def close_milvus(app) -> None:
+async def close_milvus(app: FastAPI) -> None:
     """关闭 Milvus 连接"""
     from pymilvus import connections
 
@@ -177,7 +179,7 @@ async def close_milvus(app) -> None:
         app.state.milvus_collection = None
 
 
-async def init_minio(app) -> None:
+async def init_minio(app: FastAPI) -> None:
     """初始化 MinIO 客户端，存储到 app.state"""
     from minio import Minio
 
@@ -193,12 +195,11 @@ async def init_minio(app) -> None:
             client.make_bucket(settings.minio.bucket)
         app.state.minio_client = client
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("MinIO 连接失败: %s", e)
+        _logger.warning("MinIO 连接失败: %s", e)
         app.state.minio_client = None
 
 
-async def close_minio(app) -> None:
+async def close_minio(app: FastAPI) -> None:
     """关闭 MinIO 客户端（无需特殊清理）"""
     app.state.minio_client = None
 
@@ -218,17 +219,17 @@ def get_reranker_provider(request: Request) -> RerankerProvider:
     return request.app.state.reranker_provider
 
 
-def get_es_client(request: Request) -> Any:
+def get_es_client(request: Request) -> AsyncElasticsearch | None:
     """获取 Elasticsearch 客户端（FastAPI 依赖注入）"""
     return getattr(request.app.state, "es_client", None)
 
 
-def get_milvus_collection(request: Request) -> Any:
+def get_milvus_collection(request: Request) -> Collection | None:
     """获取 Milvus Collection（FastAPI 依赖注入）"""
     return getattr(request.app.state, "milvus_collection", None)
 
 
-def get_minio_client(request: Request) -> Any:
+def get_minio_client(request: Request) -> Minio | None:
     """获取 MinIO 客户端（FastAPI 依赖注入）"""
     return getattr(request.app.state, "minio_client", None)
 
@@ -236,7 +237,7 @@ def get_minio_client(request: Request) -> Any:
 # ── LLM 客户端 ──
 
 
-async def init_llm(app) -> None:
+async def init_llm(app: FastAPI) -> None:
     """初始化 LLM 客户端，存储到 app.state"""
     settings = get_settings()
     breaker = LLMCircuitBreaker()
@@ -245,7 +246,7 @@ async def init_llm(app) -> None:
     app.state.llm_breaker = breaker
 
 
-async def close_llm(app) -> None:
+async def close_llm(app: FastAPI) -> None:
     """关闭 LLM 客户端（无需特殊清理）"""
     app.state.llm_client = None
 
@@ -258,7 +259,7 @@ def get_llm_client(request: Request) -> LLMClient:
 # ── 健康监控 ──
 
 
-async def init_health_monitor(app) -> None:
+async def init_health_monitor(app: FastAPI) -> None:
     """初始化健康监控器，存储到 app.state"""
     llm_client = app.state.llm_client
     breaker = app.state.llm_breaker
@@ -276,7 +277,7 @@ async def init_health_monitor(app) -> None:
     app.state.health_monitor = monitor
 
 
-async def close_health_monitor(app) -> None:
+async def close_health_monitor(app: FastAPI) -> None:
     """关闭健康监控器"""
     monitor = getattr(app.state, "health_monitor", None)
     if monitor:
@@ -292,7 +293,7 @@ def get_health_monitor(request: Request) -> HealthMonitor:
 # ── 降级管理 ──
 
 
-async def init_degradation_manager(app) -> None:
+async def init_degradation_manager(app: FastAPI) -> None:
     """初始化降级管理器，存储到 app.state"""
     llm_client = app.state.llm_client
     health_monitor = app.state.health_monitor
@@ -305,7 +306,7 @@ async def init_degradation_manager(app) -> None:
     app.state.degradation_manager = mgr
 
 
-async def close_degradation_manager(app) -> None:
+async def close_degradation_manager(app: FastAPI) -> None:
     """关闭降级管理器（无需特殊清理）"""
     app.state.degradation_manager = None
 
@@ -318,13 +319,13 @@ def get_degradation_manager(request: Request) -> DegradationManager:
 # ── 会话管理 ──
 
 
-async def init_session_manager(app) -> None:
+async def init_session_manager(app: FastAPI) -> None:
     """初始化会话管理器，存储到 app.state"""
     redis = get_redis(app)
     app.state.session_manager = SessionManager(redis)
 
 
-async def close_session_manager(app) -> None:
+async def close_session_manager(app: FastAPI) -> None:
     """关闭会话管理器（无需特殊清理）"""
     app.state.session_manager = None
 
@@ -337,7 +338,7 @@ def get_session_manager(request: Request) -> SessionManager:
 # ── 分类器 ──
 
 
-async def init_classifier(app) -> None:
+async def init_classifier(app: FastAPI) -> None:
     """初始化意图分类器，存储到 app.state"""
     llm_client: LLMClient = app.state.llm_client
     rule_classifier = RuleClassifier()
@@ -351,7 +352,7 @@ async def init_classifier(app) -> None:
     app.state.classifier = classifier
 
 
-async def close_classifier(app) -> None:
+async def close_classifier(app: FastAPI) -> None:
     """关闭分类器（无需特殊清理）"""
     app.state.classifier = None
 
@@ -364,7 +365,7 @@ def get_classifier(request: Request) -> IntentClassifier:
 # ── 转人工检查 ──
 
 
-async def init_transfer_checker(app) -> None:
+async def init_transfer_checker(app: FastAPI) -> None:
     """初始化转人工检查器，存储到 app.state"""
     app.state.transfer_checker = TransferChecker()
 
@@ -377,7 +378,7 @@ def get_transfer_checker(request: Request) -> TransferChecker:
 # ── Agent ──
 
 
-async def init_agent(app) -> None:
+async def init_agent(app: FastAPI) -> None:
     """初始化对话 Agent，存储到 app.state"""
     from smartcs.services.bot.agent import SmartCSAgent
 
@@ -403,12 +404,12 @@ async def init_agent(app) -> None:
     _logger.info("对话 Agent 初始化完成")
 
 
-async def close_agent(app) -> None:
+async def close_agent(app: FastAPI) -> None:
     """关闭 Agent（无需特殊清理）"""
     app.state.agent = None
 
 
-def get_agent(request: Request) -> Any:
+def get_agent(request: Request) -> Any:  # noqa: ANN401 — SmartCSAgent is constructed dynamically
     """获取对话 Agent（FastAPI 依赖注入）"""
     return request.app.state.agent
 
@@ -416,7 +417,7 @@ def get_agent(request: Request) -> Any:
 # ── 坐席辅助编排器 ──
 
 
-async def init_assist_orchestrator(app) -> None:
+async def init_assist_orchestrator(app: FastAPI) -> None:
     """初始化坐席辅助编排器"""
     from smartcs.services.assist.agent import AssistOrchestrator
     from smartcs.services.assist.alert_engine import AlertEngine
@@ -450,6 +451,7 @@ async def init_assist_orchestrator(app) -> None:
     es_client = getattr(app.state, "es_client", None)
     milvus_col = getattr(app.state, "milvus_collection", None)
     embedding_provider = getattr(app.state, "embedding_provider", None)
+    embedding_breaker = getattr(app.state, "embedding_breaker", None)
     reranker = getattr(app.state, "reranker_provider", None)
 
     llm_client = getattr(app.state, "llm_client", None)
@@ -462,13 +464,14 @@ async def init_assist_orchestrator(app) -> None:
         es_client=es_client,
         milvus_collection=milvus_col,
         embedding_provider=embedding_provider,
+        embedding_breaker=embedding_breaker,
         reranker=reranker,
     )
     app.state.assist_orchestrator = orchestrator
     _logger.info("坐席辅助编排器初始化完成")
 
 
-async def close_assist_orchestrator(app) -> None:
+async def close_assist_orchestrator(app: FastAPI) -> None:
     """关闭坐席辅助编排器"""
     app.state.assist_orchestrator = None
 
@@ -476,12 +479,13 @@ async def close_assist_orchestrator(app) -> None:
 # ── star-connection 客户端 ──
 
 
-async def init_star_client(app) -> None:
+async def init_star_client(app: FastAPI) -> None:
     """初始化 star-connection HTTP 客户端，存储到 app.state"""
-    app.state.star_client = StarConnectionClient(base_url="http://localhost:8080")
+    settings = get_settings()
+    app.state.star_client = StarConnectionClient(base_url=settings.star_connection_url)
 
 
-async def close_star_client(app) -> None:
+async def close_star_client(app: FastAPI) -> None:
     """关闭 star-connection 客户端"""
     app.state.star_client = None
 
@@ -491,20 +495,100 @@ def get_star_client(request: Request) -> StarConnectionClient:
     return request.app.state.star_client
 
 
+# ── CAS 状态管理器 ──
+
+
+async def init_state_manager(app: FastAPI) -> None:
+    """初始化 CAS 状态管理器"""
+    redis = get_redis(app)
+    settings = get_settings()
+    app.state.state_manager = StateManager(redis=redis, ttl=settings.session.ttl_seconds)
+
+
+async def close_state_manager(app: FastAPI) -> None:
+    """关闭 CAS 状态管理器"""
+    app.state.state_manager = None
+
+
+def get_state_manager(request: Request) -> StateManager:
+    """获取 CAS 状态管理器（FastAPI 依赖注入）"""
+    return request.app.state.state_manager
+
+
+# ── Temporal Client ──
+
+
+async def init_temporal_client(app: FastAPI) -> None:
+    """初始化 Temporal Client"""
+    from smartcs.workflows.temporal_client import get_temporal_client
+
+    try:
+        client = await get_temporal_client()
+        app.state.temporal_client = client
+    except Exception as e:
+        _logger.warning("Temporal Client 连接失败: %s，将使用同步编排降级", e)
+        app.state.temporal_client = None
+
+
+async def close_temporal_client(app: FastAPI) -> None:
+    """关闭 Temporal Client"""
+    from smartcs.workflows.temporal_client import close_temporal_client
+
+    await close_temporal_client()
+    app.state.temporal_client = None
+
+
+def get_temporal_client_dep(request: Request):
+    """获取 Temporal Client（FastAPI 依赖注入）"""
+    return getattr(request.app.state, "temporal_client", None)
+
+
+# ── Temporal Worker ──
+
+
+async def init_temporal_worker(app: FastAPI) -> None:
+    """启动 Temporal Worker"""
+    client = getattr(app.state, "temporal_client", None)
+    if client is None:
+        _logger.warning("Temporal Client 不可用，跳过 Worker 启动")
+        app.state.temporal_worker_task = None
+        return
+    from smartcs.workflows.worker import start_worker
+
+    task = await start_worker(client)
+    app.state.temporal_worker_task = task
+
+
+async def close_temporal_worker(app: FastAPI) -> None:
+    """关闭 Temporal Worker"""
+    from smartcs.workflows.worker import stop_worker
+
+    task = getattr(app.state, "temporal_worker_task", None)
+    await stop_worker(task)
+    app.state.temporal_worker_task = None
+
+
 # ── 类型别名 ──
 
 EmbeddingProviderDep = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
 EmbeddingBreakerDep = Annotated[EmbeddingCircuitBreaker, Depends(get_embedding_breaker)]
 RerankerProviderDep = Annotated[RerankerProvider, Depends(get_reranker_provider)]
-ESClientDep = Annotated[Any, Depends(get_es_client)]
-MilvusCollectionDep = Annotated[Any, Depends(get_milvus_collection)]
-MinioClientDep = Annotated[Any, Depends(get_minio_client)]
+ESClientDep = Annotated[AsyncElasticsearch | None, Depends(get_es_client)]
+MilvusCollectionDep = Annotated[Collection | None, Depends(get_milvus_collection)]
+MinioClientDep = Annotated[Minio | None, Depends(get_minio_client)]
 LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
 SessionManagerDep = Annotated[SessionManager, Depends(get_session_manager)]
 ClassifierDep = Annotated[IntentClassifier, Depends(get_classifier)]
 TransferCheckerDep = Annotated[TransferChecker, Depends(get_transfer_checker)]
-AgentDep = Annotated[Any, Depends(get_agent)]
+AgentDep = Annotated[Any, Depends(get_agent)]  # noqa: ANN401
 HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
 DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
-AssistOrchestratorDep = Annotated[Any, Depends(lambda r: r.app.state.assist_orchestrator)]
+def get_assist_orchestrator_dep(request: Request) -> Any:  # noqa: ANN401
+    """获取坐席辅助编排器（FastAPI 依赖注入）"""
+    return request.app.state.assist_orchestrator
+
+
+AssistOrchestratorDep = Annotated[Any, Depends(get_assist_orchestrator_dep)]  # noqa: ANN401
 StarClientDep = Annotated[StarConnectionClient, Depends(get_star_client)]
+StateManagerDep = Annotated[StateManager, Depends(get_state_manager)]
+TemporalClientDep = Annotated[Any, Depends(get_temporal_client_dep)]  # noqa: ANN401
