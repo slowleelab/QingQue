@@ -208,7 +208,7 @@ services:
     container_name: smartcs-postgres-exporter
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: "postgresql://smartcs:smartcs_pass@postgres:5432/smartcs?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://smartcs:${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}@postgres:5432/smartcs?sslmode=disable"
     ports:
       - "9187:9187"
     depends_on:
@@ -276,7 +276,7 @@ services:
     container_name: smartcs-zk
     restart: unless-stopped
     environment:
-      ZOO_4LW_COMMANDS_WHITELIST: "*"
+      ZOO_4LW_COMMANDS_WHITELIST: "srvr,ruok,cons"
     ports:
       - "2182:2181"
     networks:
@@ -295,6 +295,40 @@ services:
       - ../web/dist:/usr/share/nginx/html:ro
     depends_on:
       - prometheus
+    networks:
+      - smartcs-net
+
+  # ── Temporal Server ─────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: smartcs-temporal
+    restart: unless-stopped
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=smartcs
+      - POSTGRES_PWD=${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - smartcs-net
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: smartcs-temporal-ui
+    restart: unless-stopped
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=*
+    ports:
+      - "8085:8080"
+    depends_on:
+      - temporal
     networks:
       - smartcs-net
 
