@@ -9,8 +9,7 @@ import pytest
 
 from smartcs.services.common.llm import LLMCircuitBreaker, LLMClient
 from smartcs.shared.config import LLMSettings
-from smartcs.shared.exceptions import LLMInferenceError, LLMTimeoutError
-
+from smartcs.shared.exceptions import LLMInferenceError
 
 # ── LLMCircuitBreaker ──
 

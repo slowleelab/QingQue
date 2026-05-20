@@ -238,7 +238,7 @@ class EmbeddingCircuitBreaker:
         self._probe_interval = probe_interval
         self._failure_threshold = failure_threshold
         self._recovery_threshold = recovery_threshold
-        self._is_open = False
+        self._is_open = True  # 初始假定不可用，首次探测成功后关闭
         self._consecutive_failures = 0
         self._consecutive_successes = 0
         self._probe_task: asyncio.Task[None] | None = None

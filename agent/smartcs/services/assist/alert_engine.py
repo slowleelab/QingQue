@@ -9,7 +9,7 @@ import logging
 import re
 from typing import Any
 
-from smartcs.shared.models import AlertCategory, AlertLevel, SentimentLabel
+from smartcs.shared.models import AlertLevel, SentimentLabel
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ class AlertEngine:
 
     async def load_from_db(self, db_session) -> None:
         from sqlalchemy import select
+
         from smartcs.shared.orm_models import AlertRule, ScriptStatus
 
         result = await db_session.execute(

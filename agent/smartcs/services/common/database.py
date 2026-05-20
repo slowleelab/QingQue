@@ -47,4 +47,8 @@ async def get_db(app: FastAPI) -> AsyncGenerator[AsyncSession, None]:
     """获取数据库会话（依赖注入用）"""
     session_factory: async_sessionmaker[AsyncSession] = app.state.db_session_factory
     async with session_factory() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise

@@ -28,14 +28,14 @@ RUN groupadd -r smartcs && useradd -r -g smartcs smartcs
 COPY --from=builder /app/.venv /app/.venv
 
 # 拷贝应用代码
-COPY src/ /app/src/
+COPY smartcs/ /app/smartcs/
 
 # 拷贝配置文件
 COPY config/ /app/config/
 
 # 设置环境变量
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app/src:$PYTHONPATH" \
+    PYTHONPATH="/app:$PYTHONPATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 

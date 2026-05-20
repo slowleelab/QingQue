@@ -33,6 +33,8 @@ export const useChatStore = defineStore("chat", () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sender: "customer", content: text }),
           })
+          // 更新游标：避免轮询拉回自己刚发的消息
+          lastAgentTimestamp = Date.now()
         }
         isLoading.value = false
         return
@@ -74,6 +76,7 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   let agentPollActive = false
+  let lastAgentTimestamp = 0  // 游标：只拉取该时间戳之后的消息
 
   async function startAgentPolling() {
     if (agentPollActive) return
@@ -82,10 +85,14 @@ export const useChatStore = defineStore("chat", () => {
       try {
         const sid = transferUrl.value.match(/session_id=([^&]+)/)?.[1]
         if (!sid) break
-        const resp = await fetch("/api/star/sessions/" + sid + "/poll?timeout=25000")
+        const url = `/api/star/sessions/${sid}/poll?timeout=25000&since=${lastAgentTimestamp}`
+        const resp = await fetch(url)
         if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
         const msgs: Array<{ sender: string; content: string; messageId: string; timestamp: number }> = await resp.json()
         for (const m of msgs) {
+          if (m.timestamp > lastAgentTimestamp) {
+            lastAgentTimestamp = m.timestamp
+          }
           if (m.sender === "agent" && !seenMessageIds.has(m.messageId)) {
             seenMessageIds.add(m.messageId)
             messages.value.push({
@@ -107,6 +114,7 @@ export const useChatStore = defineStore("chat", () => {
     transferUrl.value = null
     agentConnected.value = false
     agentPollActive = false
+    lastAgentTimestamp = 0
     seenMessageIds.clear()
   }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
-import pytest
+
 from smartcs.services.common.star_client import StarConnectionClient
+
 
 def test_client_has_base_url():
     c = StarConnectionClient(base_url="http://localhost:8080")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from smartcs.services.assist.script_service import ScriptService
 from smartcs.shared.models import IntentLabel
 

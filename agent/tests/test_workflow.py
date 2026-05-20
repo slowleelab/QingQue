@@ -1,19 +1,25 @@
 """编排引擎 Workflow 单元测试
 
-测试纯逻辑方法 _apply_policies 和 _arbitrate。
-Workflow 完整流程需要 Temporal Server，在集成测试中覆盖。
+测试纯逻辑方法 _apply_policies 和 GlobalArbitrator。
+M2: 仲裁逻辑统一使用 GlobalArbitrator，移除重复仲裁。
 """
 from __future__ import annotations
 
 import pytest
 
+from smartcs.services.assist.arbitrator import GlobalArbitrator
 from smartcs.workflows.orchestration_workflow import OrchestrationWorkflow
-from smartcs.workflows.shared import EvaluatorOutput, ExecutorOutput, OrchestrationResult
+from smartcs.workflows.shared import EvaluatorOutput, ExecutorOutput
 
 
 @pytest.fixture
 def workflow():
     return OrchestrationWorkflow()
+
+
+@pytest.fixture
+def arbitrator():
+    return GlobalArbitrator()
 
 
 class TestApplyPolicies:
@@ -52,9 +58,10 @@ class TestApplyPolicies:
 
 
 class TestArbitrate:
-    """优先级融合展示规则（§3.5）"""
+    """优先级融合展示规则（§3.5）— 使用 GlobalArbitrator"""
 
-    def test_risk_block_fusion(self, workflow):
+    @pytest.mark.asyncio
+    async def test_risk_block_fusion(self, arbitrator):
         """风控 BLOCK: 主卡片=风控拦截, 营销=不展示"""
         results = {
             "risk": ExecutorOutput(
@@ -71,12 +78,13 @@ class TestArbitrate:
                 ui_schema={"marketing_cards": [{"name": "产品"}]},
             ),
         }
-        result = workflow._arbitrate(results)
+        result = await arbitrator.arbitrate(results)
         assert result.fusion_type == "risk_blocked"
         assert result.marketing_slot is None
         assert result.primary_card["type"] == "risk_block"
 
-    def test_risk_warn_fusion(self, workflow):
+    @pytest.mark.asyncio
+    async def test_risk_warn_fusion(self, arbitrator):
         """风控 WARN: 主卡片=服务, 风险标记=徽章, 营销=降级小卡片"""
         results = {
             "risk": ExecutorOutput(
@@ -93,14 +101,15 @@ class TestArbitrate:
                 ui_schema={"marketing_cards": [{"name": "产品"}]},
             ),
         }
-        result = workflow._arbitrate(results)
+        result = await arbitrator.arbitrate(results)
         assert result.fusion_type == "service_risk_warn"
         assert result.risk_badge is not None
         assert result.risk_badge["type"] == "risk_badge"
         assert result.marketing_slot is not None
         assert result.marketing_slot["type"] == "marketing_small"
 
-    def test_risk_pass_fusion(self, workflow):
+    @pytest.mark.asyncio
+    async def test_risk_pass_fusion(self, arbitrator):
         """风控 PASS: 主卡片=服务, 营销=标准展示"""
         results = {
             "risk": ExecutorOutput(
@@ -117,12 +126,13 @@ class TestArbitrate:
                 ui_schema={"marketing_cards": [{"name": "产品"}]},
             ),
         }
-        result = workflow._arbitrate(results)
+        result = await arbitrator.arbitrate(results)
         assert result.fusion_type == "service_marketing"
         assert result.marketing_slot is not None
         assert result.marketing_slot["type"] == "marketing_standard"
 
-    def test_service_only_fusion(self, workflow):
+    @pytest.mark.asyncio
+    async def test_service_only_fusion(self, arbitrator):
         """只有服务结果，无营销"""
         results = {
             "risk": ExecutorOutput(
@@ -135,16 +145,18 @@ class TestArbitrate:
                 ui_schema={"scripts": [{"content": "话术"}]},
             ),
         }
-        result = workflow._arbitrate(results)
+        result = await arbitrator.arbitrate(results)
         assert result.fusion_type == "service_only"
         assert result.marketing_slot is None
 
-    def test_empty_results(self, workflow):
+    @pytest.mark.asyncio
+    async def test_empty_results(self, arbitrator):
         """无执行结果"""
-        result = workflow._arbitrate({})
+        result = await arbitrator.arbitrate({})
         assert result.fusion_type == "service_only"
 
-    def test_risk_only_block(self, workflow):
+    @pytest.mark.asyncio
+    async def test_risk_only_block(self, arbitrator):
         """只有风控 BLOCK 结果"""
         results = {
             "risk": ExecutorOutput(
@@ -153,6 +165,6 @@ class TestArbitrate:
                 ui_schema={"action": "BLOCK"},
             ),
         }
-        result = workflow._arbitrate(results)
+        result = await arbitrator.arbitrate(results)
         assert result.fusion_type == "risk_blocked"
         assert result.marketing_slot is None

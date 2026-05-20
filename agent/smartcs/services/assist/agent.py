@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from datetime import datetime
@@ -16,12 +17,10 @@ from smartcs.services.assist.product_catalog import ProductCatalog
 from smartcs.services.assist.script_service import ScriptService
 from smartcs.shared.config import get_settings
 from smartcs.shared.models import (
-    AlertObject,
     AssistPushMessage,
     AssistPushPayload,
     IntentLabel,
     KnowledgeSnippet,
-    ProductRecommendation,
     ScriptCard,
     SentimentLabel,
 )
@@ -44,6 +43,7 @@ class AssistOrchestrator:
         es_client=None,
         milvus_collection=None,
         embedding_provider=None,
+        embedding_breaker=None,
         reranker=None,
     ) -> None:
         self._script_service = script_service
@@ -53,6 +53,7 @@ class AssistOrchestrator:
         self._es_client = es_client
         self._milvus_collection = milvus_collection
         self._embedding_provider = embedding_provider
+        self._embedding_breaker = embedding_breaker
         self._reranker = reranker
         self._last_push: dict[str, float] = {}
         self._settings = get_settings().assist
@@ -135,14 +136,13 @@ class AssistOrchestrator:
         result = []
         for s in scripts:
             resolved = self._script_service.resolve_variables(s, variables)
-            if self._llm_client:
-                try:
+            # LLM 润色仅在 LLM 可用且超时充裕时执行
+            if self._llm_client and self._settings.script_timeout_ms > 1000:
+                with contextlib.suppress(Exception):
                     resolved = await self._script_service.polish(
                         resolved, context, self._llm_client,
                         timeout_ms=self._settings.script_timeout_ms - 50,
                     )
-                except Exception:
-                    pass
             result.append({
                 "script_id": s["script_id"],
                 "content": resolved,
@@ -155,13 +155,26 @@ class AssistOrchestrator:
         if not self._es_client:
             return []
         try:
-            from smartcs.shared.models import RetrieveRequest
             from smartcs.services.common.retrieval import retrieve
+            from smartcs.shared.models import RetrieveRequest
+
+            # 如果 embedding 不可用，直接用 BM25 避免等待 HTTP 超时
+            embedding_ok = (
+                self._embedding_provider is not None
+                and getattr(self, "_embedding_breaker", None) is not None
+                and self._embedding_breaker.is_available
+            )
+            search_type = "hybrid" if embedding_ok else "bm25_only"
+            logger.debug(
+                "knowledge branch: embedding_ok=%s search_type=%s query=%s",
+                embedding_ok, search_type, message[:30],
+            )
 
             req = RetrieveRequest(
                 query=message,
                 top_k=self._settings.max_knowledge_per_push,
-                rerank=True,
+                rerank=embedding_ok,  # embedding 不可用时也不做 rerank
+                search_type=search_type,
             )
             resp = await retrieve(
                 request=req,
@@ -227,7 +240,7 @@ async def _parallel_dispatch(
             if timeout > 0:
                 return await asyncio.wait_for(coro, timeout=timeout)
             return await coro
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("分支 %s 超时 (%.1fs)，触发降级", label, timeout)
             return default
         except Exception as e:

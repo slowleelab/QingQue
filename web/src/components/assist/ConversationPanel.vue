@@ -64,7 +64,7 @@ import MessageBubble from "@/components/chat/MessageBubble.vue"
 import type { SessionPhase } from "@/api/types"
 
 const assistStore = useAssistStore()
-useWebSocket(computed(() => assistStore.activeSessionId))
+useWebSocket(computed(() => assistStore.activeSessionId))  // 接收 SmartCS 推送
 
 const inputText = ref("")
 const messageListRef = ref<HTMLElement | null>(null)
@@ -109,6 +109,8 @@ async function handleSend() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sender: "agent", content: text }),
     })
+    // 更新游标：避免轮询拉回自己刚发的消息
+    lastPollTimestamp = Date.now()
   } catch { /* star-connection 不可用时静默 */ }
 
   scrollToBottom()
@@ -121,22 +123,25 @@ async function scrollToBottom() {
   }
 }
 
-// HTTP 长轮询 star-connection 获取新消息
+// HTTP 长轮询 star-connection 获取新消息（基于时间戳游标，非消费性读取）
+// 注意：AI 分析由 star-connection 回调 SmartCS 服务端完成，前端不参与分析链路
 let pollActive = false
-const seenMsgIds = new Set<string>()
+let lastPollTimestamp = 0  // 游标，只拉取该时间戳之后的消息
 
 async function pollMessages(sessionId: string) {
   pollActive = true
+  lastPollTimestamp = 0  // 切换会话时重置游标
   while (pollActive && assistStore.activeSessionId === sessionId) {
     try {
-      const resp = await fetch(`/api/star/sessions/${sessionId}/poll?timeout=25000`)
+      const url = `/api/star/sessions/${sessionId}/poll?timeout=25000&since=${lastPollTimestamp}`
+      const resp = await fetch(url)
       if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
-      const msgs: Array<{ sender: string; content: string; messageId: string }> = await resp.json()
+      const msgs: Array<{ sender: string; content: string; messageId: string; timestamp: number }> = await resp.json()
       for (const m of msgs) {
-        if (!seenMsgIds.has(m.messageId)) {
-          seenMsgIds.add(m.messageId)
-          assistStore.addMessage(sessionId, m.sender === "agent" ? "agent" : "customer", m.content)
+        if (m.timestamp > lastPollTimestamp) {
+          lastPollTimestamp = m.timestamp
         }
+        assistStore.addMessage(sessionId, m.sender === "agent" ? "agent" : "customer", m.content)
       }
     } catch { await new Promise(r => setTimeout(r, 1000)) }
   }
@@ -144,7 +149,7 @@ async function pollMessages(sessionId: string) {
 
 watch(() => assistStore.activeSessionId, (newId) => {
   pollActive = false
-  seenMsgIds.clear()
+  lastPollTimestamp = 0
   if (newId) {
     setTimeout(() => pollMessages(newId), 0)
   }

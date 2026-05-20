@@ -6,7 +6,6 @@ DAG 节点:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import Any, TypedDict
@@ -23,12 +22,14 @@ class DAGState(TypedDict, total=False):
     message: str
     intent: str
     sentiment: str
-    confidence: float
+    confidence: float  # 意图分类置信度（仅用于日志）
     state_snapshot: dict[str, Any]
     trace_id: str
     # 通路选择
     path: str  # "fast" | "deep"
     fast_path_hit: bool
+    # 脚本检索 Top1 得分（用于快速通路判断）
+    top1_score: float
     # 快速通路结果
     fast_script: dict[str, Any]
     # 深度通路: RAG 候选
@@ -134,8 +135,8 @@ class AIExecutorDAG:
     # ── 路由函数 ──
 
     def _route_by_confidence(self, state: DAGState) -> str:
-        """Top1 得分 > 0.9 → 快速通路"""
-        return "fast" if state.get("confidence", 0) > 0.9 else "deep"
+        """Top1 检索得分 > 0.9 → 快速通路"""
+        return "fast" if state.get("top1_score", 0) > 0.9 else "deep"
 
     def _route_by_firewall(self, state: DAGState) -> str:
         """合规防火墙放行/拦截路由"""
@@ -144,11 +145,11 @@ class AIExecutorDAG:
     # ── DAG 节点 ──
 
     async def _check_fast(self, state: DAGState) -> dict:
-        """快速通路判断节点"""
-        return {"path": "fast" if state.get("confidence", 0) > 0.9 else "deep"}
+        """快速通路判断节点
 
-    async def _fast_retrieval(self, state: DAGState) -> dict:
-        """标准话术直接命中"""
+        对应文档 §2: 先执行脚本检索，判断 Top1 得分 > 0.9 走快速通路。
+        注意: 这里用的是检索 Top1 得分，不是意图分类置信度。
+        """
         from smartcs.shared.models import IntentLabel
 
         try:
@@ -156,18 +157,66 @@ class AIExecutorDAG:
         except ValueError:
             intent = IntentLabel.FAQ
 
+        # 执行脚本检索，获取 Top1 得分
         scripts = self._script_service.retrieve(intent, top_k=1)
+        top1_score = 0.0
+        fast_script = {}
         if scripts:
-            return {"fast_script": scripts[0], "fast_path_hit": True}
-        return {"fast_script": {}, "fast_path_hit": False}
+            top1_score = scripts[0].get("score", 0.0) if isinstance(scripts[0], dict) else 0.0
+            fast_script = scripts[0] if isinstance(scripts[0], dict) else {}
+
+        # Top1 > 0.9 → 快速通路（直接命中标准话术）
+        path = "fast" if top1_score > 0.9 else "deep"
+        logger.debug(
+            "CheckFast: session=%s intent=%s top1_score=%.3f path=%s",
+            state.get("session_id"), state.get("intent"), top1_score, path,
+        )
+        return {
+            "path": path,
+            "top1_score": top1_score,
+            "fast_script": fast_script,
+            "fast_path_hit": top1_score > 0.9,
+        }
+
+    async def _fast_retrieval(self, state: DAGState) -> dict:
+        """快速通路结果传递
+
+        _check_fast 已完成脚本检索并设置 fast_script，
+        此节点仅做 LLM 润色（可选）。
+        """
+        fast_script = state.get("fast_script", {})
+        if not fast_script:
+            return {"fast_path_hit": False}
+
+        # LLM 润色（如果 LLM 可用）
+        if self._llm and fast_script.get("content"):
+            try:
+                resolved = await self._script_service.polish(
+                    fast_script,
+                    state.get("message", ""),
+                    self._llm,
+                    timeout_ms=450,
+                )
+                fast_script = {**fast_script, "content": resolved}
+            except Exception:
+                pass  # 润色失败，使用原始话术
+
+        return {"fast_script": fast_script, "fast_path_hit": True}
 
     async def _monitor_hit(self, state: DAGState) -> dict:
         """快速通路命中记录（对应文档: 快速通路命中率作为核心可观测性指标）"""
+        # M3: PII 脱敏日志输出
+        from smartcs.services.assist.arbitrator import GlobalArbitrator
+
+        arbitrator = GlobalArbitrator()
+        session_id = state.get("session_id", "")
+        intent = state.get("intent", "")
+        fast_hit = state.get("fast_path_hit", False)
+        # 脱敏 message（避免日志泄露 PII）
+        masked_msg = arbitrator.mask_pii(state.get("message", ""))
         logger.info(
-            "快速通路命中: session=%s intent=%s hit=%s",
-            state.get("session_id"),
-            state.get("intent"),
-            state.get("fast_path_hit"),
+            "快速通路命中: session=%s intent=%s hit=%s msg=%s",
+            session_id, intent, fast_hit, masked_msg[:50],
         )
         return {}
 
@@ -312,7 +361,10 @@ class AIExecutorDAG:
         """格式化 UI Schema
 
         对应文档 §2: 最终结果格式化为标准 UI Schema 并携带 trace_id
+        M3: 输出前进行 PII 脱敏
         """
+        from smartcs.services.assist.arbitrator import GlobalArbitrator
+
         if state.get("degraded"):
             return {}
 
@@ -345,6 +397,10 @@ class AIExecutorDAG:
         else:
             ui = {}
 
+        # M3: PII 脱敏输出
+        arbitrator = GlobalArbitrator()
+        ui = arbitrator._mask_pii_recursive(ui)
+
         return {"ui_schema": ui}
 
     async def run(self, **kwargs: Any) -> dict[str, Any]:
@@ -360,6 +416,7 @@ class AIExecutorDAG:
             "trace_id": kwargs.get("trace_id", ""),
             "path": "deep",
             "fast_path_hit": False,
+            "top1_score": 0.0,
             "fast_script": {},
             "rag_candidates": [],
             "kg_candidates": [],

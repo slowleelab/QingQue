@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartCS 用户故事与交互流程</title>
+<style>
+:root {
+  --navy: #1a365d; --steel: #2d3748; --slate: #475569; --silver: #94a3b8;
+  --bg: #f0f4f8; --card: #ffffff; --border: #cbd5e1;
+  --blue: #3b82f6; --blue-light: #dbeafe;
+  --cyan: #06b6d4; --cyan-light: #cffafe;
+  --indigo: #6366f1; --indigo-light: #e0e7ff;
+  --amber: #f59e0b; --amber-light: #fef3c7;
+  --green: #10b981; --green-light: #ecfdf5;
+  --red: #ef4444; --red-light: #fef2f2;
+  --purple: #7c3aed; --purple-light: #f5f3ff;
+  --teal: #0d9488; --teal-light: #ccfbf1;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--steel); line-height: 1.6; }
+.page { max-width: 1100px; margin: 0 auto; padding: 40px 32px 80px; }
+.header { text-align: center; margin-bottom: 48px; padding-bottom: 24px; border-bottom: 3px solid var(--navy); }
+.header h1 { font-size: 28px; color: var(--navy); font-family: Georgia, serif; margin-bottom: 8px; }
+.header .meta { font-size: 13px; color: var(--slate); }
+.header .meta span { margin: 0 12px; }
+.section { margin-top: 56px; }
+.section-title { font-size: 20px; font-weight: 700; color: var(--navy); border-left: 4px solid var(--blue); padding-left: 12px; margin-bottom: 20px; }
+.roles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 32px; }
+.role-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+.role-card .code { display: inline-block; background: var(--blue); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 10px; margin-bottom: 6px; }
+.role-card .name { font-size: 14px; font-weight: 600; color: var(--navy); margin-bottom: 4px; }
+.role-card .desc { font-size: 11px; color: var(--slate); }
+.state-flow { display: flex; align-items: center; justify-content: center; gap: 0; padding: 24px 0; flex-wrap: wrap; }
+.state-node { border-radius: 8px; padding: 12px 24px; text-align: center; min-width: 120px; }
+.state-node .label { font-size: 14px; font-weight: 700; }
+.state-node .sub { font-size: 10px; color: var(--slate); margin-top: 2px; }
+.state-arrow { font-size: 22px; color: var(--silver); padding: 0 8px; }
+.sn-bot { background: linear-gradient(135deg, var(--blue-light), #bfdbfe); border: 2px solid var(--blue); }
+.sn-bot .label { color: #1e40af; }
+.sn-agent { background: linear-gradient(135deg, var(--teal-light), #99f6e4); border: 2px solid var(--teal); }
+.sn-agent .label { color: #115e59; }
+.sn-ended { background: linear-gradient(135deg, #f1f5f9, #e2e8f0); border: 2px solid var(--silver); }
+.sn-ended .label { color: #475569; }
+.state-detail { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.state-detail-card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+.state-detail-card .sdc-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+.state-detail-card .sdc-item { font-size: 10px; color: var(--slate); padding: 1px 0; }
+.state-detail-card .sdc-sub { font-size: 9px; color: var(--blue); font-weight: 600; margin-top: 6px; margin-bottom: 2px; }
+.flow-box { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 16px; }
+.flow-box h3 { font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.flow-step { display: flex; align-items: stretch; gap: 0; margin: 12px 0; flex-wrap: wrap; }
+.flow-node { flex: 1; min-width: 80px; border-radius: 6px; padding: 10px 8px; text-align: center; font-size: 10px; font-weight: 600; display: flex; flex-direction: column; justify-content: center; }
+.flow-node .tech { font-size: 8px; color: var(--slate); font-weight: 400; margin-top: 2px; }
+.flow-arr { display: flex; align-items: center; font-size: 14px; color: var(--silver); padding: 0 4px; flex-shrink: 0; }
+.fn-input { background: linear-gradient(135deg, var(--blue-light), #bfdbfe); border: 2px solid var(--blue); }
+.fn-proc { background: linear-gradient(135deg, var(--cyan-light), #a5f3fc); border: 2px solid var(--cyan); }
+.fn-ai { background: linear-gradient(135deg, var(--indigo-light), #c7d2fe); border: 2px solid var(--indigo); }
+.fn-warn { background: linear-gradient(135deg, var(--amber-light), #fde68a); border: 2px solid var(--amber); }
+.fn-ok { background: linear-gradient(135deg, var(--green-light), #d1fae5); border: 2px solid var(--green); }
+.fn-err { background: linear-gradient(135deg, var(--red-light), #fee2e2); border: 2px solid var(--red); }
+.fn-pub { background: linear-gradient(135deg, var(--purple-light), #ede9fe); border: 2px solid var(--purple); }
+.fn-agent { background: linear-gradient(135deg, var(--teal-light), #99f6e4); border: 2px solid var(--teal); }
+.flow-label { font-size: 10px; font-weight: 700; color: var(--navy); margin: 8px 0 4px; padding-left: 4px; }
+.pipeline { display: flex; align-items: stretch; gap: 0; margin: 12px 0; }
+.pipeline .flow-node { flex: 1; }
+.degrade-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.degrade-card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+.degrade-card .dc-title { font-size: 12px; font-weight: 700; color: var(--navy); margin-bottom: 6px; text-align: center; }
+.degrade-card .dc-item { font-size: 10px; color: var(--slate); padding: 2px 0; }
+.us { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 20px; overflow: hidden; }
+.us-header { padding: 16px 20px; cursor: pointer; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
+.us-header:hover { background: #f8fafc; }
+.us-header.open { border-bottom-color: var(--border); }
+.us-num { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; background: var(--navy); color: #fff; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.us-title { flex: 1; }
+.us-title .us-name { font-size: 14px; font-weight: 700; color: var(--navy); }
+.us-title .us-as { font-size: 11px; color: var(--slate); margin-top: 2px; }
+.us-roles { display: flex; gap: 4px; flex-shrink: 0; }
+.us-role-tag { font-size: 9px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.tag-cu { background: var(--blue-light); color: #1e40af; }
+.tag-ag { background: var(--teal-light); color: #115e59; }
+.tag-op { background: var(--green-light); color: #065f46; }
+.tag-sys { background: #f1f5f9; color: #475569; }
+.us-body { padding: 20px; display: none; }
+.us-header.open + .us-body { display: block; }
+.steps-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px; }
+.steps-table th { background: var(--navy); color: #fff; padding: 6px 10px; text-align: left; font-size: 10px; font-weight: 600; }
+.steps-table td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+.steps-table tr:hover td { background: #f8fafc; }
+.steps-table .step-num { color: var(--blue); font-weight: 700; text-align: center; width: 30px; }
+.steps-table .step-role { text-align: center; width: 40px; }
+.steps-table .step-action { width: 40%; }
+.steps-table .step-sys { color: var(--slate); }
+.sub-section { margin-bottom: 16px; }
+.sub-title { font-size: 12px; font-weight: 700; color: var(--navy); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.sub-title .icon { font-size: 14px; }
+.checklist { list-style: none; padding: 0; }
+.checklist li { font-size: 11px; color: var(--slate); padding: 3px 0; padding-left: 20px; position: relative; }
+.checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--silver); }
+.degrade-list { list-style: none; padding: 0; }
+.degrade-list li { font-size: 11px; color: var(--slate); padding: 3px 0; padding-left: 16px; position: relative; }
+.degrade-list li::before { content: "↘"; position: absolute; left: 0; color: var(--amber); font-weight: 700; }
+.discuss-list { list-style: none; padding: 0; }
+.discuss-list li { font-size: 11px; color: var(--slate); padding: 3px 0; padding-left: 16px; position: relative; }
+.discuss-list li::before { content: "●"; position: absolute; left: 0; color: var(--amber); font-size: 8px; top: 6px; }
+.conf-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 12px; }
+.conf-table th { background: #f1f5f9; color: var(--navy); padding: 4px 8px; text-align: left; }
+.conf-table td { padding: 4px 8px; border-bottom: 1px solid #e2e8f0; }
+.dec-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.dec-table th { background: var(--navy); color: #fff; padding: 8px 12px; text-align: left; font-size: 10px; }
+.dec-table td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+.dec-table tr:hover td { background: #f8fafc; }
+.dec-table .dec-num { color: var(--blue); font-weight: 700; text-align: center; width: 30px; }
+.disc-group { margin-bottom: 20px; }
+.disc-group-title { font-size: 13px; font-weight: 700; color: var(--navy); margin-bottom: 8px; padding: 6px 12px; border-radius: 6px; }
+.dg-high { background: var(--red-light); border-left: 3px solid var(--red); }
+.dg-mid { background: var(--amber-light); border-left: 3px solid var(--amber); }
+.dg-low { background: var(--green-light); border-left: 3px solid var(--green); }
+.disc-item { font-size: 11px; color: var(--steel); padding: 4px 0 4px 16px; position: relative; }
+.disc-item::before { content: counter(disc); font-weight: 700; color: var(--slate); position: absolute; left: 0; font-size: 10px; }
+.disc-group ol { counter-reset: disc; list-style: none; padding: 0; }
+.disc-group li { counter-increment: disc; }
+.scenario { display: inline-block; font-size: 9px; padding: 2px 8px; border-radius: 4px; font-weight: 600; margin-left: 8px; }
+.scenario-warn { background: var(--amber-light); color: #92400e; border: 1px solid var(--amber); }
+.scenario-danger { background: var(--red-light); color: #991b1b; border: 1px solid var(--red); }
+.status-flow { display: flex; align-items: center; gap: 4px; margin: 12px 0; flex-wrap: wrap; }
+.status-node { font-size: 9px; padding: 4px 10px; border-radius: 4px; font-weight: 600; }
+.st-pending { background: #f1f5f9; border: 1px solid var(--silver); color: var(--slate); }
+.st-processing { background: var(--blue-light); border: 1px solid var(--blue); color: #1e40af; }
+.st-completed { background: var(--green-light); border: 1px solid var(--green); color: #065f46; }
+.st-failed { background: var(--red-light); border: 1px solid var(--red); color: #991b1b; }
+.st-partial { background: var(--amber-light); border: 1px solid var(--amber); color: #92400e; }
+.status-arrow { font-size: 12px; color: var(--silver); }
+@media print { .page { padding: 20px; } .us-body { display: block !important; } }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <h1>SmartCS 用户故事与交互流程</h1>
+  <div class="meta">
+    <span>版本 v2.0</span>
+    <span>日期 2026-05-20</span>
+    <span>状态: 待评审</span>
+  </div>
+</div>
+
+<!-- 一、角色定义 -->
+<div class="section">
+  <div class="section-title">一、角色定义</div>
+  <div class="roles">
+    <div class="role-card"><div class="code">CU</div><div class="name">客户</div><div class="desc">信用卡持卡人<br>Web/App 咨询</div></div>
+    <div class="role-card"><div class="code">AG</div><div class="name">坐席</div><div class="desc">银行客服代表<br>Workbench 接听来电</div></div>
+    <div class="role-card"><div class="code">OP</div><div class="name">运营</div><div class="desc">知识库管理员<br>文档/规则维护</div></div>
+    <div class="role-card"><div class="code">SYS</div><div class="name">系统</div><div class="desc">SmartCS 平台<br>自动行为</div></div>
+  </div>
+</div>
+
+<!-- 二、会话状态机 -->
+<div class="section">
+  <div class="section-title">二、会话状态机</div>
+  <div class="state-flow">
+    <div class="state-node sn-bot"><div class="label">BOT</div><div class="sub">机器人服务</div></div>
+    <div class="state-arrow">⇄</div>
+    <div class="state-node sn-agent"><div class="label">AGENT</div><div class="sub">人工服务</div></div>
+    <div class="state-arrow">→</div>
+    <div class="state-node sn-ended"><div class="label">ENDED</div><div class="sub">结束</div></div>
+  </div>
+  <div class="state-detail">
+    <div class="state-detail-card">
+      <div class="sdc-title" style="color:#1e40af;">BOT 机器人服务</div>
+      <div class="sdc-sub">BOT_ACTIVE 机器人对话</div>
+      <div class="sdc-item">· LangGraph Agent 处理消息</div>
+      <div class="sdc-item">· 意图分类 + RAG + LLM 生成</div>
+      <div class="sdc-item">· L1/L2/L3 触发转人工 → AG_QUEUED</div>
+      <div class="sdc-item">· 挂失/投诉直接转人工</div>
+      <div class="sdc-item">· 空闲超时 → ENDED</div>
+      <div class="sdc-item">· 内部计数: low_confidence_streak</div>
+    </div>
+    <div class="state-detail-card">
+      <div class="sdc-title" style="color:#115e59;">AGENT 人工服务</div>
+      <div class="sdc-sub">AG_QUEUED 排队等待</div>
+      <div class="sdc-item">· 坐席路由 + 等待可用坐席</div>
+      <div class="sdc-item">· 播放等待音/告知排队位置</div>
+      <div class="sdc-item">· 超时(300s) → 回退 BOT 或 ENDED</div>
+      <div class="sdc-sub">AG_ASSIGNED 等待坐席接受</div>
+      <div class="sdc-item">· 目标坐席已锁定，弹窗/振铃</div>
+      <div class="sdc-item">· 拒绝/超时(30s) → AG_QUEUED 重新路由</div>
+      <div class="sdc-sub">AG_ACTIVE 坐席对话</div>
+      <div class="sdc-item">· 坐席与客户实时对话</div>
+      <div class="sdc-item">· AI 辅助推送 + OE 编排 + 反馈</div>
+      <div class="sdc-item">· 可转接/保持/退回机器人/结束</div>
+      <div class="sdc-sub">AG_ON_HOLD 客户保持</div>
+      <div class="sdc-item">· 坐席查系统/咨询/暂离</div>
+      <div class="sdc-item">· 沉默检测 + 安抚推送</div>
+      <div class="sdc-sub">AG_REVIEWING 话后小结（ACW）</div>
+      <div class="sdc-item">· AI 生成小结 → 坐席审核</div>
+      <div class="sdc-item">· 超时(120s) → 自动确认 → ENDED</div>
+    </div>
+    <div class="state-detail-card">
+      <div class="sdc-title" style="color:#475569;">ENDED 结束</div>
+      <div class="sdc-item">· 终态，不再接受转换</div>
+      <div class="sdc-item">· end_reason: completed / timeout /</div>
+      <div class="sdc-item">  cust_disconnect / agent_disconnect /</div>
+      <div class="sdc-item">  system_error</div>
+      <div class="sdc-item">· 持久化: 小结 + 对话 + 反馈</div>
+    </div>
+  </div>
+</div>
+
+<!-- 三、核心交互流程 -->
+<div class="section">
+  <div class="section-title">三、核心交互流程</div>
+
+  <!-- 流程 1: Bot -->
+  <div class="flow-box">
+    <h3>流程 1：客户自助咨询 (BOT_ACTIVE)</h3>
+    <div class="flow-label">Step 1 — 客户发送消息</div>
+    <div class="flow-step">
+      <div class="flow-node fn-input">客户端<br>POST /chat/send<span class="tech">ChatSendRequest</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-proc">Redis LPUSH<br>入队<span class="tech">smartcs:chat:queue</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ok">立即返回<br>accepted<span class="tech">ChatSendResponse</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-input">客户端<br>长轮询<span class="tech">GET /chat/poll</span></div>
+    </div>
+    <div class="flow-label">Step 2 — 后台 Worker 消费</div>
+    <div class="flow-step">
+      <div class="flow-node fn-proc">Redis BRPOP<br>出队<span class="tech">1s timeout</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ai">Agent.run()<span class="tech">LangGraph StateGraph</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ok">结果写入 Redis<span class="tech">TTL 120s</span></div>
+    </div>
+    <div class="flow-label">Step 3 — LangGraph Agent 处理</div>
+    <div class="flow-step">
+      <div class="flow-node fn-ai">意图分类<span class="tech">Rule 快路 / LLM 慢路</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ai">路由分发<span class="tech">knowledge/business/fallback</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ai">分支处理<span class="tech">RAG / 模板 / LLM</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-warn">转人工检查<span class="tech">L1 / L2 / L3</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ok">写入会话<span class="tech">SessionManager</span></div>
+    </div>
+    <div class="flow-label">Step 3a — 三路分支</div>
+    <div class="flow-step">
+      <div class="flow-node fn-ai">知识域 (6 种意图)<span class="tech">账单/交易/额度/分期/积分/FAQ</span></div>
+      <div class="flow-node fn-warn">业务域 (3 种意图)<span class="tech">挂失/投诉/转人工</span></div>
+      <div class="flow-node fn-proc">兜底层<span class="tech">闲聊/未知</span></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-node fn-ai">RAG 检索 → LLM 生成<span class="tech">source=llm/retrieval</span></div>
+      <div class="flow-node fn-warn">挂失/投诉直转人工<span class="tech">其他 → LLM 生成</span></div>
+      <div class="flow-node fn-proc">问候/告别模板<span class="tech">其他 → LLM 引导</span></div>
+    </div>
+    <div class="flow-label">Step 4 — 转人工判定</div>
+    <div class="flow-step">
+      <div class="flow-node fn-warn">L1 关键词<span class="tech">"人工"/"投诉"/"真人"</span></div>
+      <div class="flow-arr">|</div>
+      <div class="flow-node fn-warn">L2 语义<span class="tech">意图=转人工 或 情绪+高置信</span></div>
+      <div class="flow-arr">|</div>
+      <div class="flow-node fn-warn">L3 累积<span class="tech">连续低置信 ≥ 3 轮</span></div>
+    </div>
+  </div>
+
+  <!-- 流程 2: 转人工 -->
+  <div class="flow-box">
+    <h3>流程 2：客户转人工 (BOT → AGENT)</h3>
+    <div class="flow-label">Step 1 — 触发转人工</div>
+    <div class="flow-step">
+      <div class="flow-node fn-warn">L1/L2/L3 命中<span class="tech">TransferChecker</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-agent">transition_phase(AGENT, AG_QUEUED)<span class="tech">SmartCS</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-agent">生成转接摘要 + 携带对话历史<span class="tech">transferSummary</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-agent">createSession()<span class="tech">star-connection</span></div>
+    </div>
+    <div class="flow-label">Step 2 — 坐席路由</div>
+    <div class="flow-step">
+      <div class="flow-node fn-agent">AgentLoadBalancer.selectAgent()<span class="tech">最少连接优先</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ok">有可用坐席<br>→ AG_ASSIGNED<span class="tech">SESSION_ASSIGN</span></div>
+      <div class="flow-arr">|</div>
+      <div class="flow-node fn-warn">无可用坐席<br>保持 AG_QUEUED<span class="tech">播放等待音</span></div>
+    </div>
+    <div class="flow-label">Step 3 — 坐席响应</div>
+    <div class="flow-step">
+      <div class="flow-node fn-ok">坐席接受<br>→ AG_ACTIVE<span class="tech">回调 /session/update</span></div>
+      <div class="flow-node fn-warn">坐席拒绝/超时(30s)<br>→ 回到 AG_QUEUED<span class="tech">重新路由</span></div>
+    </div>
+    <div class="flow-label">Step 4 — 异常路径</div>
+    <div class="flow-step">
+      <div class="flow-node fn-err">AG_QUEUED 排队超时(300s)<br>→ 回退 BOT_ACTIVE<span class="tech">告知客户继续服务</span></div>
+      <div class="flow-node fn-err">客户放弃<br>→ ENDED<span class="tech">end_reason=cust_disconnect</span></div>
+    </div>
+  </div>
+
+  <!-- 流程 3: Assist -->
+  <div class="flow-box">
+    <h3>流程 3：坐席辅助推送 (AG_ACTIVE 下的 OE 编排)</h3>
+    <div class="flow-label">触发 — star-connection 回调</div>
+    <div class="flow-step">
+      <div class="flow-node fn-input">客户消息到达<span class="tech">star-connection</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-proc">POST /analyze<span class="tech">session_id + message</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ai">意图分类 (3s)<span class="tech">Rule + LLM</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-proc">读取状态快照<span class="tech">StateManager</span></div>
+    </div>
+    <div class="flow-label">评估 — D1 / D2 / D3 并行</div>
+    <div class="flow-step">
+      <div class="flow-node fn-ai">D1 服务评估<span class="tech">置信度>阈值, 冷却 2 轮</span></div>
+      <div class="flow-node fn-ai">D2 营销评估<span class="tech">情绪+意图+Suppress, 冷却 5 轮</span></div>
+      <div class="flow-node fn-err">D3 风控评估<span class="tech">始终激活, 无冷却</span></div>
+    </div>
+    <div class="flow-label">执行 — 按策略矩阵调度</div>
+    <div class="flow-step">
+      <div class="flow-node fn-ai">E1 AI 服务<span class="tech">LangGraph DAG, SLA 3s</span></div>
+      <div class="flow-node fn-proc">E2 营销<span class="tech">空卡片(待对接), SLA 500ms</span></div>
+      <div class="flow-node fn-err">E3 风控<span class="tech">AlertEngine, SLA 100ms</span></div>
+    </div>
+    <div class="flow-label">仲裁 — GlobalArbitrator 优先级融合</div>
+    <div class="flow-step">
+      <div class="flow-node fn-err">BLOCK: 风控拦截<span class="tech">仅风险卡片, 营销隐藏</span></div>
+      <div class="flow-node fn-warn">WARN: 风险警告<span class="tech">服务+风险徽章+营销缩小</span></div>
+      <div class="flow-node fn-ok">PASS: 正常输出<span class="tech">服务+营销标准卡片</span></div>
+    </div>
+    <div class="flow-label">推送 — WebSocket + 反馈闭环</div>
+    <div class="flow-step">
+      <div class="flow-node fn-ok">WS 推送坐席<span class="tech">15s 心跳</span></div>
+      <div class="flow-node fn-proc">节流控制<span class="tech">800ms 窗口, 关键告警例外</span></div>
+      <div class="flow-node fn-ai">CAS 写回状态<span class="tech">冷却值/压制/意图栈</span></div>
+      <div class="flow-node fn-warn">反馈 3s 延迟确认<span class="tech">accept/modify/reject</span></div>
+    </div>
+  </div>
+
+  <!-- 流程 4: 话后小结 -->
+  <div class="flow-box">
+    <h3>流程 4：话后小结 (AG_ACTIVE → AG_REVIEWING → ENDED)</h3>
+    <div class="flow-step">
+      <div class="flow-node fn-agent">坐席点击<br>结束会话<span class="tech">AG_ACTIVE</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ai">AI 生成小结<br>客户需求/问题分类/解决方案/情绪<span class="tech">AG_REVIEWING</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-agent">坐席审核/编辑小结<br>可修改分类、补充备注<span class="tech">AG_REVIEWING</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ok">坐席确认<br>→ ENDED<span class="tech">end_reason=completed</span></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-node fn-err">客户挂断<br>→ ENDED<span class="tech">end_reason=cust_disconnect<br>生成紧急小结</span></div>
+      <div class="flow-node fn-err">坐席掉线<br>→ ENDED<span class="tech">end_reason=agent_disconnect</span></div>
+      <div class="flow-node fn-err">超时(30min)<br>→ ENDED<span class="tech">end_reason=timeout</span></div>
+      <div class="flow-node fn-err">审核超时(120s)<br>自动确认 → ENDED<span class="tech">end_reason=completed</span></div>
+    </div>
+  </div>
+
+  <!-- 流程 5: KB -->
+  <div class="flow-box">
+    <h3>流程 5：知识库入库 + 混合检索</h3>
+    <div class="flow-label">入库管线</div>
+    <div class="pipeline">
+      <div class="flow-node fn-input">上传<span class="tech">MinIO + PostgreSQL</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-proc">解析<span class="tech">PDF/DOCX/HTML/MD/XLSX</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-proc">清洗<span class="tech">去页眉/控制符/去重</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ai">分块<span class="tech">FAQ/层级/表格/列表</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-warn">嵌入<span class="tech">Ollama/TEI (BGE-M3)</span></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-node fn-ok">双写<span class="tech">ES + Milvus</span></div>
+    </div>
+    <div class="degrade-grid">
+      <div class="degrade-card">
+        <div class="dc-title">混合检索 (BM25 + Vector + RRF)</div>
+        <div class="dc-item">1. 查询嵌入 → Milvus 向量检索 (top_k×3)</div>
+        <div class="dc-item">2. 查询文本 → ES BM25 检索 (top_k×3)</div>
+        <div class="dc-item">3. RRF 融合: score = Σ(1/(k + rank_i)), k=60</div>
+        <div class="dc-item">4. 可选 Reranker 精排</div>
+        <div class="dc-item">5. 置信度阈值过滤 → 截断 top_k</div>
+      </div>
+      <div class="degrade-card">
+        <div class="dc-title">降级矩阵</div>
+        <div class="dc-item">ES ✅ Milvus ✅ → 混合检索 (最优)</div>
+        <div class="dc-item">ES ✅ Milvus ❌ → BM25 Only</div>
+        <div class="dc-item">ES ❌ Milvus ✅ → 向量 Only</div>
+        <div class="dc-item">ES ❌ Milvus ❌ → 空结果</div>
+        <div class="dc-item">Embedding 熔断 → 自动降级 BM25</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 四、用户故事 -->
+<div class="section">
+  <div class="section-title">四、用户故事</div>
+
+  <!-- US-1 -->
+  <div class="us">
+    <div class="us-header open" onclick="toggleUS(this)">
+      <div class="us-num">1</div>
+      <div class="us-title"><div class="us-name">客户账单查询</div><div class="us-as">作为客户，我想要咨询信用卡账单问题，以便快速了解账单详情</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body" style="display:block;">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">CU</td><td>输入"我上个月账单多少钱"</td><td class="step-sys">POST /chat/send → Redis LPUSH → 返回 accepted</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">Worker BRPOP 消费</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">Rule 快路匹配 bill_query (conf=0.85)</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">路由到 knowledge_agent → RAG 混合检索</td></tr>
+          <tr><td class="step-num">5</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">LLM 基于检索上下文生成回答 (source=llm)</td></tr>
+          <tr><td class="step-num">6</td><td class="step-role">CU</td><td>看到账单查询结果</td><td class="step-sys">长轮询返回 PollResponse</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>客户发送消息后 5s 内收到回复</li>
+          <li>回复内容基于知识库检索，不编造信息</li>
+          <li>回复附带来源标识 (llm/retrieval/template)</li>
+        </ul>
+      </div>
+      <div class="sub-section"><div class="sub-title"><span class="icon">↘</span> 降级路径</div>
+        <ul class="degrade-list">
+          <li>LLM 不可用 → 检索摘要 (source=retrieval)</li>
+          <li>LLM + 检索都不可用 → 意图模板 (source=template)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-2 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">2</div>
+      <div class="us-title"><div class="us-name">客户关键词转人工</div><div class="us-as">作为客户，我想要直接和真人客服沟通</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">CU</td><td>输入"我要转人工"</td><td class="step-sys">POST /chat/send → 入队</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">Rule 快路匹配 transfer_agent (conf=0.95)</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">TransferChecker: L1 关键词"转人工"命中</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">transition_phase(AGENT, AG_QUEUED) + star-connection createSession()</td></tr>
+          <tr><td class="step-num">5</td><td class="step-role">CU</td><td>看到"正在为您转接人工客服"</td><td class="step-sys">客户界面不切换，仍在同一聊天框</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>L1 关键词立即触发转接</li>
+          <li>会话阶段从 BOT 直接切换到 AGENT (AG_QUEUED)</li>
+          <li>客户聊天界面不切换，无需跳转</li>
+          <li>star-connection 不可用时提示"人工客服系统暂不可用"</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-3 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">3</div>
+      <div class="us-title"><div class="us-name">客户累积低置信度自动转人工</div><div class="us-as">作为客户，我想要在反复得不到满意回答时自动转接人工</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1-3</td><td class="step-role">CU</td><td>连续 3 轮低置信度提问</td><td class="step-sys">low_confidence_streak 递增到 3</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">TransferChecker: L3 命中 (streak ≥ 3)</td></tr>
+          <tr><td class="step-num">5</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">transition_phase(AGENT, AG_QUEUED)</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>连续 low_confidence_streak ≥ 3 时自动转接</li>
+          <li>客户不需要手动输入"转人工"</li>
+          <li>转接前 Bot 发出提示"正在为您转接更专业的客服"</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-4 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">4</div>
+      <div class="us-title"><div class="us-name">坐席接收实时辅助推送</div><div class="us-as">作为坐席，我想要实时收到话术推荐、知识片段和合规提醒</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-ag">AG</span><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">AG</td><td>在 Workbench 接入会话</td><td class="step-sys">AG_ASSIGNED → 坐席接受 → AG_ACTIVE</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">AG</td><td>WebSocket 连接建立</td><td class="step-sys">WS /ws/{session_id} → 注册连接池 → 收到 assist_ready</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">CU</td><td>说"我想提升信用卡额度"</td><td class="step-sys">star-connection → POST /analyze</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">OE: D1 激活, D2 被 suppress, D3 始终激活 → E1 ∥ E3 并行</td></tr>
+          <tr><td class="step-num">5</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">仲裁: PASS → 服务卡片, 营销隐藏 → PII 脱敏 → WS 推送</td></tr>
+          <tr><td class="step-num">6</td><td class="step-role">AG</td><td>看到提额话术 + 知识片段</td><td class="step-sys">—</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>从客户发言到坐席收到推送 < 3s</li>
+          <li>推送内容经过 PII 脱敏</li>
+          <li>WebSocket 断连后自动清理连接池</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-5 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">5</div>
+      <div class="us-title"><div class="us-name">坐席遇到合规风险告警 <span class="scenario scenario-warn">WARN</span> <span class="scenario scenario-danger">BLOCK</span></div><div class="us-as">作为坐席，我想要在出现合规风险时收到实时警告</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-ag">AG</span><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">CU</td><td>说"你们能不能保证帮我提额"</td><td class="step-sys">POST /analyze</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">E3: AlertEngine 检测到"保证" → WARN 级别</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">仲裁: WARN → 服务卡片 + 风险徽章 + 营销缩小</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">AG</td><td>看到风险徽章"避免过度承诺"</td><td class="step-sys">关键告警绕过节流</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="scenario scenario-danger" style="font-size:10px;">极端场景</span></div>
+        <div style="font-size:11px; color:var(--steel); padding:4px 0;">客户说"帮我套现" → E3 BLOCK → 仅显示风险卡片, 营销完全隐藏</div>
+      </div>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>6 条内置合规规则正常触发</li>
+          <li>BLOCK 时营销卡片完全隐藏</li>
+          <li>WARN 时营销卡片降级为小卡片</li>
+          <li>关键告警绕过节流机制</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-6 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">6</div>
+      <div class="us-title"><div class="us-name">坐席提供隐式反馈</div><div class="us-as">作为坐席，我想要对系统推送建议给出反馈，以便后续更精准</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-ag">AG</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1a</td><td class="step-role">AG</td><td>直接使用推送话术</td><td class="step-sys">POST /feedback (action=accept, confidence=1.0)</td></tr>
+          <tr><td class="step-num">1b</td><td class="step-role">AG</td><td>修改后使用</td><td class="step-sys">POST /feedback (action=modify, confidence=0.5)</td></tr>
+          <tr><td class="step-num">1c</td><td class="step-role">AG</td><td>忽略推送</td><td class="step-sys">POST /feedback (action=reject, confidence=0.0)</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">反馈缓冲 3 秒 (允许撤销)</td></tr>
+          <tr><td class="step-num">3a</td><td class="step-role">AG</td><td>3 秒内撤销</td><td class="step-sys">POST /feedback/undo → 缓冲区移除</td></tr>
+          <tr><td class="step-num">3b</td><td class="step-role">SYS</td><td>3 秒到期</td><td class="step-sys">CAS 写入 Redis</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">📊</span> 置信度映射</div>
+        <table class="conf-table">
+          <thead><tr><th>动作</th><th>置信度</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td>accept</td><td>1.0</td><td>完全采纳</td></tr>
+            <tr><td>modify</td><td>0.5</td><td>部分采纳</td></tr>
+            <tr><td>partial_accept</td><td>0.3</td><td>复制部分内容</td></tr>
+            <tr><td>reject</td><td>0.0</td><td>完全忽略</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-7 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">7</div>
+      <div class="us-title"><div class="us-name">坐席遇到营销推荐场景</div><div class="us-as">作为坐席，我想要在客户情绪积极时收到合适的产品推荐</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-ag">AG</span><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">CU</td><td>情绪积极，咨询积分兑换</td><td class="step-sys">POST /analyze</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">D1 激活 → D2 被 suppress (2 轮)</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">E1 执行 → E2 被压制 → 仅推送服务卡片</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">CU</td><td>继续询问 (2 轮后)</td><td class="step-sys">suppress 过期, D2 重新激活</td></tr>
+          <tr><td class="step-num">5</td><td class="step-role">AG</td><td>看到产品推荐卡片</td><td class="step-sys">E2 延后 500ms 执行</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- US-8 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">8</div>
+      <div class="us-title"><div class="us-name">运营上传知识文档</div><div class="us-as">作为运营，我想要上传知识文档，以便客户和坐席能检索到最新信息</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-op">OP</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">OP</td><td>上传 PDF 文档</td><td class="step-sys">POST /kb/documents → MinIO 存储</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">解析 → 清洗 → 分块 → 嵌入 → 双写 ES + Milvus</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">OP</td><td>看到入库结果</td><td class="step-sys">{doc_id, chunk_count, status=COMPLETED}</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">📋</span> 状态流转</div>
+        <div class="status-flow">
+          <span class="status-node st-pending">PENDING</span><span class="status-arrow">→</span>
+          <span class="status-node st-processing">PROCESSING</span><span class="status-arrow">→</span>
+          <span class="status-node st-completed">COMPLETED</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-9 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">9</div>
+      <div class="us-title"><div class="us-name">系统降级自动容灾</div><div class="us-as">作为系统，我需要在 LLM/Embedding 不可用时自动降级</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-sys">SYS</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>故障场景</th><th>降级行为</th><th>用户影响</th></tr></thead>
+        <tbody>
+          <tr><td>LLM 熔断</td><td>分类降级为 Rule only; 生成降级为检索摘要</td><td>回答质量下降但可交互</td></tr>
+          <tr><td>LLM + 检索都不可用</td><td>生成降级为意图模板</td><td>建议客户"输入转人工"</td></tr>
+          <tr><td>Embedding 熔断</td><td>检索降级为 BM25 Only</td><td>检索精度下降</td></tr>
+          <tr><td>Temporal 不可用</td><td>Assist 降级为同步编排器</td><td>无 OE 策略矩阵但仍有辅助推送</td></tr>
+          <tr><td>E3 风控熔断</td><td>降级为 pass_with_audit_flag</td><td>放行但标记待审</td></tr>
+          <tr><td>全局超时 (>5s)</td><td>返回 timeout_partial</td><td>坐席收到部分结果</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- US-10 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">10</div>
+      <div class="us-title"><div class="us-name">客户从 Bot 平滑转接坐席</div><div class="us-as">作为客户，我想要无缝从机器人切换到人工客服</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-cu">CU</span><span class="us-role-tag tag-ag">AG</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">CU</td><td>在 Bot 对话中触发转人工</td><td class="step-sys">会话阶段 BOT → AGENT (AG_QUEUED)</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">CU</td><td>看到"正在为您转接"</td><td class="step-sys">客户界面不切换，仍在同一聊天框</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">SYS</td><td>坐席路由</td><td class="step-sys">AgentLoadBalancer → AG_ASSIGNED</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">AG</td><td>坐席接受</td><td class="step-sys">AG_ASSIGNED → AG_ACTIVE, 回调 /session/update</td></tr>
+          <tr><td class="step-num">5</td><td class="step-role">AG</td><td>看到客户与 Bot 的历史对话 + 转接摘要</td><td class="step-sys">AI 辅助 WS 连接建立 → assist_ready</td></tr>
+          <tr><td class="step-num">6</td><td class="step-role">CU/AG</td><td>开始对话</td><td class="step-sys">OE 编排启动: 话术+知识+告警推送到坐席</td></tr>
+          <tr><td class="step-num">7</td><td class="step-role">CU/AG</td><td>对话结束</td><td class="step-sys">AG_ACTIVE → AG_REVIEWING → ENDED</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>客户聊天界面不切换，始终同一聊天框</li>
+          <li>转接后坐席可看到客户与 Bot 的历史对话</li>
+          <li>坐席接入后 1s 内收到首次辅助推送</li>
+          <li>会话阶段正确流转: BOT → AG_QUEUED → AG_ASSIGNED → AG_ACTIVE → AG_REVIEWING → ENDED</li>
+          <li>排队超时(300s)时回退 BOT 并告知客户</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-11 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">11</div>
+      <div class="us-title"><div class="us-name">客户排队等待坐席</div><div class="us-as">作为客户，我在转接后需要知道排队进度，不想无限等待</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">CU</td><td>触发转人工</td><td class="step-sys">BOT → AG_QUEUED，显示"正在为您转接"</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">AgentLoadBalancer 无可用坐席 → 保持 AG_QUEUED</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">CU</td><td>看到排队提示</td><td class="step-sys">显示"当前排队 N 人，预计等待 X 分钟"</td></tr>
+          <tr><td class="step-num">4a</td><td class="step-role">SYS</td><td>新坐席上线</td><td class="step-sys">processWaitingSessions() → AG_ASSIGNED</td></tr>
+          <tr><td class="step-num">4b</td><td class="step-role">SYS</td><td>排队超时(300s)</td><td class="step-sys">AG_QUEUED → BOT_ACTIVE，告知客户继续服务</td></tr>
+          <tr><td class="step-num">4c</td><td class="step-role">CU</td><td>放弃等待</td><td class="step-sys">AG_QUEUED → ENDED (cust_disconnect)</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>排队期间显示等待进度</li>
+          <li>排队超时(300s)自动回退 BOT，不无限等待</li>
+          <li>客户可随时放弃排队</li>
+          <li>新坐席上线后自动重新路由</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-12 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">12</div>
+      <div class="us-title"><div class="us-name">坐席保持客户等待</div><div class="us-as">作为坐席，我需要暂时离开去查询内部系统或咨询同事</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-ag">AG</span><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">AG</td><td>点击"保持"按钮</td><td class="step-sys">AG_ACTIVE → AG_ON_HOLD</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">CU</td><td>听到等待音</td><td class="step-sys">客户播放"请稍候"提示音</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">沉默检测 + 安抚话术推送给坐席</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">AG</td><td>查询完毕，点击"恢复"</td><td class="step-sys">AG_ON_HOLD → AG_ACTIVE</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>保持期间客户听到等待音，不显示离线</li>
+          <li>保持期间 AI 继续推送安抚话术建议</li>
+          <li>保持超时 → 提醒坐席或 ENDED</li>
+          <li>保持中客户挂断 → ENDED</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-13 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">13</div>
+      <div class="us-title"><div class="us-name">坐席话后小结</div><div class="us-as">作为坐席，我需要在会话结束后填写/确认话后小结（银行合规要求）</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-ag">AG</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">AG</td><td>点击"结束会话"</td><td class="step-sys">AG_ACTIVE → AG_REVIEWING</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">AI 自动生成小结: 客户需求/问题分类/解决方案/情绪/置信度</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">AG</td><td>看到"AI 正在生成..."加载态，随后看到预填小结</td><td class="step-sys">—</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">AG</td><td>审核/修改小结，补充备注</td><td class="step-sys">—</td></tr>
+          <tr><td class="step-num">5a</td><td class="step-role">AG</td><td>点击"确认提交"</td><td class="step-sys">AG_REVIEWING → ENDED (completed)</td></tr>
+          <tr><td class="step-num">5b</td><td class="step-role">SYS</td><td>审核超时(120s)</td><td class="step-sys">自动确认小结 → ENDED (completed)</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>AI 自动生成小结，坐席无需从零填写</li>
+          <li>坐席可修改分类、补充备注</li>
+          <li>审核超时(120s)自动确认，不阻塞坐席</li>
+          <li>小结持久化到数据库，可追溯</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-14 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">14</div>
+      <div class="us-title"><div class="us-name">坐席退回机器人</div><div class="us-as">作为坐席，我判断客户问题可以由机器人解决，想退回 BOT 继续服务</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-ag">AG</span><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">AG</td><td>点击"退回机器人"</td><td class="step-sys">AG_ACTIVE → BOT_ACTIVE</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">star-connection closeSession(), AI 辅助停止</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">CU</td><td>看到"已为您切换回自助服务"</td><td class="step-sys">Bot 继续对话，保留历史上下文</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>坐席可主动退回机器人</li>
+          <li>退回后 Bot 保留对话历史，无缝衔接</li>
+          <li>客户聊天界面不切换</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- US-15 -->
+  <div class="us">
+    <div class="us-header" onclick="toggleUS(this)">
+      <div class="us-num">15</div>
+      <div class="us-title"><div class="us-name">坐席间转接</div><div class="us-as">作为坐席，我需要将客户转给更专业的同事处理</div></div>
+      <div class="us-roles"><span class="us-role-tag tag-ag">AG</span><span class="us-role-tag tag-cu">CU</span></div>
+    </div>
+    <div class="us-body">
+      <table class="steps-table">
+        <thead><tr><th>#</th><th>角色</th><th>交互/动作</th><th>系统行为</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="step-role">AG</td><td>选择目标坐席，点击"转接"</td><td class="step-sys">AG_ACTIVE → AG_ASSIGNED (新坐席)</td></tr>
+          <tr><td class="step-num">2</td><td class="step-role">SYS</td><td>—</td><td class="step-sys">star-connection transferSession(), AI 辅助暂停</td></tr>
+          <tr><td class="step-num">3</td><td class="step-role">AG(新)</td><td>新坐席接受</td><td class="step-sys">AG_ASSIGNED → AG_ACTIVE, 回调 SmartCS 更新 WS 映射</td></tr>
+          <tr><td class="step-num">4</td><td class="step-role">AG(新)</td><td>看到对话历史 + 转接摘要</td><td class="step-sys">AI 辅助恢复推送</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-section"><div class="sub-title"><span class="icon">✅</span> 验收标准</div>
+        <ul class="checklist">
+          <li>转接时对话历史完整携带</li>
+          <li>新坐席接受后 AI 辅助自动恢复</li>
+          <li>客户无感知切换，聊天界面不变</li>
+          <li>新坐席拒绝/超时 → 重新路由</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 五、关键设计决策 -->
+<div class="section">
+  <div class="section-title">五、关键设计决策</div>
+  <table class="dec-table">
+    <thead><tr><th>#</th><th>决策</th><th>选择</th><th>原因</th></tr></thead>
+    <tbody>
+      <tr><td class="dec-num">1</td><td>阶段模型</td><td>BOT / AGENT / ENDED 三阶段 + 7 子状态</td><td>HANDOFF 不是独立阶段（排队是人工服务的冷启动）；ASSIST 是技术能力不是业务阶段；ENDED 子状态是元数据不是状态</td></tr>
+      <tr><td class="dec-num">2</td><td>客户界面</td><td>单一聊天框，不切换</td><td>客户视角：始终在一个聊天框对话，无论对面是机器人还是坐席</td></tr>
+      <tr><td class="dec-num">3</td><td>排队与振铃分离</td><td>AG_QUEUED / AG_ASSIGNED 分开</td><td>行业标准（Amazon Connect/Genesys/Twilio）：系统行为不同、超时含义不同、SLA 指标不同</td></tr>
+      <tr><td class="dec-num">4</td><td>异步消息队列</td><td>Redis List + BRPOP</td><td>轻量, 避免阻塞 HTTP, 共享 Redis</td></tr>
+      <tr><td class="dec-num">5</td><td>双通道分类</td><td>Rule 快路 + LLM 慢路</td><td>平衡速度与精度</td></tr>
+      <tr><td class="dec-num">6</td><td>OE 状态机</td><td>Temporal Workflow + 同步降级</td><td>可观测+可恢复+策略矩阵</td></tr>
+      <tr><td class="dec-num">7</td><td>营销压制</td><td>D1 激活 → D2 suppress 2 轮</td><td>避免服务场景过度营销</td></tr>
+      <tr><td class="dec-num">8</td><td>反馈缓冲</td><td>3 秒延迟提交 + Undo</td><td>坐席误操作可撤销</td></tr>
+      <tr><td class="dec-num">9</td><td>CAS 乐观锁</td><td>Redis Lua 脚本</td><td>多执行器并发写回, 避免丢失更新</td></tr>
+      <tr><td class="dec-num">10</td><td>风控降级</td><td>pass_with_audit_flag</td><td>风控宁可漏放不误拦, 事后审计兜底</td></tr>
+      <tr><td class="dec-num">11</td><td>话后小结</td><td>AI 生成 + 坐席审核（AG_REVIEWING）</td><td>银行合规要求每次人工通话必须有小结</td></tr>
+      <tr><td class="dec-num">12</td><td>坐席转接</td><td>AG_ACTIVE → AG_ASSIGNED（动作非状态）</td><td>转接本质是释放旧坐席→分配新坐席→等待接受</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- 六、待讨论议题 -->
+<div class="section">
+  <div class="section-title">六、待讨论议题</div>
+  <div class="disc-group">
+    <div class="disc-group-title dg-high">高优先级</div>
+    <ol>
+      <li class="disc-item"><strong>star-connection 回调链路</strong>: 坐席接受/拒绝/转接/关闭时必须回调 SmartCS /session/update，当前未实现</li>
+      <li class="disc-item"><strong>对话历史传递</strong>: 转人工时 TransferSessionRequest 的 history 字段当前为 None</li>
+      <li class="disc-item"><strong>Worker 停止</strong>: 转 AGENT 后 Worker 继续处理 Bot 消息，需检查 SessionPhase</li>
+      <li class="disc-item"><strong>会话超时</strong>: 各状态超时（排队300s/振铃30s/会话30min/小结120s）均未实现</li>
+    </ol>
+  </div>
+  <div class="disc-group">
+    <div class="disc-group-title dg-mid">中优先级</div>
+    <ol>
+      <li class="disc-item"><strong>客户消息路由到坐席</strong>: MessageController 存入 CustomerMessageStore 后未通过 Netty 路由到坐席</li>
+      <li class="disc-item"><strong>坐席转接联动</strong>: star-connection transferSession() 后 SmartCS 无感知，WS 映射不更新</li>
+      <li class="disc-item"><strong>排队提示</strong>: 客户端排队时是否需要实时推送排队位置？</li>
+      <li class="disc-item"><strong>合规规则动态化</strong>: 运营后台增删合规规则的能力</li>
+    </ol>
+  </div>
+  <div class="disc-group">
+    <div class="disc-group-title dg-low">低优先级</div>
+    <ol>
+      <li class="disc-item"><strong>入库异步化</strong>: 大文档后台处理 + 进度查询</li>
+      <li class="disc-item"><strong>文档增量更新</strong>: 新版本只更新变更分块</li>
+      <li class="disc-item"><strong>坐席显式反馈</strong>: 补充主动评分机制</li>
+      <li class="disc-item"><strong>AssistClient 接线</strong>: agent-server 的 SmartCS WS 客户端未接入流程</li>
+    </ol>
+  </div>
+</div>
+
+</div>
+
+<script>
+function toggleUS(header) {
+  const body = header.nextElementSibling;
+  const isOpen = header.classList.contains('open');
+  header.classList.toggle('open');
+  body.style.display = isOpen ? 'none' : 'block';
+}
+</script>
+</body>
+</html>

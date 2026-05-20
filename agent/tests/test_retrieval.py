@@ -8,8 +8,8 @@ import pytest
 from smartcs.services.common.retrieval import (
     build_es_filters,
     build_milvus_expr,
-    rrf_fusion,
     retrieve,
+    rrf_fusion,
     search_bm25,
     search_vector,
 )

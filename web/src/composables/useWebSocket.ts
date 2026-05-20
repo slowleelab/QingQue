@@ -110,5 +110,11 @@ export function useWebSocket(sessionId: Ref<string | null>) {
     disconnect()
   })
 
-  return { status, connect, disconnect }
+  function send(data: Record<string, unknown>) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(data))
+    }
+  }
+
+  return { status, connect, disconnect, send }
 }

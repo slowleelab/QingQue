@@ -1,7 +1,7 @@
 """结构感知分块器测试"""
 from __future__ import annotations
 
-from smartcs.services.common.chunker import ChunkType, StructuredChunk, chunk_by_structure
+from smartcs.services.common.chunker import ChunkType, chunk_by_structure
 
 
 class TestMarkdownStructureParsing:

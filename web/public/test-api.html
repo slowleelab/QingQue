@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>API Test</title></head>
+<body>
+<h2>SmartCS API 连通性测试</h2>
+<textarea id="msg" rows="2" cols="40">你好</textarea><br>
+<button onclick="test()">发送消息</button>
+<pre id="result" style="background:#f0f0f0;padding:10px;"></pre>
+
+<script>
+async function test() {
+  const msg = document.getElementById('msg').value
+  const out = document.getElementById('result')
+  out.textContent = '发送中...'
+
+  try {
+    // Step 1: Send
+    const s = await fetch('/api/bot/chat/send', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: msg, session_id: 'test-page-' + Date.now()})
+    })
+    const sendData = await s.json()
+    out.textContent = '1. Send: ' + JSON.stringify(sendData, null, 2) + '\n\n轮询中...'
+
+    // Step 2: Poll
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      const p = await fetch('/api/bot/chat/poll?session_id=' + sendData.session_id + '&timeout=3')
+      const pollData = await p.json()
+      if (pollData.has_message) {
+        out.textContent += '\n2. Reply (' + (i+1) + 's): ' + pollData.reply
+        out.textContent += '\n\n✅ API 测试通过！'
+        return
+      }
+    }
+    out.textContent += '\n⚠️ 超时无回复'
+
+  } catch(e) {
+    out.textContent = '❌ 错误: ' + e.message
+  }
+}
+</script>
+</body>
+</html>

@@ -10,8 +10,7 @@
 """
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -24,18 +23,21 @@ from smartcs.workflows.activities import (
     execute_e2_marketing,
     execute_e3_risk,
     reset_breakers,
+    reset_dedup_store,
     set_ai_dag,
     set_alert_engine_for_risk,
 )
-from smartcs.workflows.shared import EvaluatorInput, ExecutorInput, ExecutorOutput
+from smartcs.workflows.shared import EvaluatorInput, ExecutorInput
 
 
 @pytest.fixture(autouse=True)
 def _reset_module_state():
     """每个测试前后重置模块级单例"""
     reset_breakers()
+    reset_dedup_store()
     yield
     reset_breakers()
+    reset_dedup_store()
 
 
 # ── D1 服务评估器 ──
@@ -96,14 +98,15 @@ class TestEvaluateD1Service:
 
     @pytest.mark.asyncio
     async def test_zero_cooldown_allows_check(self) -> None:
-        """冷却期为 0 允许评估"""
+        """冷却期为 0 允许评估，激活后返回冷却值"""
         inp = EvaluatorInput(
             session_id="s1",
             state_snapshot={"last_confidence": 0.8, "d1_cooldown_remaining": 0},
         )
         result = await evaluate_d1_service(inp)
         assert result.activated is True
-        assert result.cooldown_remaining == 0
+        # S3: 激活后返回 cooldown 值，供 Workflow CAS 写回
+        assert result.cooldown_remaining == 2  # d1_cooldown_turns
 
 
 # ── D2 营销评估器 ──
@@ -114,7 +117,7 @@ class TestEvaluateD2Marketing:
 
     @pytest.mark.asyncio
     async def test_positive_emotion_activates(self) -> None:
-        """正面情绪 + 高置信度 → 激活"""
+        """正面情绪 + 高置信度 → 激活，返回冷却值"""
         inp = EvaluatorInput(
             session_id="s1",
             state_snapshot={
@@ -127,6 +130,8 @@ class TestEvaluateD2Marketing:
         result = await evaluate_d2_marketing(inp)
         assert result.activated is True
         assert "positive" in result.reason
+        # S3: 激活后返回 cooldown 值
+        assert result.cooldown_remaining == 5  # d2_cooldown_turns
 
     @pytest.mark.asyncio
     async def test_neutral_emotion_activates(self) -> None:
@@ -142,6 +147,8 @@ class TestEvaluateD2Marketing:
         )
         result = await evaluate_d2_marketing(inp)
         assert result.activated is True
+        # S3: 激活后返回 cooldown 值
+        assert result.cooldown_remaining == 5
 
     @pytest.mark.asyncio
     async def test_negative_emotion_does_not_activate(self) -> None:
@@ -330,9 +337,9 @@ class TestExecuteE1AIService:
 
     @pytest.mark.asyncio
     async def test_timeout_degrades(self) -> None:
-        """超时降级为 fast_path_fallback"""
+        """超时降级为 safe_fallback（无快速通路结果时）"""
         mock_dag = MagicMock()
-        mock_dag.run = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_dag.run = AsyncMock(side_effect=TimeoutError())
         set_ai_dag(mock_dag)
 
         inp = ExecutorInput(
@@ -343,7 +350,8 @@ class TestExecuteE1AIService:
         result = await execute_e1_ai_service(inp)
 
         assert result.degraded is True
-        assert result.degradation_type == "fast_path_fallback"
+        # 修复: 无快速通路结果时降级到 safe_fallback
+        assert result.degradation_type == "safe_fallback"
         assert result.trace_id == "trace-2"
 
     @pytest.mark.asyncio
@@ -639,9 +647,9 @@ class TestBreakerIntegration:
         mock_dag.run = AsyncMock(side_effect=RuntimeError("boom"))
         set_ai_dag(mock_dag)
 
-        # 多次异常应触发熔断
-        inp = ExecutorInput(session_id="s1", message="你好", trace_id="t1")
-        for _ in range(10):
+        # 多次异常应触发熔断（H5: 需要不同 trace_id 避免幂等命中）
+        for i in range(10):
+            inp = ExecutorInput(session_id="s1", message="你好", trace_id=f"t1-{i}")
             result = await execute_e1_ai_service(inp)
             assert result.degraded is True
 
@@ -672,8 +680,9 @@ class TestBreakerIntegration:
         mock_engine.check_compliance = MagicMock(side_effect=RuntimeError("规则引擎故障"))
         set_alert_engine_for_risk(mock_engine)
 
-        inp = ExecutorInput(session_id="s1", message="你好", trace_id="t1")
-        for _ in range(10):
+        # H5: 需要不同 trace_id 避免幂等命中
+        for i in range(10):
+            inp = ExecutorInput(session_id="s1", message="你好", trace_id=f"t1-{i}")
             result = await execute_e3_risk(inp)
             assert result.degraded is True
 

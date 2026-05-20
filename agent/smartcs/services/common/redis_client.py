@@ -20,11 +20,12 @@ async def init_redis(app: FastAPI) -> None:
     settings = get_settings()
     pool = aioredis.ConnectionPool.from_url(
         settings.redis.url,
-        max_connections=20,
+        max_connections=settings.redis.max_connections,
         decode_responses=True,
     )
+    client = aioredis.Redis(connection_pool=pool)
     app.state.redis_pool = pool
-    app.state.redis_client = aioredis.Redis(connection_pool=pool)
+    app.state.redis_client = client
 
 
 async def close_redis(app: FastAPI) -> None:
@@ -33,9 +34,9 @@ async def close_redis(app: FastAPI) -> None:
     if pool:
         await pool.disconnect()
         app.state.redis_pool = None
+    app.state.redis_client = None
 
 
 def get_redis(app: FastAPI) -> aioredis.Redis:
     """获取 Redis 客户端实例（依赖注入用）"""
-    pool: aioredis.ConnectionPool = app.state.redis_pool
-    return aioredis.Redis(connection_pool=pool)
+    return app.state.redis_client

@@ -95,7 +95,8 @@ class ScriptService:
     async def load_from_db(self, db_session) -> None:
         """从数据库加载 ACTIVE 话术（生产模式）"""
         from sqlalchemy import select
-        from smartcs.shared.orm_models import ScriptTemplate, ScriptStatus
+
+        from smartcs.shared.orm_models import ScriptStatus, ScriptTemplate
 
         result = await db_session.execute(
             select(ScriptTemplate).where(ScriptTemplate.status == ScriptStatus.ACTIVE)
@@ -194,7 +195,7 @@ class ScriptService:
                 timeout=timeout_ms / 1000,
             )
             return response.strip() or script_content
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("LLM 润色超时，返回原文")
             return script_content
         except Exception as e:

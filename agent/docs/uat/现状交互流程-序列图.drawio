@@ -1,0 +1,282 @@
+<mxGraphModel>
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="T" value="SmartCS 全链路交互 — 现状问题标注" style="text;fontSize=18;fontStyle=1;align=center;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="200" y="10" width="500" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="H1" value="客户前端" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="78" y="45" width="24" height="42" as="geometry"/>
+    </mxCell>
+    <mxCell id="H2" value="Bot :8000" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="230" y="50" width="80" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="H3" value="Redis" style="shape=cylinder3;fillColor=#f5f5f5;strokeColor=#666;size=5;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="380" y="48" width="50" height="38" as="geometry"/>
+    </mxCell>
+    <mxCell id="H4" value="StarConn :8080" style="rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="520" y="50" width="100" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="H5" value="Assist :8001" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="680" y="50" width="90" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="H6" value="坐席前端" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="838" y="45" width="24" height="42" as="geometry"/>
+    </mxCell>
+    <mxCell id="L1" value="" style="endArrow=none;dashed=1;strokeColor=#bbb;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="90" y="90" as="sourcePoint"/>
+        <mxPoint x="90" y="920" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="L2" value="" style="endArrow=none;dashed=1;strokeColor=#bbb;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="270" y="82" as="sourcePoint"/>
+        <mxPoint x="270" y="920" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="L3" value="" style="endArrow=none;dashed=1;strokeColor=#bbb;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="405" y="88" as="sourcePoint"/>
+        <mxPoint x="405" y="920" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="L4" value="" style="endArrow=none;dashed=1;strokeColor=#bbb;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="570" y="82" as="sourcePoint"/>
+        <mxPoint x="570" y="920" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="L5" value="" style="endArrow=none;dashed=1;strokeColor=#bbb;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="725" y="82" as="sourcePoint"/>
+        <mxPoint x="725" y="920" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="L6" value="" style="endArrow=none;dashed=1;strokeColor=#bbb;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="850" y="90" as="sourcePoint"/>
+        <mxPoint x="850" y="920" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="BG1" value="" style="rounded=1;fillColor=#E8F5E9;strokeColor=#66BB6A;opacity=20;" vertex="1" parent="1">
+      <mxGeometry x="40" y="100" width="840" height="175" as="geometry"/>
+    </mxCell>
+    <mxCell id="P1L" value="阶段1: BOT 自助对话" style="text;fontSize=12;fontStyle=1;fillColor=none;strokeColor=none;fontColor=#2E7D32;" vertex="1" parent="1">
+      <mxGeometry x="50" y="103" width="160" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="A1" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="90" y="140" as="sourcePoint"/>
+        <mxPoint x="270" y="140" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="A1T" value="① POST /api/chat/send" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="110" y="127" width="130" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="A2" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="270" y="140" as="sourcePoint"/>
+        <mxPoint x="405" y="140" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="A2T" value="② LPUSH smartcs:chat:queue" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="285" y="145" width="150" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="A2B" value="BRPOP → LangGraph Agent (分类→RAG→生成)" style="text;fontSize=9;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;align=center;" vertex="1" parent="1">
+      <mxGeometry x="230" y="162" width="250" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="P8" value="🔴 P8: 客户消息未存 DialogueTurn" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="500" y="162" width="190" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="A3" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="270" y="195" as="sourcePoint"/>
+        <mxPoint x="405" y="195" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="A3T" value="③ SET smartcs:response:{sid} (TTL 120s)" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="285" y="200" width="210" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="A4" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="90" y="230" as="sourcePoint"/>
+        <mxPoint x="270" y="230" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="A4T" value="④ GET /api/chat/poll → 返回Bot回复" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="100" y="235" width="190" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="A4D" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="270" y="230" as="sourcePoint"/>
+        <mxPoint x="90" y="230" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="SB1" value="SessionPhase = BOT" style="text;fontSize=9;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+      <mxGeometry x="730" y="108" width="120" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="BG2" value="" style="rounded=1;fillColor=#FFF3E0;strokeColor=#FFB74D;opacity=20;" vertex="1" parent="1">
+      <mxGeometry x="40" y="285" width="840" height="250" as="geometry"/>
+    </mxCell>
+    <mxCell id="P2L" value="阶段2: HANDOFF 转人工" style="text;fontSize=12;fontStyle=1;fillColor=none;strokeColor=none;fontColor=#E65100;" vertex="1" parent="1">
+      <mxGeometry x="50" y="288" width="180" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="SB2" value="HANDOFF" style="text;fontSize=9;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
+      <mxGeometry x="770" y="293" width="80" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="A5T" value="⑤ TransferChecker: L1关键词 / L2语义 / L3累计 → should_transfer=true" style="text;fontSize=9;fillColor=#FFE0B2;strokeColor=#E65100;rounded=1;fontStyle=1;align=center;" vertex="1" parent="1">
+      <mxGeometry x="185" y="315" width="370" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="A6" style="endArrow=classic;strokeColor=#333;strokeWidth=2;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="270" y="350" as="sourcePoint"/>
+        <mxPoint x="570" y="350" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="A6T" value="⑥ POST /api/sessions {history:[], intent, sentiment}" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="300" y="337" width="230" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="P1" value="🔴 P1: history=[] 坐席盲接" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="620" y="340" width="150" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="A7" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="570" y="380" as="sourcePoint"/>
+        <mxPoint x="270" y="380" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="A7T" value="⑦ 返回 {pollUrl, sendUrl, token, status:WAITING}" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="310" y="385" width="230" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="PURL" value="🔴 pollUrl 硬编码 localhost:8080/customer/poll&#xa;前端不用此URL，自行拼 /api/star/sessions/{sid}/poll" style="text;fontSize=8;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;align=left;" vertex="1" parent="1">
+      <mxGeometry x="610" y="372" width="250" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="A8" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="270" y="420" as="sourcePoint"/>
+        <mxPoint x="90" y="420" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="A8T" value="⑧ poll返回 is_transfer=true + transfer_url" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="100" y="425" width="190" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="P4" value="🔴 P4: 直接设agentConnected=true, 无等待UI" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="100" y="442" width="240" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="A9" style="endArrow=classic;strokeColor=#E53935;strokeWidth=2;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="570" y="475" as="sourcePoint"/>
+        <mxPoint x="725" y="475" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="A9T" value="⑨ 应回调 POST /api/session/update(ASSIST)? ❌" style="text;fontSize=9;fillColor=none;strokeColor=none;fontStyle=2;fontColor=#C62828;" vertex="1" parent="1">
+      <mxGeometry x="580" y="462" width="220" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="P3" value="🔴 P3: SmartcsClient 只调 /api/analyze，从不回调 session/update → 阶段永远 HANDOFF" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="100" y="492" width="400" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="PSID" value="🔴 会话ID不映射: SmartCS sid ≠ StarConn sid，WS推送可能找不到连接" style="text;fontSize=8;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;" vertex="1" parent="1">
+      <mxGeometry x="510" y="500" width="310" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="BG3" value="" style="rounded=1;fillColor=#E3F2FD;strokeColor=#90CAF9;opacity=20;" vertex="1" parent="1">
+      <mxGeometry x="40" y="545" width="840" height="200" as="geometry"/>
+    </mxCell>
+    <mxCell id="P3L" value="阶段3: ASSIST 坐席辅助" style="text;fontSize=12;fontStyle=1;fillColor=none;strokeColor=none;fontColor=#1565C0;" vertex="1" parent="1">
+      <mxGeometry x="50" y="548" width="180" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="SB3" value="ASSIST (未实际到达)" style="text;fontSize=9;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="700" y="553" width="140" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="B10" style="endArrow=classic;endFill=1;strokeColor=#333;strokeWidth=1.5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="90" y="585" as="sourcePoint"/>
+        <mxPoint x="570" y="585" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="B10T" value="⑩ 客户 long-poll → /api/star/sessions/{sid}/poll" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="200" y="572" width="220" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="B10R" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="570" y="605" as="sourcePoint"/>
+        <mxPoint x="90" y="605" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="B10RT" value="⑪ star-connection 返回坐席消息" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="250" y="608" width="170" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="B11" style="endArrow=classic;strokeColor=#333;strokeWidth=1.5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="570" y="640" as="sourcePoint"/>
+        <mxPoint x="725" y="640" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="B11T" value="⑫ @Async POST /api/analyze" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="580" y="627" width="150" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="B11P" value="分类→4路并行(话术/知识/告警/营销)→仲裁→fusion" style="text;fontSize=8;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;align=center;" vertex="1" parent="1">
+      <mxGeometry x="660" y="645" width="220" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="B12" style="endArrow=classic;strokeColor=#333;strokeWidth=2;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="725" y="670" as="sourcePoint"/>
+        <mxPoint x="850" y="670" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="B12T" value="⑬ WS push 话术/知识/告警" style="text;fontSize=9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="740" y="657" width="120" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="P9" value="🔴 P9: WS连接池进程内dict，多worker丢失" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;" vertex="1" parent="1">
+      <mxGeometry x="620" y="685" width="220" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="B13" style="endArrow=classic;strokeColor=#E53935;strokeWidth=1.5;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="850" y="715" as="sourcePoint"/>
+        <mxPoint x="725" y="715" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="B13T" value="⑭ /feedback 采纳/修改/拒绝? ❌" style="text;fontSize=9;fillColor=none;strokeColor=none;fontStyle=2;fontColor=#C62828;" vertex="1" parent="1">
+      <mxGeometry x="740" y="720" width="150" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="P5" value="🔴 P5: 反馈按钮前端未实现" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="580" y="722" width="160" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="P10" value="🔴 P10: 坐席端消息无去重" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;" vertex="1" parent="1">
+      <mxGeometry x="580" y="740" width="150" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="BG4" value="" style="rounded=1;fillColor=#FCE4EC;strokeColor=#EF9A9A;opacity=20;" vertex="1" parent="1">
+      <mxGeometry x="40" y="755" width="840" height="160" as="geometry"/>
+    </mxCell>
+    <mxCell id="P4L" value="阶段4: ENDED 会话结束" style="text;fontSize=12;fontStyle=1;fillColor=none;strokeColor=none;fontColor=#C62828;" vertex="1" parent="1">
+      <mxGeometry x="50" y="758" width="180" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="SB4" value="ENDED (从未到达)" style="text;fontSize=9;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="730" y="763" width="110" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="P6" value="🔴 P6: 会话结束无感知，客户可继续输入到死会话" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="100" y="790" width="280" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="P7" value="🔴 P7: 两套状态机不同步 (Redis SessionPhase vs Java SessionStatus)" style="text;fontSize=9;fillColor=#FFCDD2;strokeColor=#E53935;rounded=1;fontColor=#C62828;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="100" y="810" width="350" height="16" as="geometry"/>
+    </mxCell>
+    <mxCell id="C15" style="endArrow=classic;strokeColor=#E53935;strokeWidth=2;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="570" y="840" as="sourcePoint"/>
+        <mxPoint x="725" y="840" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="C15T" value="⑮ session/update(ENDED)? ❌" style="text;fontSize=9;fillColor=none;strokeColor=none;fontStyle=2;fontColor=#C62828;" vertex="1" parent="1">
+      <mxGeometry x="590" y="827" width="150" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="C16" style="endArrow=classic;strokeColor=#E53935;strokeWidth=1.5;dashed=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="725" y="870" as="sourcePoint"/>
+        <mxPoint x="90" y="870" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="C16T" value="⑯ 客户收到结束通知? → 评价页? ❌" style="text;fontSize=9;fillColor=none;strokeColor=none;fontStyle=2;fontColor=#C62828;" vertex="1" parent="1">
+      <mxGeometry x="300" y="875" width="180" height="14" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

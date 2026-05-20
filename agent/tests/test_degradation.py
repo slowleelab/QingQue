@@ -1,19 +1,16 @@
 """降级策略单元测试"""
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.shared.models import DegradationLevel, IntentLabel
 from smartcs.services.common.degradation import (
     ContentDegrader,
     DegradationManager,
-    GenerateResult,
     HealthMonitor,
 )
-
+from smartcs.shared.models import DegradationLevel, IntentLabel
 
 # ── DegradationLevel ──
 

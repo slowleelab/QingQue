@@ -15,8 +15,9 @@ import asyncio
 import logging
 import time
 from collections import deque
+from collections.abc import Callable, Coroutine
 from enum import Enum
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 from smartcs.shared.exceptions import CircuitBreakerOpenError
 
@@ -92,9 +93,8 @@ class CircuitBreaker:
     @property
     def state(self) -> CircuitState:
         """当前状态，自动检查 OPEN→HALF_OPEN 超时转换"""
-        if self._state == CircuitState.OPEN:
-            if time.monotonic() - self._opened_at >= self._recovery_timeout:
-                self._transition_to_half_open()
+        if self._state == CircuitState.OPEN and time.monotonic() - self._opened_at >= self._recovery_timeout:
+            self._transition_to_half_open()
         return self._state
 
     @property
@@ -200,7 +200,7 @@ class CircuitBreaker:
             elapsed = time.monotonic() - start
             self.record_success(elapsed=elapsed)
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             elapsed = time.monotonic() - start
             # 超时记录为失败 + 慢调用
             self.record_failure()

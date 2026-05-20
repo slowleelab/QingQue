@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
+
 from smartcs.services.assist.alert_engine import AlertEngine
-from smartcs.shared.models import SentimentLabel, AlertLevel, AlertCategory
+from smartcs.shared.models import AlertLevel, SentimentLabel
 
 
 @pytest.fixture

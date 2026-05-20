@@ -56,6 +56,11 @@ websocket:
     max-wait-time-seconds: 300
     heartbeat-interval-seconds: 30
 
+# SmartCS 回调配置
+smartcs:
+  assist:
+    url: http://localhost:8001
+
 # 会话配置
 session:
   max-wait-time-seconds: 300

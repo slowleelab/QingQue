@@ -17,6 +17,14 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
 
+def _get_channel(app: FastAPI, target: str) -> grpc.aio.Channel:
+    """获取 gRPC 通道，不存在时抛出 KeyError"""
+    channels: dict[str, grpc.aio.Channel] = getattr(app.state, "grpc_channels", {})
+    if target not in channels:
+        raise KeyError(f"gRPC 通道 '{target}' 未初始化，请检查 gRPC 服务是否已启动")
+    return channels[target]
+
+
 async def init_grpc_channels(app: FastAPI) -> None:
     """初始化 gRPC 通道，存储到 app.state"""
     settings = get_settings()
@@ -26,8 +34,14 @@ async def init_grpc_channels(app: FastAPI) -> None:
     rag_target = f"{settings.rag.grpc_host}:{settings.rag.grpc_port}"
     safety_target = f"{settings.safety.grpc_host}:{settings.safety.grpc_port}"
 
+    use_tls = getattr(settings, "grpc_use_tls", False)
+
     for target in {cls_target, rag_target, safety_target}:
-        channels[target] = grpc.aio.insecure_channel(target)
+        if use_tls:
+            credentials = grpc.ssl_channel_credentials()
+            channels[target] = grpc.aio.secure_channel(target, credentials)
+        else:
+            channels[target] = grpc.aio.insecure_channel(target)
 
     app.state.grpc_channels = channels
 
@@ -38,7 +52,7 @@ async def close_grpc_channels(app: FastAPI) -> None:
     for channel in channels.values():
         await channel.close()
     channels.clear()
-    app.state.grpc_channels = {}
+    app.state.grpc_channels = None
 
 
 def get_classification_stub(app: FastAPI):
@@ -47,7 +61,7 @@ def get_classification_stub(app: FastAPI):
 
     settings = get_settings()
     target = f"{settings.classification.grpc_host}:{settings.classification.grpc_port}"
-    channel = app.state.grpc_channels[target]
+    channel = _get_channel(app, target)
     return classification_pb2_grpc.ClassificationServiceStub(channel)
 
 
@@ -57,7 +71,7 @@ def get_retrieval_stub(app: FastAPI):
 
     settings = get_settings()
     target = f"{settings.rag.grpc_host}:{settings.rag.grpc_port}"
-    channel = app.state.grpc_channels[target]
+    channel = _get_channel(app, target)
     return retrieval_pb2_grpc.RetrievalServiceStub(channel)
 
 
@@ -67,5 +81,5 @@ def get_safety_stub(app: FastAPI):
 
     settings = get_settings()
     target = f"{settings.safety.grpc_host}:{settings.safety.grpc_port}"
-    channel = app.state.grpc_channels[target]
+    channel = _get_channel(app, target)
     return safety_pb2_grpc.SafetyFilterServiceStub(channel)

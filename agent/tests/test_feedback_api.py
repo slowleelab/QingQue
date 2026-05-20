@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -13,7 +13,6 @@ from httpx import ASGITransport, AsyncClient
 
 from smartcs.main import create_assist_app
 from smartcs.services.assist.router import _action_to_confidence
-
 
 # ── Unit tests: _action_to_confidence ──
 
@@ -152,7 +151,7 @@ async def test_feedback_invalid_action(feedback_client: AsyncClient):
 
 
 async def test_feedback_with_state_manager():
-    """POST /api/feedback 有 state_manager 时写入反馈到 Redis"""
+    """POST /api/feedback 响应包含 delayed_commit 标记（H2: 3秒延迟确认）"""
     app = create_assist_app()
     app.state.classifier = None
     app.state.assist_orchestrator = None
@@ -180,24 +179,28 @@ async def test_feedback_with_state_manager():
     data = resp.json()
     assert data["action"] == "modify"
     assert data["confidence"] == 0.5
+    # H2: 延迟确认标记
+    assert data["delayed_commit"] is True
 
-    # 验证 state_manager 被正确调用
-    mock_state_manager.read_state.assert_awaited_once_with("test-session-sm")
-    mock_state_manager.cas_write.assert_awaited_once()
-    call_kwargs = mock_state_manager.cas_write.call_args
-    assert call_kwargs.kwargs["session_id"] == "test-session-sm"
-    assert call_kwargs.kwargs["expected_version"] == 3
-    assert call_kwargs.kwargs["writer"] == "feedback:agent-002"
-    patches = call_kwargs.kwargs["patches"]
-    assert "last_feedback" in patches
-    assert patches["last_feedback"]["action"] == "modify"
-    assert patches["last_feedback"]["confidence"] == 0.5
-    assert patches["last_feedback"]["modify_fields"] == ["script_content", "knowledge_summary"]
-    assert patches["last_feedback"]["agent_id"] == "agent-002"
+    # H2: 反馈先缓冲，3秒后才提交到 Redis
+    # 在延迟确认模式下，cas_write 不会立即调用
+    mock_state_manager.cas_write.assert_not_awaited()
+
+    # 验证缓冲区中有反馈数据
+    from smartcs.services.assist.router import _feedback_buffer
+    buffer_key = "test-session-sm:agent-002"
+    assert buffer_key in _feedback_buffer
+    assert _feedback_buffer[buffer_key]["action"] == "modify"
+    assert _feedback_buffer[buffer_key]["confidence"] == 0.5
+    assert _feedback_buffer[buffer_key]["modify_fields"] == ["script_content", "knowledge_summary"]
+    assert _feedback_buffer[buffer_key]["agent_id"] == "agent-002"
+
+    # 清理缓冲区
+    _feedback_buffer.pop(buffer_key, None)
 
 
 async def test_feedback_no_state_no_cas_write():
-    """POST /api/feedback state_manager 存在但 session 不存在时不调用 cas_write"""
+    """POST /api/feedback state_manager 存在但 session 不存在时，cas_write 不会立即调用（H2 延迟确认）"""
     app = create_assist_app()
     app.state.classifier = None
     app.state.assist_orchestrator = None
@@ -219,5 +222,9 @@ async def test_feedback_no_state_no_cas_write():
     assert resp.status_code == 200
     data = resp.json()
     assert data["confidence"] == 1.0
-    # cas_write 不应该被调用
+    # H2: 延迟确认模式下，cas_write 不会立即调用
     mock_state_manager.cas_write.assert_not_awaited()
+
+    # 清理缓冲区
+    from smartcs.services.assist.router import _feedback_buffer
+    _feedback_buffer.pop("nonexistent-session:agent-003", None)

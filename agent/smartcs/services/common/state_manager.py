@@ -281,6 +281,15 @@ class StateManager:
         adjusted: dict[str, Any] = {}
 
         for field, value in patches.items():
+            # H1: suppress_flag duration 到期后强制清除
+            if field == "suppress_flag" and value is False and "suppress_force_clear" in patches:
+                adjusted[field] = value
+                continue
+
+            if field == "suppress_force_clear":
+                # 辅助字段，不写入状态
+                continue
+
             if field in _ONE_WAY_GATE_FIELDS:
                 # 单向门字段：检查状态转换合法性
                 if field == "suppress_flag":
@@ -323,14 +332,32 @@ class StateManager:
                 else:
                     adjusted[field] = value
 
+            elif field == "emotion_vector":
+                # 时间窗口替换：新值覆盖旧值（emotion_vector 始终取最新）
+                # 如果旧值存在且比新值更近，则保留旧值
+                current_ev = current.get("emotion_vector")
+                if current_ev and isinstance(current_ev, dict) and isinstance(value, dict):
+                    current_time = current_ev.get("updated_at", "")
+                    new_time = value.get("updated_at", "")
+                    if current_time and new_time and current_time > new_time:
+                        # 当前值更新，保留
+                        adjusted[field] = current_ev
+                    else:
+                        adjusted[field] = value
+                else:
+                    adjusted[field] = value
+
             else:
-                # 全量覆写（risk_pending_audit, node_position, emotion_vector 等）
+                # 全量覆写（risk_pending_audit, node_position 等）
                 adjusted[field] = value
 
         return adjusted
 
     def _can_set_suppress(self, current: bool, new: bool) -> bool:
         """suppress_flag 单向门检查：只能从 false → true
+
+        例外: 当 patch 中包含 suppress_force_clear=True 时，
+        允许 true→false（用于 duration 到期后自动清除）。
 
         Args:
             current: 当前值
@@ -340,6 +367,4 @@ class StateManager:
             True 允许设置，False 阻止
         """
         # 只允许 false→true，不允许 true→false
-        if current is True and new is False:
-            return False
-        return True
+        return not (current is True and new is False)

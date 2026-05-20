@@ -1,8 +1,6 @@
 """Temporal 基础设施单元测试"""
 from __future__ import annotations
 
-import pytest
-
 from smartcs.workflows.shared import (
     EvaluatorInput,
     EvaluatorOutput,

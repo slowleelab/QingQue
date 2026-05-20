@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum as PyEnum
+from enum import StrEnum
 
 import uuid_utils
 from sqlalchemy import (
@@ -44,7 +44,7 @@ class Base(DeclarativeBase):
 # ── Python 枚举 + PG ENUM 类型 ──
 
 
-class KbSourceType(str, PyEnum):
+class KbSourceType(StrEnum):
     """文档来源类型"""
 
     PDF = "PDF"
@@ -55,7 +55,7 @@ class KbSourceType(str, PyEnum):
     XLSX = "XLSX"
 
 
-class KbDocStatus(str, PyEnum):
+class KbDocStatus(StrEnum):
     """文档处理状态"""
 
     PENDING = "PENDING"
@@ -66,7 +66,7 @@ class KbDocStatus(str, PyEnum):
     KAFKA_PENDING = "KAFKA_PENDING"
 
 
-class KbEmbedStatus(str, PyEnum):
+class KbEmbedStatus(StrEnum):
     """嵌入状态"""
 
     PENDING = "PENDING"
@@ -74,7 +74,7 @@ class KbEmbedStatus(str, PyEnum):
     FAILED = "FAILED"
 
 
-class KbIngestionStage(str, PyEnum):
+class KbIngestionStage(StrEnum):
     """摄入流水阶段"""
 
     PARSE = "PARSE"
@@ -86,7 +86,7 @@ class KbIngestionStage(str, PyEnum):
     KAFKA_PUBLISH = "KAFKA_PUBLISH"
 
 
-class KbIngestionStatus(str, PyEnum):
+class KbIngestionStatus(StrEnum):
     """摄入流水状态"""
 
     RUNNING = "RUNNING"
@@ -272,7 +272,7 @@ class KbIngestionLog(Base):
 # ── ScriptStatus ──
 
 
-class ScriptStatus(str, PyEnum):
+class ScriptStatus(StrEnum):
     """话术模板状态"""
 
     ACTIVE = "ACTIVE"
@@ -349,14 +349,14 @@ class ScriptUsageLog(Base):
 # ── 质检规则枚举 ──
 
 
-class AlertRuleCategory(str, PyEnum):
+class AlertRuleCategory(StrEnum):
     COMPLIANCE = "COMPLIANCE"
     EMOTION = "EMOTION"
     SILENCE = "SILENCE"
     PROCESS = "PROCESS"
 
 
-class AlertRuleLevel(str, PyEnum):
+class AlertRuleLevel(StrEnum):
     INFO = "INFO"
     WARNING = "WARNING"
     CRITICAL = "CRITICAL"

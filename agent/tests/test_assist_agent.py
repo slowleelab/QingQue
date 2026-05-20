@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import pytest
+
 from smartcs.services.assist.agent import AssistOrchestrator
-from smartcs.services.assist.script_service import ScriptService
 from smartcs.services.assist.alert_engine import AlertEngine
 from smartcs.services.assist.product_catalog import ProductCatalog
-from smartcs.shared.models import AssistPushMessage, SentimentLabel, IntentLabel
+from smartcs.services.assist.script_service import ScriptService
+from smartcs.shared.models import AssistPushMessage, IntentLabel, SentimentLabel
 
 
 @pytest.fixture

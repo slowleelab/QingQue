@@ -44,7 +44,7 @@ make migrate-create # Create new migration (msg="description")
 - **isort**: `known-first-party = ["smartcs"]`
 - **mypy**: `disallow_untyped_defs = true` on source, relaxed for tests
 - **Every module** starts with `from __future__ import annotations`
-- **Src layout**: package is `src/smartcs/`
+- **Package layout**: package is `smartcs/` (directly under `agent/`)
 - **Package manager**: Poetry — always use `poetry run` for commands
 - **Pre-commit**: runs ruff (fix), ruff-format, mypy, plus generic checks (trailing whitespace, YAML/JSON validation, large files, merge conflicts, private keys)
 
@@ -52,7 +52,7 @@ make migrate-create # Create new migration (msg="description")
 
 - **App factory**: `create_bot_app()` / `create_assist_app()` — each returns a FastAPI instance with its own lifespan
 - **Dependency injection**: DB engines, Redis pools, gRPC channels stored on `app.state`; injected via `Annotated[..., Depends(...)]` in `deps.py`
-- **Configuration**: Pydantic-settings with 10 sub-settings classes, each with its own `env_prefix`; cached with `@lru_cache`
+- **Configuration**: Pydantic-settings with 12 sub-settings classes, each with its own `env_prefix`; cached with `@lru_cache`
 - **Error handling**: Hierarchical error codes (2xxx input, 3xxx business, 4xxx external, 5xxx system); global middleware maps to HTTP status codes and returns uniform `{"error": {"code", "message", "type"}}` JSON
 - **Session state**: Full conversation state in Redis (SessionState model) supporting bot -> handoff -> assist -> ended lifecycle
 - **RAG retrieval**: Hybrid BM25 + vector + RRF fusion with graceful degradation (BM25-only or vector-only fallback paths)
@@ -61,30 +61,32 @@ make migrate-create # Create new migration (msg="description")
 ## Project Structure
 
 ```
-src/smartcs/              # Main package
+agent/smartcs/            # Main package
   main.py                 # App factories + lifespan managers
   shared/                 # Cross-cutting modules
-    config.py             # Pydantic-settings (10 sub-configs)
+    config.py             # Pydantic-settings (12 sub-configs)
     exceptions.py         # Error code hierarchy
     logger.py             # JSON structured logging
-    middleware.py          # Global exception handler
+    middleware.py          # Global exception handler + RequestValidationError
     models.py             # 15+ Pydantic models
   services/
     bot/                  # Bot self-service
       app.py, router.py   # POST /api/chat, GET /api/health
+      agent.py            # LangGraph agent graph
     assist/               # Agent assist
       app.py, router.py   # WS /api/ws/{session_id}, GET /api/health
+      agent.py            # AssistOrchestrator
     common/               # Shared infrastructure
       database.py         # SQLAlchemy async engine
       deps.py             # FastAPI Depends injection
       grpc_clients.py     # gRPC channel pool + stubs
       redis_client.py     # Redis async connection pool
-proto/                    # gRPC Protobuf definitions
-scripts/                  # Init/verify utilities
+agent/proto/              # gRPC Protobuf definitions
+agent/scripts/            # Init/verify utilities
 deploy/                   # Docker, nginx, K8s configs
 config/                   # Prometheus, Grafana, sensitive words
-alembic/                  # DB migrations
-tests/                    # pytest with httpx AsyncClient fixtures
+agent/alembic/            # DB migrations
+agent/tests/              # pytest with httpx AsyncClient fixtures
 ```
 
 ## Testing
@@ -97,9 +99,9 @@ tests/                    # pytest with httpx AsyncClient fixtures
 ## Sprint Status
 
 - Sprint 1 (completed): Infrastructure + skeleton
-- Sprint 2 (pending): RAG core + knowledge base
-- Sprint 3 (pending): Agent orchestration + bot MVP
-- Sprint 4 (pending): LLM integration + degradation strategy
+- Sprint 2 (in progress): RAG core + knowledge base (retrieval, embedding, reranker, ingestion implemented)
+- Sprint 3 (in progress): Agent orchestration + bot MVP (LangGraph agent, chat queue, long-poll implemented)
+- Sprint 4 (in progress): LLM integration + degradation strategy (circuit breaker, health monitor, content degrader implemented)
 
 ## Environment Variables
 

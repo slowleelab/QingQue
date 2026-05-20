@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -13,7 +13,6 @@ from smartcs.services.common.classifier import (
     get_domain,
 )
 from smartcs.shared.models import IntentLabel, IntentResult, SentimentLabel
-
 
 # ── RuleClassifier ──
 

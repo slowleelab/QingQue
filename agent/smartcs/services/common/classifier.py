@@ -309,7 +309,7 @@ class IntentClassifier:
             return rule_result, [], SentimentLabel.NEUTRAL, "fallback"
 
         # 熔断器打开 → 跳过 LLM
-        if not self._llm._breaker.is_available:
+        if not self._llm._llm._breaker.is_available:
             logger.debug("LLM 熔断器打开，跳过 Slow Path")
             return rule_result, [], SentimentLabel.NEUTRAL, "fallback"
 

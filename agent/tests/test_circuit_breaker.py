@@ -20,7 +20,6 @@ import pytest
 from smartcs.services.common.circuit_breaker import CircuitBreaker, CircuitState
 from smartcs.shared.exceptions import CircuitBreakerOpenError
 
-
 # ── 基础属性 ──
 
 

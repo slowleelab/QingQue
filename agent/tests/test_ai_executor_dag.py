@@ -1,20 +1,26 @@
 """AI 服务执行器 LangGraph DAG 单元测试"""
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
-from smartcs.services.assist.ai_executor_dag import AIExecutorDAG, DAGState
+from smartcs.services.assist.ai_executor_dag import AIExecutorDAG
 
 
-def _make_mock_script_service():
-    """创建 mock ScriptService"""
+def _make_mock_script_service(top1_score: float = 0.95):
+    """创建 mock ScriptService
+
+    Args:
+        top1_score: Top1 检索得分，>0.9 走快速通路，<=0.9 走深度通路
+    """
     svc = MagicMock()
     svc.retrieve = MagicMock(
         return_value=[
-            {"script_id": "s1", "content": "话术内容", "tags": ["faq"], "priority": 5}
+            {"script_id": "s1", "content": "话术内容", "tags": ["faq"], "priority": 5, "score": top1_score}
         ]
     )
+    svc.polish = MagicMock(side_effect=lambda s, *a, **kw: s.get("content", "") if isinstance(s, dict) else str(s))
     return svc
 
 
@@ -75,7 +81,7 @@ class TestFastPath:
     @pytest.mark.asyncio
     async def test_high_confidence_takes_fast_path(self):
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(
@@ -90,7 +96,7 @@ class TestFastPath:
     @pytest.mark.asyncio
     async def test_fast_path_includes_script(self):
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(
@@ -104,7 +110,7 @@ class TestFastPath:
 
     @pytest.mark.asyncio
     async def test_fast_path_no_match(self):
-        """快速通路话术未命中时 fast_path_hit=False"""
+        """话术检索无结果时 fast_path_hit=False，走深度通路"""
         svc = MagicMock()
         svc.retrieve = MagicMock(return_value=[])
         dag = AIExecutorDAG(
@@ -117,14 +123,14 @@ class TestFastPath:
             intent="chitchat",
             confidence=0.95,
         )
-        assert result["path"] == "fast"
+        assert result["path"] == "deep"
         assert result["fast_path_hit"] is False
 
     @pytest.mark.asyncio
-    async def test_confidence_exactly_0_9_takes_deep_path(self):
-        """confidence == 0.9 不满足 > 0.9，走深度通路"""
+    async def test_top1_score_exactly_0_9_takes_deep_path(self):
+        """top1_score == 0.9 不满足 > 0.9，走深度通路"""
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.9),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(
@@ -142,7 +148,7 @@ class TestDeepPath:
     @pytest.mark.asyncio
     async def test_low_confidence_takes_deep_path(self):
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.6),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(
@@ -157,7 +163,7 @@ class TestDeepPath:
     async def test_deep_path_no_es_returns_empty(self):
         """深度通路在无 ES 客户端时返回空候选"""
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.5),
             alert_engine=_make_mock_alert_engine(clean=True),
             es_client=None,
         )
@@ -256,7 +262,7 @@ class TestFirewall:
     @pytest.mark.asyncio
     async def test_firewall_passes_clean_content(self):
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(
@@ -271,7 +277,7 @@ class TestFirewall:
     @pytest.mark.asyncio
     async def test_firewall_blocks_noncompliant_content(self):
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=_make_mock_alert_engine(clean=False),
         )
         result = await dag.run(
@@ -288,7 +294,7 @@ class TestFirewall:
     async def test_firewall_no_alert_engine_passes(self):
         """无 alert_engine 时默认放行"""
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=None,
         )
         result = await dag.run(
@@ -303,7 +309,7 @@ class TestFirewall:
     async def test_firewall_fallback_has_safe_template(self):
         """拦截后降级话术包含兜底内容"""
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=_make_mock_alert_engine(clean=False),
         )
         result = await dag.run(
@@ -322,7 +328,7 @@ class TestOutputFormat:
     @pytest.mark.asyncio
     async def test_output_has_latency(self):
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(session_id="s1", message="查询", confidence=0.95)
@@ -331,7 +337,7 @@ class TestOutputFormat:
     @pytest.mark.asyncio
     async def test_output_has_ui_schema(self):
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(session_id="s1", message="查询", confidence=0.95)
@@ -340,7 +346,7 @@ class TestOutputFormat:
     @pytest.mark.asyncio
     async def test_output_preserves_trace_id(self):
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.95),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(
@@ -377,9 +383,9 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_zero_confidence(self):
-        """confidence=0.0 走深度通路"""
+        """confidence=0.0 且 top1_score=0 走深度通路"""
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.0),
             alert_engine=_make_mock_alert_engine(clean=True),
         )
         result = await dag.run(session_id="s1", message="查询", confidence=0.0)
@@ -390,7 +396,7 @@ class TestEdgeCases:
         """无效 intent 默认使用 FAQ"""
         svc = MagicMock()
         svc.retrieve = MagicMock(
-            return_value=[{"script_id": "s1", "content": "FAQ话术", "tags": ["faq"], "priority": 5}]
+            return_value=[{"script_id": "s1", "content": "FAQ话术", "tags": ["faq"], "priority": 5, "score": 0.95}]
         )
         dag = AIExecutorDAG(
             script_service=svc,
@@ -410,7 +416,7 @@ class TestEdgeCases:
     async def test_rag_chain_exception_returns_empty(self):
         """RAG 链路异常时返回空候选"""
         dag = AIExecutorDAG(
-            script_service=_make_mock_script_service(),
+            script_service=_make_mock_script_service(top1_score=0.5),
             alert_engine=_make_mock_alert_engine(clean=True),
             es_client=MagicMock(),  # non-None, but will fail on actual retrieval
         )

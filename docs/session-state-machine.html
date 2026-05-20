@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartCS 会话状态机 - 细化设计</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; }
+  .doc-header { text-align: center; margin-bottom: 32px; }
+  .doc-header h1 { font-size: 28px; color: #60a5fa; font-weight: 700; margin-bottom: 6px; }
+  .doc-header p { color: #94a3b8; font-size: 14px; }
+  .section { max-width: 1200px; margin: 0 auto 32px; background: #1e293b; border-radius: 12px; border: 1px solid #334155; overflow: hidden; }
+  .section-header { padding: 16px 24px; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 12px; }
+  .section-header .badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+  .section-header h2 { font-size: 18px; color: #f1f5f9; font-weight: 600; }
+  .section-body { padding: 24px; }
+  .sm-container { position: relative; width: 100%; overflow-x: auto; }
+  .sm-row { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+  .sm-phase { flex: 1; min-width: 200px; border-radius: 10px; padding: 16px; position: relative; }
+  .sm-phase-label { font-size: 13px; font-weight: 700; text-align: center; padding: 6px 0; margin-bottom: 12px; border-radius: 6px; letter-spacing: 1px; }
+  .sm-state { background: #0f172a; border: 1.5px solid #475569; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; transition: all 0.2s; }
+  .sm-state:hover { border-color: #60a5fa; transform: translateY(-1px); }
+  .sm-state-name { font-size: 12px; font-weight: 700; color: #f1f5f9; margin-bottom: 2px; }
+  .sm-state-cn { font-size: 11px; color: #60a5fa; margin-bottom: 4px; }
+  .sm-state-desc { font-size: 10px; color: #94a3b8; line-height: 1.4; }
+  .sm-state .tag { display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 3px; margin-right: 4px; margin-top: 4px; }
+  .sm-state-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .sm-state-tbl td { font-size: 9px; color: #94a3b8; padding: 2px 4px; border: none; }
+  .sm-state-tbl td:first-child { color: #64748b; font-weight: 600; width: 40%; }
+  .arrow-row { display: flex; justify-content: center; align-items: center; padding: 4px 0; margin-bottom: 24px; }
+  .arrow-down { font-size: 20px; color: #60a5fa; }
+  .back-arrow { font-size: 10px; color: #f59e0b; text-align: center; padding: 2px 0; }
+  .phase-bot { background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%); border: 1.5px solid #3b82f6; }
+  .phase-bot .sm-phase-label { background: #1d4ed8; color: #fff; }
+  .phase-agent { background: linear-gradient(135deg, #1e3a2f 0%, #1e293b 100%); border: 1.5px solid #10b981; }
+  .phase-agent .sm-phase-label { background: #047857; color: #fff; }
+  .phase-ended { background: linear-gradient(135deg, #2e1e1e 0%, #1e293b 100%); border: 1.5px solid #ef4444; }
+  .phase-ended .sm-phase-label { background: #b91c1c; color: #fff; }
+  .tag-smartcs { background: #1e40af; color: #93c5fd; }
+  .tag-star { background: #7c2d12; color: #fdba74; }
+  .tag-both { background: #065f46; color: #6ee7b7; }
+  .tag-new { background: #581c87; color: #d8b4fe; }
+  .compare-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .compare-table th { background: #334155; color: #f1f5f9; padding: 8px 12px; text-align: left; font-weight: 600; border: 1px solid #475569; }
+  .compare-table td { padding: 8px 12px; border: 1px solid #334155; color: #cbd5e1; }
+  .compare-table tr:hover td { background: #1e293b; }
+  .compare-table .gap { color: #f87171; font-weight: 600; }
+  .compare-table .ok { color: #34d399; }
+  .compare-table .partial { color: #fbbf24; }
+  .event-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .event-table th { background: #334155; color: #f1f5f9; padding: 6px 10px; text-align: left; font-weight: 600; border: 1px solid #475569; font-size: 10px; }
+  .event-table td { padding: 6px 10px; border: 1px solid #334155; color: #cbd5e1; }
+  .event-table tr:hover td { background: #1e293b; }
+  .mapping-container { display: flex; gap: 24px; align-items: stretch; }
+  .mapping-col { flex: 1; background: #0f172a; border-radius: 8px; border: 1px solid #334155; padding: 16px; }
+  .mapping-col h4 { font-size: 13px; color: #60a5fa; margin-bottom: 12px; text-align: center; }
+  .mapping-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #1e293b; border-radius: 6px; margin-bottom: 6px; border: 1px solid #334155; }
+  .mapping-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .mapping-arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 80px; }
+  .mapping-arrow-line { font-size: 18px; color: #60a5fa; }
+  .mapping-arrow-label { font-size: 9px; color: #94a3b8; text-align: center; }
+  .dt-node { background: #0f172a; border: 1.5px solid #475569; border-radius: 8px; padding: 8px 16px; text-align: center; font-size: 11px; min-width: 140px; }
+  .dt-node.decision { border-color: #f59e0b; border-style: dashed; }
+  .dt-node.action { border-color: #3b82f6; }
+  .dt-node.outcome-good { border-color: #10b981; }
+  .dt-node.outcome-bad { border-color: #ef4444; }
+  .dt-connector { font-size: 14px; color: #60a5fa; }
+  .dt-label { font-size: 9px; color: #94a3b8; }
+  .dt-branch { display: flex; gap: 32px; }
+  .design-note { margin-top: 16px; padding: 14px; background: #0f172a; border-radius: 8px; border-left: 3px solid #60a5fa; }
+  .design-note-title { font-size: 12px; font-weight: 700; color: #60a5fa; margin-bottom: 6px; }
+  .design-note p { font-size: 11px; color: #94a3b8; line-height: 1.6; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="doc-header">
+  <h1>SmartCS 会话状态机 — 细化设计</h1>
+  <p>银行信用卡客服系统 | SmartCS + star-connection 双系统协同 | 3阶段 × 7状态</p>
+</div>
+<!-- ═══════════════════════════════════════════ -->
+<!-- Section 1: 完整状态机可视化 -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <span class="badge" style="background:#1d4ed8;color:#fff;">核心</span>
+    <h2>完整会话状态机</h2>
+  </div>
+  <div class="section-body">
+    <div class="sm-container">
+      <!-- BOT 阶段 -->
+      <div class="sm-row">
+        <div class="sm-phase phase-bot">
+          <div class="sm-phase-label">BOT 机器人服务</div>
+          <div class="sm-state">
+            <div class="sm-state-name">BOT_ACTIVE</div>
+            <div class="sm-state-cn">机器人对话</div>
+            <div class="sm-state-desc">意图分类 → 知识检索 → 回复<br>包含欢迎、正常对话、低置信度计数<br>空闲超时事件触发 ENDED</div>
+            <table class="sm-state-tbl">
+              <tr><td>等待什么</td><td>客户输入</td></tr>
+              <tr><td>超时后果</td><td>空闲超时 → ENDED</td></tr>
+              <tr><td>内部计数</td><td>low_confidence_streak</td></tr>
+            </table>
+            <span class="tag tag-smartcs">SmartCS</span>
+          </div>
+        </div>
+      </div>
+      <!-- 转接箭头 -->
+      <div class="arrow-row">
+        <div style="text-align:center;">
+          <div class="arrow-down">▼</div>
+          <div style="font-size:10px;color:#60a5fa;">请求转人工 (L1/L2/L3)</div>
+          <div style="font-size:9px;color:#94a3b8;margin-top:2px;">SmartCS: transition_phase(AGENT, AG_QUEUED)<br>star-connection: createSession()</div>
+        </div>
+      </div>
+      <!-- 回退箭头 -->
+      <div style="text-align:center;margin-bottom:16px;">
+        <div class="back-arrow">◄── AG_QUEUED 排队超时回退 BOT_ACTIVE ──►</div>
+        <div style="font-size:9px;color:#94a3b8;margin-top:2px;">SmartCS: transition_phase(BOT) &nbsp;|&nbsp; star-connection: closeSession()</div>
+      </div>
+      <!-- AGENT 阶段 -->
+      <div class="sm-row">
+        <div class="sm-phase phase-agent">
+          <div class="sm-phase-label">AGENT 人工服务</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <div class="sm-state" style="flex:1;min-width:160px;">
+              <div class="sm-state-name">AG_QUEUED</div>
+              <div class="sm-state-cn">排队等待</div>
+              <div class="sm-state-desc">坐席路由 + 等待可用坐席<br>播放等待音 / 告知排队位置</div>
+              <table class="sm-state-tbl">
+                <tr><td>等待什么</td><td>可用坐席</td></tr>
+                <tr><td>超时后果</td><td>排队超时(300s) → 回退 BOT</td></tr>
+                <tr><td>客户可放弃</td><td>→ ENDED</td></tr>
+              </table>
+              <span class="tag tag-star">star-connection</span>
+            </div>
+            <div class="sm-state" style="flex:1;min-width:160px;">
+              <div class="sm-state-name">AG_ASSIGNED</div>
+              <div class="sm-state-cn">等待坐席接受</div>
+              <div class="sm-state-desc">目标坐席已锁定<br>弹窗通知坐席 / 振铃<br>播放"正在为您接通"</div>
+              <table class="sm-state-tbl">
+                <tr><td>等待什么</td><td>坐席接受</td></tr>
+                <tr><td>超时后果</td><td>振铃超时(30s) → AG_QUEUED 重新路由</td></tr>
+                <tr><td>坐席拒绝</td><td>→ AG_QUEUED 重新路由</td></tr>
+              </table>
+              <span class="tag tag-star">star-connection</span>
+            </div>
+            <div class="sm-state" style="flex:1;min-width:160px;">
+              <div class="sm-state-name">AG_ACTIVE</div>
+              <div class="sm-state-cn">坐席对话</div>
+              <div class="sm-state-desc">坐席与客户实时对话<br>AI 辅助推送 + 反馈收集<br>OE 引擎每轮触发</div>
+              <table class="sm-state-tbl">
+                <tr><td>等待什么</td><td>对话结束</td></tr>
+                <tr><td>超时后果</td><td>会话超时(30min) → ENDED</td></tr>
+                <tr><td>异常退出</td><td>客户/坐席断开 → ENDED</td></tr>
+              </table>
+              <span class="tag tag-both">双系统</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+            <div class="sm-state" style="flex:1;min-width:160px;">
+              <div class="sm-state-name">AG_ON_HOLD</div>
+              <div class="sm-state-cn">客户保持</div>
+              <div class="sm-state-desc">坐席查系统 / 咨询同事 / 暂离<br>沉默检测 + 安抚话术推送<br>客户播放等待音</div>
+              <table class="sm-state-tbl">
+                <tr><td>等待什么</td><td>坐席恢复</td></tr>
+                <tr><td>超时后果</td><td>保持超时 → ENDED 或提醒坐席</td></tr>
+              </table>
+              <span class="tag tag-both">双系统</span>
+            </div>
+            <div class="sm-state" style="flex:1;min-width:160px;">
+              <div class="sm-state-name">AG_REVIEWING</div>
+              <div class="sm-state-cn">话后小结（ACW）</div>
+              <div class="sm-state-desc">AI 生成小结 → 坐席审核编辑<br>可修改分类、补充备注<br>显示"AI 正在生成..."加载态</div>
+              <table class="sm-state-tbl">
+                <tr><td>等待什么</td><td>坐席确认小结</td></tr>
+                <tr><td>超时后果</td><td>审核超时(120s) → 自动确认 → ENDED</td></tr>
+              </table>
+              <span class="tag tag-both">双系统</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 回退箭头2 -->
+      <div style="text-align:center;margin-bottom:16px;">
+        <div class="back-arrow">◄── AG_ACTIVE 坐席退回机器人 BOT_ACTIVE ──►</div>
+        <div style="font-size:9px;color:#94a3b8;margin-top:2px;">SmartCS: transition_phase(BOT) &nbsp;|&nbsp; star-connection: closeSession() &nbsp;|&nbsp; AI辅助停止</div>
+      </div>
+      <!-- 结束箭头 -->
+      <div class="arrow-row">
+        <div style="text-align:center;">
+          <div class="arrow-down">▼</div>
+          <div style="font-size:10px;color:#60a5fa;">会话结束 (坐席结束 / 客户挂断 / 超时 / 系统异常)</div>
+        </div>
+      </div>
+      <!-- ENDED 阶段 -->
+      <div class="sm-row">
+        <div class="sm-phase phase-ended">
+          <div class="sm-phase-label">ENDED 结束</div>
+          <div class="sm-state">
+            <div class="sm-state-name">ENDED</div>
+            <div class="sm-state-cn">终态</div>
+            <div class="sm-state-desc">会话终止，不再接受任何转换<br>结束原因记录在 end_reason 字段</div>
+            <table class="sm-state-tbl">
+              <tr><td>end_reason</td><td>completed | timeout | cust_disconnect | agent_disconnect | system_error</td></tr>
+              <tr><td>持久化</td><td>话后小结 + 对话记录 + 反馈数据</td></tr>
+            </table>
+            <span class="tag tag-both">双系统</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="design-note">
+      <div class="design-note-title">设计决策说明</div>
+      <p><strong>为什么取消 HANDOFF 阶段？</strong> 从客户视角，"我要找人工"之后无论排队还是接通，都是"人工服务"。排队等待是人工服务的冷启动过程，不是独立阶段。银行考核的是"人工服务全流程 SLA"，从客户请求转人工到话后小结结束。</p>
+      <p><strong>为什么 ASSIST 改名为 AGENT？</strong> ASSIST 指的是"坐席辅助"（AI 给坐席推话术），这是技术能力不是业务阶段。人工对话始终存在，但 AI 辅助可能降级甚至不可用。AGENT 是业务事实。</p>
+      <p><strong>为什么 BOT 只剩 BOT_ACTIVE？</strong> 欢迎语是 BOT_ACTIVE 的第一轮对话；低置信度是 BOT_ACTIVE 的内部计数器；请求转人工是事件不是状态；空闲超时是 BOT_ACTIVE 的事件。系统行为在这些场景下完全一致，只是内部计数器不同。</p>
+      <p><strong>为什么 AG_QUEUED 和 AG_ASSIGNED 分开？</strong> 行业标准（Amazon Connect、Genesys、Twilio）都分开。系统行为不同（等待音 vs 接通提示）、超时含义不同（无坐席 vs 坐席未接听）、SLA 指标不同（排队时长 vs 振铃时长）。</p>
+      <p><strong>为什么取消 AG_TRANSFERRING？</strong> 坐席转接的本质：释放旧坐席 → 分配新坐席 → 等待接受。这就是 AG_ACTIVE → AG_ASSIGNED，转接是动作不是状态。</p>
+      <p><strong>为什么 ENDED 没有子状态？</strong> ENDED 是终态，不会再有转换。END_COMPLETED / END_TIMEOUT 等是结束原因（end_reason 字段），不是状态。</p>
+    </div>
+  </div>
+</div>
+<!-- ═══════════════════════════════════════════ -->
+<!-- Section 2: 状态转换事件表 -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <span class="badge" style="background:#b45309;color:#fff;">转换</span>
+    <h2>状态转换事件表</h2>
+  </div>
+  <div class="section-body">
+    <table class="event-table">
+      <thead>
+        <tr>
+          <th>源状态</th>
+          <th>目标状态</th>
+          <th>触发事件</th>
+          <th>触发方</th>
+          <th>SmartCS 动作</th>
+          <th>star-connection 动作</th>
+          <th>当前实现</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- 会话创建 -->
+        <tr><td style="color:#6b7280;">（新建）</td><td style="color:#60a5fa;">BOT_ACTIVE<br><small style="color:#94a3b8;">机器人对话</small></td><td>客户进入系统</td><td>客户</td><td>SessionManager.create_session()<br>current_phase=BOT</td><td>—</td><td class="ok">已实现</td></tr>
+        <!-- BOT → AGENT -->
+        <tr style="background:#1e293b;"><td style="color:#60a5fa;">BOT_ACTIVE<br><small style="color:#94a3b8;">机器人对话</small></td><td style="color:#10b981;">AG_QUEUED<br><small style="color:#94a3b8;">排队等待</small></td><td>L1关键词 / L2语义 / L3连续低置信度 / 客户主动要求</td><td>TransferChecker / 客户</td><td>transition_phase(AGENT, AG_QUEUED)<br>生成摘要 + 携带对话历史<br>StarConnectionClient.create_session()</td><td>SessionManager.createSession()<br>tryAssignAgent()</td><td class="partial">触发链路存在<br>历史未传递<br>摘要未生成</td></tr>
+        <!-- BOT → ENDED -->
+        <tr><td style="color:#60a5fa;">BOT_ACTIVE<br><small style="color:#94a3b8;">机器人对话</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>客户空闲超时 (5min)</td><td>定时器</td><td>transition_phase(ENDED)</td><td>—</td><td class="gap">未实现</td></tr>
+        <!-- AG_QUEUED 内部/退出 -->
+        <tr style="background:#1e293b;"><td style="color:#10b981;">AG_QUEUED<br><small style="color:#94a3b8;">排队等待</small></td><td style="color:#10b981;">AG_ASSIGNED<br><small style="color:#94a3b8;">等待坐席接受</small></td><td>坐席路由成功</td><td>AgentLoadBalancer</td><td>—</td><td>tryAssignAgent() → ASSIGN_AGENT<br>SESSION_ASSIGN → AB节点</td><td class="ok">已实现</td></tr>
+        <tr><td style="color:#10b981;">AG_QUEUED<br><small style="color:#94a3b8;">排队等待</small></td><td style="color:#60a5fa;">BOT_ACTIVE<br><small style="color:#94a3b8;">机器人对话</small></td><td>排队超时 (300s)</td><td>定时器</td><td>transition_phase(BOT)<br>告知客户继续服务</td><td>closeSessionByTimeout()</td><td class="gap">超时未实现</td></tr>
+        <tr><td style="color:#10b981;">AG_QUEUED<br><small style="color:#94a3b8;">排队等待</small></td><td style="color:#10b981;">AG_QUEUED<br><small style="color:#94a3b8;">排队等待</small></td><td>新坐席上线，重新路由</td><td>坐席注册</td><td>—</td><td>processWaitingSessions()</td><td class="ok">已实现</td></tr>
+        <tr><td style="color:#10b981;">AG_QUEUED<br><small style="color:#94a3b8;">排队等待</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>排队中客户放弃</td><td>客户</td><td>transition_phase(ENDED)<br>end_reason=cust_disconnect</td><td>CUSTOMER_DISCONNECT → CLOSED</td><td class="partial">star-connection有<br>SmartCS无联动</td></tr>
+        <!-- AG_ASSIGNED -->
+        <tr style="background:#1e293b;"><td style="color:#10b981;">AG_ASSIGNED<br><small style="color:#94a3b8;">等待坐席接受</small></td><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td>坐席接受 (AGENT_ACCEPT)</td><td>坐席</td><td>transition_phase(AGENT, AG_ACTIVE)<br>开启 AI 辅助</td><td>WAITING → ACTIVE<br>回调 /session/update</td><td class="gap">回调未实现</td></tr>
+        <tr><td style="color:#10b981;">AG_ASSIGNED<br><small style="color:#94a3b8;">等待坐席接受</small></td><td style="color:#10b981;">AG_QUEUED<br><small style="color:#94a3b8;">排队等待</small></td><td>坐席拒绝 (AGENT_REJECT)<br>或坐席响应超时 (30s)</td><td>坐席 / 定时器</td><td>—</td><td>reassignWaitingSession()<br>释放坐席锁定</td><td class="gap">重分配逻辑缺失</td></tr>
+        <tr><td style="color:#10b981;">AG_ASSIGNED<br><small style="color:#94a3b8;">等待坐席接受</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>等待接受时客户放弃</td><td>客户</td><td>transition_phase(ENDED)<br>end_reason=cust_disconnect</td><td>CUSTOMER_DISCONNECT → CLOSED</td><td class="partial">star-connection有<br>SmartCS无联动</td></tr>
+        <!-- AG_ACTIVE 内部 -->
+        <tr style="background:#1e293b;"><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td style="color:#10b981;">AG_ON_HOLD<br><small style="color:#94a3b8;">客户保持</small></td><td>坐席点击保持 / 查询内部系统</td><td>坐席</td><td>沉默检测 + 安抚推送</td><td>—</td><td class="gap">未实现</td></tr>
+        <tr><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td style="color:#10b981;">AG_ASSIGNED<br><small style="color:#94a3b8;">等待坐席接受</small></td><td>坐席发起转接</td><td>坐席</td><td>停止当前 AI 辅助<br>更新 session 映射</td><td>transferSession()<br>释放旧坐席 → 分配新坐席</td><td class="partial">star-connection有transfer<br>SmartCS无联动</td></tr>
+        <tr><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td style="color:#60a5fa;">BOT_ACTIVE<br><small style="color:#94a3b8;">机器人对话</small></td><td>坐席退回机器人</td><td>坐席</td><td>transition_phase(BOT)<br>停止 AI 辅助<br>重新启动 bot 对话</td><td>closeSession()</td><td class="gap">未实现</td></tr>
+        <tr><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td style="color:#10b981;">AG_REVIEWING<br><small style="color:#94a3b8;">话后小结</small></td><td>坐席点击结束会话</td><td>坐席</td><td>调用 LLM 生成小结<br>推送小结给坐席</td><td>CLOSED 状态</td><td class="gap">未实现</td></tr>
+        <tr><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>客户主动挂断</td><td>客户</td><td>transition_phase(ENDED)<br>end_reason=cust_disconnect<br>生成紧急小结</td><td>CUSTOMER_DISCONNECT → CLOSED</td><td class="partial">star-connection有<br>SmartCS无联动</td></tr>
+        <tr><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>坐席掉线</td><td>坐席</td><td>transition_phase(ENDED)<br>end_reason=agent_disconnect</td><td>AGENT_DISCONNECT → CLOSED</td><td class="gap">AGENT_DISCONNECT<br>事件未触发</td></tr>
+        <tr><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>会话超时 (30min)</td><td>定时器</td><td>transition_phase(ENDED)<br>end_reason=timeout</td><td>TIMEOUT → CLOSED</td><td class="gap">超时未实现</td></tr>
+        <tr><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>系统异常</td><td>系统</td><td>transition_phase(ENDED)<br>end_reason=system_error<br>记录错误日志</td><td>—</td><td class="gap">未实现</td></tr>
+        <!-- AG_ON_HOLD -->
+        <tr style="background:#1e293b;"><td style="color:#10b981;">AG_ON_HOLD<br><small style="color:#94a3b8;">客户保持</small></td><td style="color:#10b981;">AG_ACTIVE<br><small style="color:#94a3b8;">坐席对话</small></td><td>坐席恢复</td><td>坐席</td><td>恢复辅助推送</td><td>—</td><td class="gap">未实现</td></tr>
+        <tr><td style="color:#10b981;">AG_ON_HOLD<br><small style="color:#94a3b8;">客户保持</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>保持中客户挂断 / 保持超时</td><td>客户 / 定时器</td><td>transition_phase(ENDED)</td><td>CUSTOMER_DISCONNECT / TIMEOUT → CLOSED</td><td class="gap">未实现</td></tr>
+        <!-- AG_REVIEWING -->
+        <tr style="background:#1e293b;"><td style="color:#10b981;">AG_REVIEWING<br><small style="color:#94a3b8;">话后小结</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>坐席确认小结</td><td>坐席</td><td>transition_phase(ENDED)<br>end_reason=completed<br>持久化小结</td><td>—</td><td class="gap">未实现</td></tr>
+        <tr><td style="color:#10b981;">AG_REVIEWING<br><small style="color:#94a3b8;">话后小结</small></td><td style="color:#ef4444;">ENDED<br><small style="color:#94a3b8;">结束</small></td><td>小结审核超时 (120s)</td><td>定时器</td><td>自动确认小结<br>transition_phase(ENDED)<br>end_reason=completed</td><td>—</td><td class="gap">未实现</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+<!-- ═══════════════════════════════════════════ -->
+<!-- Section 3: 双系统状态映射 -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <span class="badge" style="background:#047857;color:#fff;">映射</span>
+    <h2>SmartCS ↔ star-connection 双系统状态映射</h2>
+  </div>
+  <div class="section-body">
+    <div class="mapping-container">
+      <div class="mapping-col">
+        <h4>SmartCS SessionPhase + SubPhase</h4>
+        <div class="mapping-item"><div class="mapping-dot" style="background:#3b82f6;"></div><span style="font-size:12px;">BOT</span><span style="font-size:10px;color:#94a3b8;margin-left:auto;">BOT_ACTIVE</span></div>
+        <div class="mapping-item"><div class="mapping-dot" style="background:#10b981;"></div><span style="font-size:12px;">AGENT</span><span style="font-size:10px;color:#94a3b8;margin-left:auto;">5 子状态</span></div>
+        <div class="mapping-item"><div class="mapping-dot" style="background:#ef4444;"></div><span style="font-size:12px;">ENDED</span><span style="font-size:10px;color:#94a3b8;margin-left:auto;">end_reason 字段</span></div>
+      </div>
+      <div class="mapping-arrow">
+        <div class="mapping-arrow-line">⇄</div>
+        <div class="mapping-arrow-label">事件驱动<br>双向同步</div>
+        <div class="mapping-arrow-line" style="margin-top:8px;">⇄</div>
+        <div class="mapping-arrow-label">回调<br>/session/update</div>
+      </div>
+      <div class="mapping-col">
+        <h4>star-connection SessionStatus</h4>
+        <div class="mapping-item"><div class="mapping-dot" style="background:#475569;"></div><span style="font-size:12px;color:#94a3b8;">（无 session）</span><span style="font-size:10px;color:#60a5fa;margin-left:auto;">对应 BOT</span></div>
+        <div class="mapping-item"><div class="mapping-dot" style="background:#f59e0b;"></div><span style="font-size:12px;">WAITING</span><span style="font-size:10px;color:#60a5fa;margin-left:auto;">对应 AG_QUEUED + AG_ASSIGNED</span></div>
+        <div class="mapping-item"><div class="mapping-dot" style="background:#10b981;"></div><span style="font-size:12px;">ACTIVE</span><span style="font-size:10px;color:#60a5fa;margin-left:auto;">对应 AG_ACTIVE + AG_ON_HOLD + AG_REVIEWING</span></div>
+        <div class="mapping-item"><div class="mapping-dot" style="background:#ef4444;"></div><span style="font-size:12px;">CLOSED</span><span style="font-size:10px;color:#60a5fa;margin-left:auto;">对应 ENDED</span></div>
+      </div>
+    </div>
+    <div style="margin-top:20px;padding:14px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+      <div style="font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px;">关键映射规则</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <tr style="border-bottom:1px solid #334155;">
+          <td style="padding:6px;color:#60a5fa;font-weight:600;width:20%;">BOT → WAITING</td>
+          <td style="padding:6px;">SmartCS transition_phase(AGENT, AG_QUEUED) + star-connection createSession() 同步触发。star-connection session 进入 WAITING。</td>
+        </tr>
+        <tr style="border-bottom:1px solid #334155;">
+          <td style="padding:6px;color:#60a5fa;font-weight:600;">WAITING → ACTIVE</td>
+          <td style="padding:6px;">star-connection 触发 ASSIGN_AGENT/AGENT_ACCEPT → <span style="color:#f87171;">必须回调</span> SmartCS /session/update → SmartCS sub_phase 切换到 AG_ACTIVE</td>
+        </tr>
+        <tr style="border-bottom:1px solid #334155;">
+          <td style="padding:6px;color:#60a5fa;font-weight:600;">ACTIVE → ACTIVE (转接)</td>
+          <td style="padding:6px;">坐席转接：star-connection transferSession() → SmartCS sub_phase: AG_ACTIVE → AG_ASSIGNED → AG_ACTIVE <span style="color:#f87171;">（缺陷：当前转接回调未实现）</span></td>
+        </tr>
+        <tr style="border-bottom:1px solid #334155;">
+          <td style="padding:6px;color:#60a5fa;font-weight:600;">ACTIVE → CLOSED</td>
+          <td style="padding:6px;">star-connection closeSession() → <span style="color:#f87171;">必须回调</span> SmartCS /session/update → SmartCS 进入 AG_REVIEWING</td>
+        </tr>
+        <tr>
+          <td style="padding:6px;color:#60a5fa;font-weight:600;">AGENT → BOT</td>
+          <td style="padding:6px;">坐席退回机器人：SmartCS transition_phase(BOT) + star-connection closeSession()。当前 <span style="color:#f87171;">不可回退</span>（transition_phase 无验证）</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+<!-- ═══════════════════════════════════════════ -->
+<!-- Section 4: 转人工决策树 -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <span class="badge" style="background:#b45309;color:#fff;">关键</span>
+    <h2>转人工决策树</h2>
+  </div>
+  <div class="section-body">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div class="dt-node decision">客户触发转人工 (L1/L2/L3)</div>
+      <div class="dt-connector">▼</div>
+      <div class="dt-node action">SmartCS: transition_phase(AGENT, AG_QUEUED)<br>生成 transferSummary + 携带对话历史<br>star-connection: createSession()</div>
+      <div class="dt-connector">▼</div>
+      <div class="dt-node decision">AgentLoadBalancer.selectAgent()</div>
+      <div class="dt-branch">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <div class="dt-label">有可用坐席</div>
+          <div class="dt-connector">▼</div>
+          <div class="dt-node action">assignAgentToSession()<br>SESSION_ASSIGN → AB节点<br>sub_phase → AG_ASSIGNED</div>
+          <div class="dt-connector">▼</div>
+          <div class="dt-node decision">坐席响应</div>
+          <div style="display:flex;gap:16px;">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+              <div class="dt-label">接受</div>
+              <div class="dt-connector">▼</div>
+              <div class="dt-node outcome-good">AGENT_ACCEPT<br>WAITING → ACTIVE<br>回调 SmartCS → AG_ACTIVE<br>AI 辅助开启</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+              <div class="dt-label">拒绝</div>
+              <div class="dt-connector">▼</div>
+              <div class="dt-node outcome-bad">AGENT_REJECT<br>→ 回到 AG_QUEUED<br>重新路由</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+              <div class="dt-label">超时无响应</div>
+              <div class="dt-connector">▼</div>
+              <div class="dt-node outcome-bad">振铃超时 (30s)<br>→ 回到 AG_QUEUED<br>重新路由</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <div class="dt-label">无可用坐席</div>
+          <div class="dt-connector">▼</div>
+          <div class="dt-node action">session 保持 WAITING<br>sub_phase = AG_QUEUED<br>播放等待音</div>
+          <div class="dt-connector">▼</div>
+          <div class="dt-node decision">排队等待</div>
+          <div style="display:flex;gap:16px;">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+              <div class="dt-label">坐席上线</div>
+              <div class="dt-connector">▼</div>
+              <div class="dt-node outcome-good">processWaitingSessions()<br>→ 回到路由</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+              <div class="dt-label">超时 (300s)</div>
+              <div class="dt-connector">▼</div>
+              <div class="dt-node outcome-bad">排队超时<br>→ 回退 BOT_ACTIVE<br>或 ENDED</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ═══════════════════════════════════════════ -->
+<!-- Section 5: 实现差距分析 -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <span class="badge" style="background:#b91c1c;color:#fff;">差距</span>
+    <h2>当前实现 vs 目标状态</h2>
+  </div>
+  <div class="section-body">
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th style="width:16%;">维度</th>
+          <th style="width:28%;">当前实现</th>
+          <th style="width:28%;">目标状态</th>
+          <th style="width:12%;">优先级</th>
+          <th style="width:16%;">关键改动</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:600;">阶段模型</td>
+          <td>4 扁平状态 (BOT/HANDOFF/ASSIST/ENDED)，无子状态</td>
+          <td>3 阶段 × 7 状态<br>BOT(1) + AGENT(5) + ENDED(1)</td>
+          <td><span style="color:#f87171;font-weight:600;">P0</span></td>
+          <td>SessionPhase 改为 BOT/AGENT/ENDED<br>新增 SessionSubPhase 枚举</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">状态转换验证</td>
+          <td class="gap">无验证，任意转换</td>
+          <td>白名单 + 事件驱动</td>
+          <td><span style="color:#f87171;font-weight:600;">P0</span></td>
+          <td>类似 star-connection 的 SessionStateMachine</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">回调链路</td>
+          <td class="gap">/session/update 未被调用</td>
+          <td>star-connection 每次状态变更回调</td>
+          <td><span style="color:#f87171;font-weight:600;">P0</span></td>
+          <td>SessionStateTransitionManager 增加 SmartCS 回调</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">转人工后 Worker</td>
+          <td class="gap">继续处理，不停止</td>
+          <td>自动停止，节省资源</td>
+          <td><span style="color:#f59e0b;font-weight:600;">P1</span></td>
+          <td>Worker 检查 SessionPhase，非 BOT 时退出</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">对话历史传递</td>
+          <td class="gap">history=None</td>
+          <td>完整对话历史 + 实体 + 情绪向量</td>
+          <td><span style="color:#f59e0b;font-weight:600;">P1</span></td>
+          <td>TransferSessionRequest 填充 history 字段</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">回退路径</td>
+          <td class="gap">AGENT 无法回 BOT</td>
+          <td>AG_QUEUED 超时 → BOT, AG_ACTIVE 退回 → BOT</td>
+          <td><span style="color:#f59e0b;font-weight:600;">P1</span></td>
+          <td>transition_phase 增加回退规则</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">会话超时</td>
+          <td class="gap">配置存在但未生效</td>
+          <td>BOT 空闲/排队/振铃/会话/小结各有超时</td>
+          <td><span style="color:#f59e0b;font-weight:600;">P1</span></td>
+          <td>各状态配置超时定时器</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">坐席转接联动</td>
+          <td class="gap">star-connection 有，SmartCS 无感知</td>
+          <td>转接时 sub_phase: AG_ACTIVE → AG_ASSIGNED</td>
+          <td><span style="color:#3b82f6;font-weight:600;">P2</span></td>
+          <td>TRANSFER 事件回调 SmartCS</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">话后小结</td>
+          <td class="gap">模型定义存在，流程缺失</td>
+          <td>AG_ACTIVE → AG_REVIEWING → ENDED 完整流程</td>
+          <td><span style="color:#3b82f6;font-weight:600;">P2</span></td>
+          <td>新增 AG_REVIEWING + LLM 自动小结</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">坐席保持</td>
+          <td class="gap">无</td>
+          <td>AG_ON_HOLD + 沉默检测 + 安抚推送</td>
+          <td><span style="color:#3b82f6;font-weight:600;">P2</span></td>
+          <td>坐席端增加保持按钮</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+<!-- ═══════════════════════════════════════════ -->
+<!-- Section 6: 改动方案 -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <span class="badge" style="background:#047857;color:#fff;">方案</span>
+    <h2>SessionPhase 扩展方案</h2>
+  </div>
+  <div class="section-body">
+    <div style="padding:14px;background:#0f172a;border-radius:8px;border:1px solid #334155;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:700;color:#10b981;margin-bottom:8px;">方案：Phase + SubPhase 两层结构</div>
+      <div style="font-size:11px;color:#94a3b8;line-height:1.6;">
+        SessionPhase 3 个值 (BOT / AGENT / ENDED)，新增 <code style="color:#60a5fa;">SessionSubPhase</code> 枚举承载子状态。<br>
+        <code style="color:#60a5fa;">SessionState.current_phase</code> + <code style="color:#60a5fa;">SessionState.current_sub_phase</code> 组合决定完整状态。<br>
+        转换规则：<code style="color:#60a5fa;">transition_phase(new_phase, sub_phase=None, event=None)</code>，内部验证白名单。<br>
+        ENDED 的结束原因记录在 <code style="color:#60a5fa;">SessionState.end_reason</code> 字段，不作为子状态。
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:240px;padding:14px;background:#0f172a;border-radius:8px;border:1px solid #3b82f6;">
+        <div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:8px;">SessionPhase (3 值)</div>
+        <pre style="font-size:11px;color:#cbd5e1;line-height:1.6;white-space:pre-wrap;">class SessionPhase(StrEnum):
+    BOT    = "bot"
+    AGENT  = "agent"   # 替代 HANDOFF+ASSIST
+    ENDED  = "ended"</pre>
+      </div>
+      <div style="flex:1;min-width:240px;padding:14px;background:#0f172a;border-radius:8px;border:1px solid #f59e0b;">
+        <div style="font-size:12px;font-weight:700;color:#f59e0b;margin-bottom:8px;">SessionSubPhase (7 值)</div>
+        <pre style="font-size:11px;color:#cbd5e1;line-height:1.6;white-space:pre-wrap;">class SessionSubPhase(StrEnum):
+    # BOT
+    BOT_ACTIVE   = "bot:active"
+    # AGENT
+    AG_QUEUED    = "agent:queued"
+    AG_ASSIGNED  = "agent:assigned"
+    AG_ACTIVE    = "agent:active"
+    AG_ON_HOLD   = "agent:on_hold"
+    AG_REVIEWING = "agent:reviewing"
+    # ENDED (无子状态，用 end_reason)
+    </pre>
+      </div>
+      <div style="flex:1;min-width:280px;padding:14px;background:#0f172a;border-radius:8px;border:1px solid #10b981;">
+        <div style="font-size:12px;font-weight:700;color:#10b981;margin-bottom:8px;">合法转换白名单</div>
+        <pre style="font-size:11px;color:#cbd5e1;line-height:1.6;white-space:pre-wrap;">VALID_TRANSITIONS = {
+    # BOT → AGENT
+    ("bot", "bot:active"):     {"agent:queued"},
+    # BOT → ENDED
+    ("bot", "bot:active"):     {"ended"},  # 空闲超时
+    # AGENT 内部
+    ("agent", "agent:queued"):  {"agent:assigned",
+                                  "bot:active",  # 排队超时回退
+                                  "ended"},      # 客户放弃
+    ("agent", "agent:assigned"): {"agent:active",
+                                   "agent:queued", # 拒绝/超时重路由
+                                   "ended"},       # 客户放弃
+    ("agent", "agent:active"): {"agent:on_hold",
+                                 "agent:assigned", # 转接
+                                 "agent:reviewing", # 结束
+                                 "bot:active",     # 退回BOT
+                                 "ended"},         # 断开/超时/异常
+    ("agent", "agent:on_hold"): {"agent:active",
+                                  "ended"},  # 客户挂断/超时
+    ("agent", "agent:reviewing"): {"ended"},  # 确认/超时
+}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

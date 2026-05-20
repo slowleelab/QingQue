@@ -6,8 +6,14 @@
     poetry run python scripts/verify_all.py
 """
 
+import os
 import sys
 import time
+
+
+def _get_env(key: str, default: str = "") -> str:
+    """从环境变量获取配置值"""
+    return os.environ.get(key, default)
 
 
 def check_postgresql() -> tuple[bool, str]:
@@ -16,9 +22,15 @@ def check_postgresql() -> tuple[bool, str]:
         import asyncio
         from sqlalchemy.ext.asyncio import create_async_engine
 
+        user = _get_env("POSTGRES_USER", "smartcs")
+        password = _get_env("POSTGRES_PASSWORD", "smartcs_pass")
+        host = _get_env("POSTGRES_HOST", "localhost")
+        port = _get_env("POSTGRES_PORT", "5432")
+        database = _get_env("POSTGRES_DATABASE", "smartcs")
+
         async def _check():
             engine = create_async_engine(
-                "postgresql+asyncpg://smartcs:smartcs_pass@localhost:5432/smartcs",
+                f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}",
             )
             async with engine.connect() as conn:
                 result = await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
@@ -72,7 +84,13 @@ def check_minio() -> tuple[bool, str]:
     """检查 MinIO"""
     try:
         from minio import Minio
-        client = Minio("localhost:9000", access_key="minioadmin", secret_key="minioadmin", secure=False)
+
+        endpoint = _get_env("MINIO_ENDPOINT", "localhost:9000")
+        access_key = _get_env("MINIO_ACCESS_KEY", "minioadmin")
+        secret_key = _get_env("MINIO_SECRET_KEY", "minioadmin")
+        secure = _get_env("MINIO_SECURE", "false").lower() == "true"
+
+        client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
         buckets = client.list_buckets()
         return True, f"{len(buckets)} buckets"
     except Exception as e:

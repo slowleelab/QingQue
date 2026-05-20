@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from enum import Enum as PyEnum
+from enum import StrEnum
 from typing import Any
 
 from markdown_it import MarkdownIt
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ── 数据结构 ──
 
 
-class ChunkType(str, PyEnum):
+class ChunkType(StrEnum):
     """分块结构类型"""
 
     FAQ_QA = "faq_qa"
@@ -267,7 +267,7 @@ def _reconstruct_table(tokens: list[Any], start_idx: int) -> str:
     separator = "| " + " | ".join(["---"] * num_cols) + " |"
 
     # 插入分隔行到 header 之后
-    result_lines = [rows[0], separator] + rows[1:] if len(rows) >= 1 else rows
+    result_lines = [rows[0], separator, *rows[1:]] if len(rows) >= 1 else rows
 
     return "\n".join(result_lines)
 
