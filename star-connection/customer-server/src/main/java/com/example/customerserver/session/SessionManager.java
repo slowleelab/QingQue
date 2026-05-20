@@ -6,6 +6,7 @@ import com.example.common.model.Message;
 import com.example.common.model.MessageType;
 import com.example.common.model.Session;
 import com.example.common.model.SessionStatus;
+import com.example.common.model.SessionSubStatus;
 import com.example.common.util.MessageIdGenerator;
 import com.example.customerserver.agent.AgentLoadBalancer;
 import com.example.customerserver.agent.AgentRegistry;
@@ -159,6 +160,7 @@ public class SessionManager implements SessionStateListener {
 
         // 触发创建事件
         transitionManager.transition(session, SessionEvent.CREATE);
+        session.setSubStatus(SessionSubStatus.QUEUED);
 
         // 尝试分配坐席
         tryAssignAgent(session);
@@ -194,6 +196,7 @@ public class SessionManager implements SessionStateListener {
         // 更新会话信息
         session.setAgentId(agent.getAgentId());
         session.setBackendId(agent.getBackendId());
+        session.setSubStatus(SessionSubStatus.RINGING);
         sessionStore.save(session);
 
         // 更新坐席会话数
@@ -261,6 +264,7 @@ public class SessionManager implements SessionStateListener {
         String oldAgentId = session.getAgentId();
         session.setAgentId(newAgent.getAgentId());
         session.setBackendId(newAgent.getBackendId());
+        session.setSubStatus(SessionSubStatus.RINGING);
         sessionStore.save(session);
 
         // 更新新坐席会话数
@@ -295,6 +299,7 @@ public class SessionManager implements SessionStateListener {
         // 如果会话处于等待状态，尝试激活
         if (session.getStatus() == SessionStatus.WAITING) {
             transitionManager.transition(session, SessionEvent.CUSTOMER_MESSAGE);
+            session.setSubStatus(SessionSubStatus.IN_CALL);
             sessionStore.save(session);
         }
 

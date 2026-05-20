@@ -1,6 +1,7 @@
 """Prometheus 指标定义与 /metrics 端点
 
 提供请求计数、请求耗时直方图等基础指标，
+以及会话生命周期指标（转换次数、停留时长、超时触发率）。
 两个 FastAPI 服务共用。
 """
 
@@ -12,7 +13,7 @@ from prometheus_client import REGISTRY, Counter, Histogram, generate_latest
 from starlette.requests import Request
 from starlette.responses import Response
 
-# ── 指标定义 ──
+# ── HTTP 指标 ──
 
 REQUEST_COUNT = Counter(
     "http_requests_total",
@@ -25,6 +26,27 @@ REQUEST_LATENCY = Histogram(
     "HTTP 请求耗时（秒）",
     ["method", "endpoint"],
     buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+)
+
+# ── 会话生命周期指标 ──
+
+SESSION_TRANSITIONS = Counter(
+    "session_transitions_total",
+    "会话状态转换次数",
+    ["from_phase", "from_sub", "to_phase", "to_sub", "reason"],
+)
+
+SESSION_TIMEOUTS = Counter(
+    "session_timeouts_total",
+    "会话超时触发次数",
+    ["sub_phase", "reason"],
+)
+
+SESSION_PHASE_DURATION = Histogram(
+    "session_phase_duration_seconds",
+    "会话各子阶段停留时长（秒）",
+    ["sub_phase"],
+    buckets=[5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600],
 )
 
 # 排除自采集，避免 Prometheus 抓取 /metrics 产生反馈循环

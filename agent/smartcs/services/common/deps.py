@@ -327,13 +327,31 @@ async def init_session_manager(app: FastAPI) -> None:
 
 async def init_session_timeout_manager(app: FastAPI) -> None:
     """初始化会话超时管理器，绑定到 SessionManager"""
-    from smartcs.services.common.session_timeout import SessionTimeoutManager
+    from fastapi import WebSocket
+    from smartcs.services.assist.router import WS_POOL_KEY
+    from smartcs.services.common.session_timeout import SessionTimeoutManager, SessionSubPhase
 
     session_manager: SessionManager | None = getattr(app.state, "session_manager", None)
     if session_manager is None:
         _logger.warning("SessionManager 未初始化，跳过超时管理器")
         return
-    timeout_mgr = SessionTimeoutManager(session_manager)
+
+    async def on_timeout(session_id: str, sub_phase: SessionSubPhase, reason: str) -> None:
+        """超时时推送 WebSocket 事件给坐席"""
+        ws_pool: dict[str, WebSocket] = getattr(app.state, WS_POOL_KEY, {})
+        ws = ws_pool.get(session_id)
+        if ws is not None:
+            try:
+                await ws.send_json({
+                    "type": "session_timeout",
+                    "session_id": session_id,
+                    "sub_phase": sub_phase.value,
+                    "reason": reason,
+                })
+            except Exception:
+                _logger.debug("超时通知推送失败: session=%s", session_id)
+
+    timeout_mgr = SessionTimeoutManager(session_manager, on_timeout=on_timeout)
     session_manager.set_timeout_manager(timeout_mgr)
     app.state.session_timeout_manager = timeout_mgr
     _logger.info("会话超时管理器初始化完成")

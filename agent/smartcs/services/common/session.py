@@ -16,6 +16,7 @@ from uuid import uuid4
 from redis.asyncio import Redis
 
 from smartcs.shared.config import get_settings
+from smartcs.shared.metrics import SESSION_TRANSITIONS, SESSION_PHASE_DURATION
 from smartcs.shared.models import (
     ChannelType,
     DialogueTurn,
@@ -267,6 +268,18 @@ class SessionManager:
             new_phase.value, new_sub_phase.value if new_sub_phase else "-",
             reason,
         )
+
+        # 记录 Prometheus 指标
+        SESSION_TRANSITIONS.labels(
+            from_phase=old_phase.value,
+            from_sub=old_sub.value if old_sub else "",
+            to_phase=new_phase.value,
+            to_sub=new_sub_phase.value if new_sub_phase else "",
+            reason=reason,
+        ).inc()
+        if old_sub is not None:
+            elapsed = (datetime.now() - state.last_active_at).total_seconds()
+            SESSION_PHASE_DURATION.labels(sub_phase=old_sub.value).observe(max(elapsed, 0))
 
         # 启动/取消超时守卫
         if self._timeout_manager:

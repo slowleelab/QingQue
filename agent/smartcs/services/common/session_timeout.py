@@ -7,6 +7,8 @@
 - 振铃超时 → ENDED (AG_ASSIGNED → ENDED)
 - 会话时长超时 → ENDED (AG_ACTIVE → ENDED)
 - 话后小结超时 → ENDED (AG_REVIEWING → ENDED)
+
+超时触发时通过 on_timeout 回调通知坐席 UI。
 """
 
 from __future__ import annotations
@@ -14,15 +16,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Awaitable
 
 from smartcs.shared.config import get_settings
+from smartcs.shared.metrics import SESSION_TIMEOUTS
 from smartcs.shared.models import SessionPhase, SessionSubPhase
 
 if TYPE_CHECKING:
     from smartcs.services.common.session import SessionManager
 
 logger = logging.getLogger(__name__)
+
+# 超时回调类型: (session_id, sub_phase, reason) → None
+TimeoutCallback = Callable[[str, SessionSubPhase, str], Awaitable[None]]
 
 
 class SessionTimeoutManager:
@@ -32,8 +38,9 @@ class SessionTimeoutManager:
     当子阶段变更时，取消旧任务并启动新任务。
     """
 
-    def __init__(self, session_manager: SessionManager) -> None:
+    def __init__(self, session_manager: SessionManager, on_timeout: TimeoutCallback | None = None) -> None:
         self._session_manager = session_manager
+        self._on_timeout = on_timeout
         settings = get_settings()
         self._bot_idle_timeout = settings.session.bot_idle_timeout
         self._queue_timeout = settings.session.queue_timeout
@@ -78,31 +85,41 @@ class SessionTimeoutManager:
 
         # 超时触发
         logger.warning("会话超时: session=%s sub=%s timeout=%ds", session_id, sub_phase.value, timeout)
+        SESSION_TIMEOUTS.labels(sub_phase=sub_phase.value, reason=f"{sub_phase.value}_timeout").inc()
+
+        reason = f"{sub_phase.value}_timeout"
 
         try:
             if sub_phase == SessionSubPhase.AG_QUEUED:
                 # 排队超时 → 回退 BOT
+                reason = "queue_timeout"
                 await self._session_manager.transition_phase(
                     session_id,
                     SessionPhase.BOT,
                     new_sub_phase=SessionSubPhase.BOT_ACTIVE,
-                    reason="queue_timeout",
+                    reason=reason,
                 )
                 logger.info("排队超时回退 BOT: session=%s", session_id)
             elif sub_phase == SessionSubPhase.AG_REVIEWING:
-                # 话后小结超时 → ENDED
+                reason = "review_timeout"
                 await self._session_manager.transition_phase(
                     session_id,
                     SessionPhase.ENDED,
-                    reason="review_timeout",
+                    reason=reason,
                 )
             else:
-                # 其他超时 → ENDED
                 await self._session_manager.transition_phase(
                     session_id,
                     SessionPhase.ENDED,
-                    reason=f"{sub_phase.value}_timeout",
+                    reason=reason,
                 )
+
+            # 通知坐席 UI
+            if self._on_timeout:
+                try:
+                    await self._on_timeout(session_id, sub_phase, reason)
+                except Exception:
+                    logger.debug("超时回调执行失败: session=%s", session_id)
         except ValueError as e:
             # 状态已被其他流程改变，静默处理
             logger.debug("超时状态转换跳过: session=%s error=%s", session_id, e)

@@ -1,5 +1,6 @@
 package com.example.customerserver.session;
 
+import com.example.common.model.SessionSubStatus;
 import com.example.customerserver.client.SmartcsClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,10 +10,8 @@ import org.springframework.stereotype.Component;
  * SmartCS 会话状态监听器
  * 当会话状态变更时，回调 SmartCS /api/session/update 端点同步会话阶段。
  *
- * 映射规则:
- * - WAITING → AG_QUEUED 或 AG_ASSIGNED (由 event 区分)
- * - ACTIVE  → AG_ACTIVE, AG_ON_HOLD, AG_REVIEWING
- * - CLOSED  → ENDED
+ * 优先使用 Session.subStatus 转换为 SmartCS sub_phase；
+ * 若 subStatus 未设置，回退到基于 event 的推断。
  */
 @Component
 public class SmartcsSessionListener implements SessionStateListener {
@@ -29,10 +28,7 @@ public class SmartcsSessionListener implements SessionStateListener {
 
     @Override
     public void onSessionAssigned(SessionLifecycleEvent event) {
-        // ASSIGN_AGENT → agent:queued, AGENT_ACCEPT → agent:assigned
-        String subPhase = (event.getEvent() == SessionEvent.AGENT_ACCEPT)
-                ? "agent:assigned"
-                : "agent:queued";
+        String subPhase = resolveSubPhase(event, "agent:queued", "agent:assigned");
         smartcsClient.notifySessionUpdate(
                 event.getSession().getSessionId(),
                 "agent",
@@ -43,10 +39,11 @@ public class SmartcsSessionListener implements SessionStateListener {
 
     @Override
     public void onSessionActivated(SessionLifecycleEvent event) {
+        String subPhase = resolveSubPhase(event, "agent:active", "agent:active");
         smartcsClient.notifySessionUpdate(
                 event.getSession().getSessionId(),
                 "agent",
-                "agent:active",
+                subPhase,
                 event.getAgent() != null ? event.getAgent().getAgentId() : null
         );
     }
@@ -76,11 +73,11 @@ public class SmartcsSessionListener implements SessionStateListener {
 
     @Override
     public void onSessionTransferred(SessionLifecycleEvent event) {
-        // 转接回到 agent:assigned 状态（新坐席待接听）
+        String subPhase = resolveSubPhase(event, "agent:assigned", "agent:assigned");
         smartcsClient.notifySessionUpdate(
                 event.getSession().getSessionId(),
                 "agent",
-                "agent:assigned",
+                subPhase,
                 event.getAgent() != null ? event.getAgent().getAgentId() : null
         );
     }
@@ -89,6 +86,23 @@ public class SmartcsSessionListener implements SessionStateListener {
     public void onError(SessionLifecycleEvent event, Exception error) {
         LOGGER.error("SmartCS 会话监听器异常: session={}, error={}",
                 event.getSession().getSessionId(), error.getMessage());
+    }
+
+    /**
+     * 优先使用 session.subStatus 转换，回退到 event 推断。
+     */
+    private String resolveSubPhase(SessionLifecycleEvent event,
+                                    String defaultPhase,
+                                    String fallbackPhase) {
+        SessionSubStatus sub = event.getSession().getSubStatus();
+        if (sub != null) {
+            return sub.toSmartcsSubPhase();
+        }
+        // 回退: ASSIGN_AGENT → default, AGENT_ACCEPT → fallback
+        if (event.getEvent() == SessionEvent.AGENT_ACCEPT) {
+            return fallbackPhase;
+        }
+        return defaultPhase;
     }
 
     private String mapCloseReason(SessionEvent event) {

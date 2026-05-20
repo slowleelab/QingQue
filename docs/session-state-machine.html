@@ -417,77 +417,105 @@
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td style="font-weight:600;">阶段模型</td>
-          <td>4 扁平状态 (BOT/HANDOFF/ASSIST/ENDED)，无子状态</td>
-          <td>3 阶段 × 7 状态<br>BOT(1) + AGENT(5) + ENDED(1)</td>
-          <td><span style="color:#f87171;font-weight:600;">P0</span></td>
-          <td>SessionPhase 改为 BOT/AGENT/ENDED<br>新增 SessionSubPhase 枚举</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">状态转换验证</td>
-          <td class="gap">无验证，任意转换</td>
-          <td>白名单 + 事件驱动</td>
-          <td><span style="color:#f87171;font-weight:600;">P0</span></td>
-          <td>类似 star-connection 的 SessionStateMachine</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">回调链路</td>
-          <td class="gap">/session/update 未被调用</td>
-          <td>star-connection 每次状态变更回调</td>
-          <td><span style="color:#f87171;font-weight:600;">P0</span></td>
-          <td>SessionStateTransitionManager 增加 SmartCS 回调</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">转人工后 Worker</td>
-          <td class="gap">继续处理，不停止</td>
-          <td>自动停止，节省资源</td>
-          <td><span style="color:#f59e0b;font-weight:600;">P1</span></td>
-          <td>Worker 检查 SessionPhase，非 BOT 时退出</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">对话历史传递</td>
-          <td class="gap">history=None</td>
-          <td>完整对话历史 + 实体 + 情绪向量</td>
-          <td><span style="color:#f59e0b;font-weight:600;">P1</span></td>
-          <td>TransferSessionRequest 填充 history 字段</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">回退路径</td>
-          <td class="gap">AGENT 无法回 BOT</td>
-          <td>AG_QUEUED 超时 → BOT, AG_ACTIVE 退回 → BOT</td>
-          <td><span style="color:#f59e0b;font-weight:600;">P1</span></td>
-          <td>transition_phase 增加回退规则</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">会话超时</td>
-          <td class="gap">配置存在但未生效</td>
-          <td>BOT 空闲/排队/振铃/会话/小结各有超时</td>
-          <td><span style="color:#f59e0b;font-weight:600;">P1</span></td>
-          <td>各状态配置超时定时器</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">坐席转接联动</td>
-          <td class="gap">star-connection 有，SmartCS 无感知</td>
-          <td>转接时 sub_phase: AG_ACTIVE → AG_ASSIGNED</td>
-          <td><span style="color:#3b82f6;font-weight:600;">P2</span></td>
-          <td>TRANSFER 事件回调 SmartCS</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">话后小结</td>
-          <td class="gap">模型定义存在，流程缺失</td>
-          <td>AG_ACTIVE → AG_REVIEWING → ENDED 完整流程</td>
-          <td><span style="color:#3b82f6;font-weight:600;">P2</span></td>
-          <td>新增 AG_REVIEWING + LLM 自动小结</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">坐席保持</td>
-          <td class="gap">无</td>
-          <td>AG_ON_HOLD + 沉默检测 + 安抚推送</td>
-          <td><span style="color:#3b82f6;font-weight:600;">P2</span></td>
-          <td>坐席端增加保持按钮</td>
-        </tr>
-      </tbody>
+	        <tr>
+	          <td style="font-weight:600;">阶段模型</td>
+	          <td class="ok">3 阶段 × 7 子状态 (BOT/AGENT/ENDED + SessionSubPhase)</td>
+	          <td>3 阶段 × 7 状态</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>SessionPhase BOT/AGENT/ENDED + SessionSubPhase 7 值</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">状态转换验证</td>
+	          <td class="ok">VALID_TRANSITIONS 白名单 + validate_transition()</td>
+	          <td>白名单 + 事件驱动</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>transition_phase() 内部校验，非法抛 ValueError</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">回调链路</td>
+	          <td class="ok">SmartcsSessionListener → notifySessionUpdate()</td>
+	          <td>star-connection 每次状态变更回调</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>6 种事件回调: assigned/activated/closed/timeout/transferred</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">消息路由</td>
+	          <td class="ok">MessageController → sessionManager.routeMessage()</td>
+	          <td>客户消息路由到坐席</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>MessageController 注入 SessionManager</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">转人工后 Worker</td>
+	          <td class="ok">AGENT 阶段跳过 bot 处理</td>
+	          <td>自动停止，节省资源</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>process_chat_queue 检查 phase=agent 时 continue</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">对话历史传递</td>
+	          <td class="ok">转接时传最近 20 轮对话</td>
+	          <td>完整对话历史</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>session_manager.get_history(limit=20)</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">回退路径</td>
+	          <td class="ok">AG_QUEUED 超时 → BOT, AG_ACTIVE → BOT</td>
+	          <td>AG_QUEUED 超时 → BOT, AG_ACTIVE 退回 → BOT</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>VALID_TRANSITIONS 包含回退规则</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">会话超时</td>
+	          <td class="ok">5 种超时守卫 (SessionTimeoutManager)</td>
+	          <td>BOT 空闲/排队/振铃/会话/小结各有超时</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>asyncio.Task 守卫，超时自动 transition_phase</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">坐席转接联动</td>
+	          <td class="ok">SmartcsSessionListener.onSessionTransferred</td>
+	          <td>转接时 sub_phase: AG_ACTIVE → AG_ASSIGNED</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>TRANSFER 事件 → agent:assigned + agent_id 更新</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">话后小结</td>
+	          <td class="ok">LLM 生成 + /review/generate, /review/submit</td>
+	          <td>AG_REVIEWING → ENDED 完整流程</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>CallSummary 生成器，LLM 不可用时降级模板</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">坐席保持</td>
+	          <td class="ok">/hold, /resume + 60s 静音检测</td>
+	          <td>AG_ON_HOLD + 沉默检测 + 安抚推送</td>
+	          <td><span style="color:#34d399;font-weight:600;">已实现</span></td>
+	          <td>silence_detector Task，超时推送 silence_alert</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">Java 状态机扩展</td>
+	          <td class="partial">WAITING/ACTIVE/CLOSED 三态，sub_phase 粗粒度</td>
+	          <td>QUEUED/ASSIGNED/ON_HOLD/REVIEWING 精细分</td>
+	          <td><span style="color:#f59e0b;font-weight:600;">P4</span></td>
+	          <td>扩展 SessionStatus 或增加 SubStatus</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">超时事件通知</td>
+	          <td class="partial">超时自动转换，前端无感知</td>
+	          <td>超时时推送 WebSocket 事件给坐席 UI</td>
+	          <td><span style="color:#f59e0b;font-weight:600;">P4</span></td>
+	          <td>SessionTimeoutManager 增加回调</td>
+	        </tr>
+	        <tr>
+	          <td style="font-weight:600;">监控指标</td>
+	          <td class="gap">无</td>
+	          <td>各阶段停留时长/转换率/超时率 Prometheus</td>
+	          <td><span style="color:#f59e0b;font-weight:600;">P4</span></td>
+	          <td>新增 session_lifecycle_metrics</td>
+	        </tr>
+	      </tbody>
     </table>
   </div>
 </div>

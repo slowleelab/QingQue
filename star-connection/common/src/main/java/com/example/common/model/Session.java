@@ -87,6 +87,13 @@ public class Session implements Serializable {
     private SessionStatus status;
 
     /**
+     * 会话子状态
+     * <p>与 status 配合提供更细粒度的状态描述，对应 SmartCS SessionSubPhase。</p>
+     * @see SessionSubStatus
+     */
+    private SessionSubStatus subStatus;
+
+    /**
      * 坐席后台节点ID
      * <p>记录坐席连接的AB节点，用于消息路由。
      * 当坐席发送消息时，CF通过此字段知道发给哪个AB节点。</p>
@@ -187,6 +194,14 @@ public class Session implements Serializable {
     public void setStatus(SessionStatus status) {
         this.status = status;
         this.updateTime = System.currentTimeMillis();
+    }
+
+    public SessionSubStatus getSubStatus() {
+        return subStatus;
+    }
+
+    public void setSubStatus(SessionSubStatus subStatus) {
+        this.subStatus = subStatus;
     }
 
     public String getBackendId() {
