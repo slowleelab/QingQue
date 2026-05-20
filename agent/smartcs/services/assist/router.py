@@ -21,6 +21,7 @@ from smartcs.shared.models import (
     SessionUpdateRequest,
     SessionUpdateResponse,
 )
+from smartcs.services.assist.summary import generate_call_summary
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +74,32 @@ async def session_update(body: SessionUpdateRequest, request: Request):
             raise SmartCSError(code=2001, message=f"无效的子阶段: {body.sub_phase}") from None
 
     reason = body.end_reason or body.agent_id or ""
-    await session_manager.transition_phase(
+    updated_state = await session_manager.transition_phase(
         session_id=body.session_id,
         new_phase=phase,
         new_sub_phase=new_sub_phase,
         reason=reason,
     )
+
+    # 转接场景：更新 agent_id
+    if body.agent_id and updated_state.agent_id != body.agent_id:
+        updated_state.agent_id = body.agent_id
+        await session_manager._save_meta(updated_state)
+
+    # ENDED 时清理 WebSocket 和超时守卫
+    if phase == SessionPhase.ENDED:
+        ws_pool: dict[str, WebSocket] = getattr(app.state, WS_POOL_KEY, {})
+        ws = ws_pool.pop(body.session_id, None)
+        if ws:
+            with contextlib.suppress(Exception):
+                await ws.send_json({"type": "session_ended", "session_id": body.session_id})
+                await ws.close()
+        # 清理静音检测
+        _silence_tasks.discard(body.session_id)
+        watcher = _silence_watchers.pop(body.session_id, None)
+        if watcher and not watcher.done():
+            watcher.cancel()
+
     logger.info("Session %s updated to %s:%s", body.session_id, phase.value, new_sub_phase.value if new_sub_phase else "-")
     return SessionUpdateResponse(status="ok")
 
@@ -236,6 +257,197 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
     return {"status": "ok", "intent": intent.value, "confidence": confidence}
 
 
+# ── Review（话后小结，对应 AG_REVIEWING 阶段）──
+
+
+class ReviewRequest(BaseModel):
+    """话后小结审核请求"""
+
+    session_id: str
+    agent_id: str
+
+
+class ReviewResponse(BaseModel):
+    """话后小结响应"""
+
+    summary_id: str
+    session_id: str
+    customer_demand: str = ""
+    problem_category: str = ""
+    solution_provided: str = ""
+    resolution_status: str = ""
+    sentiment: str = "neutral"
+    key_info: dict = {}
+    status: str = "draft"
+
+
+@router.post("/review/generate", response_model=ReviewResponse)
+async def generate_review(body: ReviewRequest, request: Request):
+    """生成话后小结
+
+    AG_REVIEWING 阶段调用 LLM 自动生成话后小结，供坐席审核。
+    """
+    app = request.app
+    session_manager = getattr(app.state, "session_manager", None)
+    if session_manager is None:
+        raise SmartCSError(code=5001, message="会话管理器未就绪")
+
+    # 校验会话状态
+    state = await session_manager.get_session(body.session_id)
+    if state is None:
+        raise SmartCSError(code=2001, message="会话不存在")
+    if state.current_phase != SessionPhase.AGENT or state.sub_phase != SessionSubPhase.AG_REVIEWING:
+        raise SmartCSError(code=2001, message="会话不在话后审核阶段")
+
+    llm_client = getattr(app.state, "llm_client", None)
+    summary = await generate_call_summary(body.session_id, session_manager, llm_client)
+
+    # 推送小结给坐席
+    ws_pool: dict[str, WebSocket] = getattr(app.state, WS_POOL_KEY, {})
+    ws = ws_pool.get(body.session_id)
+    if ws is not None:
+        try:
+            await ws.send_json({
+                "type": "call_summary",
+                "session_id": body.session_id,
+                "payload": summary.model_dump(mode="json"),
+            })
+        except Exception:
+            logger.warning("小结推送失败: session=%s", body.session_id)
+
+    return ReviewResponse(
+        summary_id=summary.summary_id,
+        session_id=summary.session_id,
+        customer_demand=summary.customer_demand,
+        problem_category=summary.problem_category,
+        solution_provided=summary.solution_provided,
+        resolution_status=summary.resolution_status,
+        sentiment=summary.sentiment.value,
+        key_info=summary.key_info,
+        status="draft",
+    )
+
+
+class ReviewSubmitRequest(BaseModel):
+    """话后小结提交请求"""
+
+    session_id: str
+    agent_id: str
+    summary_id: str
+    customer_demand: str | None = None
+    problem_category: str | None = None
+    solution_provided: str | None = None
+    resolution_status: str | None = None
+    sentiment: str | None = None
+    key_info: dict | None = None
+
+
+@router.post("/review/submit")
+async def submit_review(body: ReviewSubmitRequest, request: Request):
+    """坐席审核并提交话后小结
+
+    提交后结束会话 (AG_REVIEWING → ENDED)。
+    """
+    app = request.app
+    session_manager = getattr(app.state, "session_manager", None)
+    if session_manager is None:
+        raise SmartCSError(code=5001, message="会话管理器未就绪")
+
+    try:
+        await session_manager.transition_phase(
+            body.session_id,
+            SessionPhase.ENDED,
+            reason="completed",
+        )
+    except ValueError as e:
+        raise SmartCSError(code=2001, message=str(e)) from None
+
+    logger.info("话后小结已提交: session=%s agent=%s", body.session_id, body.agent_id)
+    return {"status": "ok", "session_id": body.session_id, "summary_id": body.summary_id}
+
+
+# ── Hold（坐席保持，对应 AG_ON_HOLD 阶段）──
+
+
+class HoldRequest(BaseModel):
+    """坐席保持请求"""
+
+    session_id: str
+    agent_id: str
+    reason: str = ""
+
+
+@router.post("/hold")
+async def hold_session(body: HoldRequest, request: Request):
+    """坐席保持（AG_ACTIVE → AG_ON_HOLD）
+
+    进入保持后启动静音检测：60 秒无客户消息时推送提醒给坐席。
+    """
+    app = request.app
+    session_manager = getattr(app.state, "session_manager", None)
+    if session_manager is None:
+        raise SmartCSError(code=5001, message="会话管理器未就绪")
+
+    try:
+        await session_manager.transition_phase(
+            body.session_id,
+            SessionPhase.AGENT,
+            new_sub_phase=SessionSubPhase.AG_ON_HOLD,
+            reason=body.reason or "agent_hold",
+        )
+    except ValueError as e:
+        raise SmartCSError(code=2001, message=str(e)) from None
+
+    # 启动静音检测
+    _silence_tasks.add(body.session_id)
+    silence_task = asyncio.create_task(
+        _silence_detector(app, body.session_id, body.agent_id, interval=60.0),
+    )
+    _silence_watchers[body.session_id] = silence_task
+    silence_task.add_done_callback(lambda t: _silence_watchers.pop(body.session_id, None))
+
+    logger.info("坐席保持: session=%s agent=%s", body.session_id, body.agent_id)
+    return {"status": "ok", "sub_phase": "agent:on_hold"}
+
+
+class ResumeRequest(BaseModel):
+    """坐席恢复请求"""
+
+    session_id: str
+    agent_id: str
+
+
+@router.post("/resume")
+async def resume_session(body: ResumeRequest, request: Request):
+    """坐席恢复（AG_ON_HOLD → AG_ACTIVE）
+
+    取消静音检测，恢复会话。
+    """
+    app = request.app
+    session_manager = getattr(app.state, "session_manager", None)
+    if session_manager is None:
+        raise SmartCSError(code=5001, message="会话管理器未就绪")
+
+    try:
+        await session_manager.transition_phase(
+            body.session_id,
+            SessionPhase.AGENT,
+            new_sub_phase=SessionSubPhase.AG_ACTIVE,
+            reason="agent_resume",
+        )
+    except ValueError as e:
+        raise SmartCSError(code=2001, message=str(e)) from None
+
+    # 取消静音检测
+    _silence_tasks.discard(body.session_id)
+    watcher = _silence_watchers.pop(body.session_id, None)
+    if watcher and not watcher.done():
+        watcher.cancel()
+
+    logger.info("坐席恢复: session=%s agent=%s", body.session_id, body.agent_id)
+    return {"status": "ok", "sub_phase": "agent:active"}
+
+
 # ── Feedback（隐式反馈，对应设计文档 §3.6）──
 
 
@@ -262,6 +474,36 @@ def _action_to_confidence(action: str) -> float:
 # H2: 反馈延迟确认缓冲区（3 秒内可撤销）
 _feedback_buffer: dict[str, dict] = {}  # session_id → feedback_data
 _feedback_tasks: set[asyncio.Task] = set()  # 保持任务引用，防止 GC 回收
+
+# 静音检测：ON_HOLD 期间无客户消息时提醒坐席
+_silence_tasks: set[str] = set()  # 活跃的静音检测 session
+_silence_watchers: dict[str, asyncio.Task] = {}  # session_id → watcher task
+
+
+async def _silence_detector(app: object, session_id: str, agent_id: str, interval: float = 60.0) -> None:
+    """ON_HOLD 期间的静音检测：interval 秒后推送提醒"""
+    try:
+        await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        return
+
+    # 检查是否仍在保持状态
+    if session_id not in _silence_tasks:
+        return
+    _silence_tasks.discard(session_id)
+
+    # 推送提醒
+    ws_pool: dict[str, WebSocket] = getattr(app.state, WS_POOL_KEY, {})  # type: ignore[attr-defined]
+    ws = ws_pool.get(session_id)
+    if ws is not None:
+        try:
+            await ws.send_json({
+                "type": "silence_alert",
+                "session_id": session_id,
+                "message": f"客户已保持 {interval:.0f} 秒无消息",
+            })
+        except Exception:
+            logger.warning("静音提醒推送失败: session=%s", session_id)
 
 
 @router.post("/feedback")
