@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 from smartcs.services.bot.agent import (
@@ -16,8 +14,7 @@ from smartcs.services.bot.agent import (
     transfer_router,
 )
 from smartcs.services.common.classifier import IntentClassifier, RuleClassifier
-from smartcs.shared.models import IntentLabel, IntentResult, SentimentLabel
-
+from smartcs.shared.models import IntentLabel
 
 # ── 辅助函数 ──
 
@@ -90,10 +87,10 @@ def test_supervisor_routes_fallback() -> None:
 # ── transfer_router 条件边 ──
 
 
-def test_transfer_router_handoff() -> None:
-    """should_transfer=True 应路由到 handoff"""
+def test_transfer_router_transfer() -> None:
+    """should_transfer=True 应路由到 transfer"""
     state = AgentState(should_transfer=True)
-    assert transfer_router(state) == "handoff"
+    assert transfer_router(state) == "transfer"
 
 
 def test_transfer_router_respond() -> None:

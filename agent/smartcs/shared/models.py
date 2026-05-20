@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -14,21 +14,36 @@ from pydantic import BaseModel, Field
 # ── 枚举类型 ──
 
 
-class ChannelType(str, Enum):
+class ChannelType(StrEnum):
     WEB = "web"
     APP = "app"
     WECHAT = "wechat"
     PHONE = "phone"
 
 
-class SessionPhase(str, Enum):
+class SessionPhase(StrEnum):
     BOT = "bot"
-    HANDOFF = "handoff"
-    ASSIST = "assist"
+    AGENT = "agent"
     ENDED = "ended"
 
 
-class IntentLabel(str, Enum):
+class SessionSubPhase(StrEnum):
+    """会话子阶段，phase:sub 形式
+
+    BOT 阶段:  bot:active
+    AGENT 阶段: agent:queued → agent:assigned → agent:active ⇄ agent:on_hold → agent:reviewing
+    ENDED 阶段: 无子阶段，end_reason 记录终止原因
+    """
+
+    BOT_ACTIVE = "bot:active"
+    AG_QUEUED = "agent:queued"
+    AG_ASSIGNED = "agent:assigned"
+    AG_ACTIVE = "agent:active"
+    AG_ON_HOLD = "agent:on_hold"
+    AG_REVIEWING = "agent:reviewing"
+
+
+class IntentLabel(StrEnum):
     """意图标签，覆盖主要信用卡业务场景"""
 
     FAQ = "faq"
@@ -43,53 +58,83 @@ class IntentLabel(str, Enum):
     CHITCHAT = "chitchat"
 
 
-class SentimentLabel(str, Enum):
+class SentimentLabel(StrEnum):
     POSITIVE = "positive"
     NEUTRAL = "neutral"
     NEGATIVE = "negative"
     ANGRY = "angry"
 
 
-class AlertLevel(str, Enum):
+class AlertLevel(StrEnum):
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
 
 
-class AlertCategory(str, Enum):
+class AlertCategory(StrEnum):
     COMPLIANCE = "compliance"
     EMOTION = "emotion"
     SILENCE = "silence"
     PROCESS = "process"
 
 
-class TransferTriggerLevel(str, Enum):
+class TransferTriggerLevel(StrEnum):
     L1 = "L1"  # 关键词触发
     L2 = "L2"  # 语义识别
     L3 = "L3"  # 连续低置信度
 
 
-class DegradationLevel(str, Enum):
+class DegradationLevel(StrEnum):
     """LLM 降级级别"""
     NORMAL = "normal"        # LLM 可用，正常调用
     DEGRADED = "degraded"    # LLM 降级，跳过 LLM 用检索摘要
     FALLBACK = "fallback"    # LLM 不可用，跳过检索直接用模板
 
 
-class RiskActionEnum(str, Enum):
+class RiskActionEnum(StrEnum):
     """风控动作"""
     PASS = "PASS"
     WARN = "WARN"
     BLOCK = "BLOCK"
 
 
-class OEState(str, Enum):
+class OEState(StrEnum):
     """编排引擎状态"""
     IDLE = "IDLE"
     EVALUATING = "EVALUATING"
     DISPATCHING = "DISPATCHING"
     WAITING_RESULTS = "WAITING_RESULTS"
     COMPLETED = "COMPLETED"
+
+
+# ── 状态转换白名单 ──
+
+VALID_TRANSITIONS: dict[tuple[str, str], set[str]] = {
+    ("bot", "bot:active"): {"agent:queued", "ended"},
+    ("agent", "agent:queued"): {"agent:assigned", "bot:active", "ended"},
+    ("agent", "agent:assigned"): {"agent:active", "agent:queued", "ended"},
+    ("agent", "agent:active"): {"agent:on_hold", "agent:assigned", "agent:reviewing", "bot:active", "ended"},
+    ("agent", "agent:on_hold"): {"agent:active", "ended"},
+    ("agent", "agent:reviewing"): {"ended"},
+}
+
+_SUB_PHASE_TO_PHASE: dict[SessionSubPhase, SessionPhase] = {
+    SessionSubPhase.BOT_ACTIVE: SessionPhase.BOT,
+    SessionSubPhase.AG_QUEUED: SessionPhase.AGENT,
+    SessionSubPhase.AG_ASSIGNED: SessionPhase.AGENT,
+    SessionSubPhase.AG_ACTIVE: SessionPhase.AGENT,
+    SessionSubPhase.AG_ON_HOLD: SessionPhase.AGENT,
+    SessionSubPhase.AG_REVIEWING: SessionPhase.AGENT,
+}
+
+
+def validate_transition(phase: SessionPhase, sub_phase: SessionSubPhase, target_sub: SessionSubPhase) -> bool:
+    """校验状态转换是否合法"""
+    key = (phase.value, sub_phase.value)
+    allowed = VALID_TRANSITIONS.get(key)
+    if allowed is None:
+        return False
+    return target_sub.value in allowed
 
 
 # ── 基础数据结构 ──
@@ -163,6 +208,8 @@ class SessionState(BaseModel):
     customer_id: str | None = None
     channel_type: ChannelType = ChannelType.WEB
     current_phase: SessionPhase = SessionPhase.BOT
+    sub_phase: SessionSubPhase | None = SessionSubPhase.BOT_ACTIVE
+    end_reason: str | None = None  # completed/timeout/cust_disconnect/agent_disconnect/system_error
 
     # 客户画像
     vip_level: str = "普通"
@@ -201,7 +248,7 @@ class SessionState(BaseModel):
 # ── 知识库元数据 ──
 
 
-class CategoryEnum(str, Enum):
+class CategoryEnum(StrEnum):
     """知识文档业务分类"""
 
     FAQ = "FAQ"
@@ -456,8 +503,10 @@ class SessionUpdateRequest(BaseModel):
     """会话状态更新请求（star-connection 回调）"""
 
     session_id: str
-    phase: Literal["ASSIST", "ENDED", "assist", "ended"]
+    phase: Literal["AGENT", "ENDED", "agent", "ended"]
+    sub_phase: str | None = None
     agent_id: str | None = None
+    end_reason: str | None = None
 
 
 class SessionUpdateResponse(BaseModel):

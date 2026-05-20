@@ -24,6 +24,8 @@ from smartcs.shared.models import (
     IntentResult,
     SessionPhase,
     SessionState,
+    SessionSubPhase,
+    validate_transition,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,11 @@ class SessionManager:
         settings = get_settings()
         self._ttl = settings.session.ttl_seconds
         self._max_turns = settings.session.max_turns
+        self._timeout_manager: Any = None  # SessionTimeoutManager, set via set_timeout_manager
+
+    def set_timeout_manager(self, manager: Any) -> None:
+        """设置超时管理器"""
+        self._timeout_manager = manager
 
     def _meta_key(self, session_id: str) -> str:
         return f"{_META_PREFIX}:{session_id}:meta"
@@ -83,6 +90,7 @@ class SessionManager:
             customer_id=customer_id,
             channel_type=channel_type,
             current_phase=SessionPhase.BOT,
+            sub_phase=SessionSubPhase.BOT_ACTIVE,
             created_at=now,
             last_active_at=now,
         )
@@ -110,6 +118,8 @@ class SessionManager:
             customer_id=meta.get("customer_id"),
             channel_type=ChannelType(meta.get("channel_type", "web")),
             current_phase=SessionPhase(meta.get("current_phase", "bot")),
+            sub_phase=SessionSubPhase(meta["sub_phase"]) if meta.get("sub_phase") else None,
+            end_reason=meta.get("end_reason"),
             vip_level=meta.get("vip_level", "普通"),
             card_types=meta.get("card_types", []),
             risk_tolerance=meta.get("risk_tolerance", "R2"),
@@ -194,30 +204,77 @@ class SessionManager:
         """
         return await self._load_history(session_id, limit=limit)
 
-    async def transition_phase(self, session_id: str, new_phase: SessionPhase, *, reason: str = "") -> SessionState:
+    async def transition_phase(
+        self,
+        session_id: str,
+        new_phase: SessionPhase,
+        *,
+        new_sub_phase: SessionSubPhase | None = None,
+        reason: str = "",
+    ) -> SessionState:
         """切换会话阶段
 
         Args:
             session_id: 会话 ID
             new_phase: 新阶段
+            new_sub_phase: 新子阶段，None 时根据 new_phase 自动推断
             reason: 阶段切换原因
 
         Returns:
             更新后的 SessionState
+
+        Raises:
+            ValueError: 会话不存在或转换不合法
         """
         state = await self.get_session(session_id)
         if state is None:
             raise ValueError(f"会话不存在: {session_id}")
 
+        # 自动推断子阶段
+        if new_sub_phase is None:
+            if new_phase == SessionPhase.BOT:
+                new_sub_phase = SessionSubPhase.BOT_ACTIVE
+            elif new_phase == SessionPhase.ENDED:
+                new_sub_phase = None
+            elif new_phase == SessionPhase.AGENT:
+                new_sub_phase = SessionSubPhase.AG_QUEUED
+
+        # 校验转换合法性
+        if state.sub_phase is not None and new_sub_phase is not None:
+            if not validate_transition(state.current_phase, state.sub_phase, new_sub_phase):
+                raise ValueError(
+                    f"非法状态转换: session={session_id} "
+                    f"{state.sub_phase.value} → {new_sub_phase.value}"
+                )
+
         old_phase = state.current_phase
+        old_sub = state.sub_phase
         state.current_phase = new_phase
+        state.sub_phase = new_sub_phase
         state.last_active_at = datetime.now()
 
-        if new_phase == SessionPhase.HANDOFF and reason:
+        if new_phase == SessionPhase.AGENT and reason:
             state.transfer_reason = reason
 
+        if new_phase == SessionPhase.ENDED:
+            state.end_reason = reason or state.end_reason
+
         await self._save_meta(state)
-        logger.info("会话 %s 阶段切换: %s → %s (原因: %s)", session_id, old_phase.value, new_phase.value, reason)
+        logger.info(
+            "会话 %s 阶段切换: %s:%s → %s:%s (原因: %s)",
+            session_id,
+            old_phase.value, old_sub.value if old_sub else "-",
+            new_phase.value, new_sub_phase.value if new_sub_phase else "-",
+            reason,
+        )
+
+        # 启动/取消超时守卫
+        if self._timeout_manager:
+            if new_phase == SessionPhase.ENDED:
+                self._timeout_manager.cancel_guard(session_id)
+            elif new_sub_phase:
+                self._timeout_manager.start_guard(session_id, new_sub_phase)
+
         return state
 
     async def get_or_create(
@@ -256,6 +313,8 @@ class SessionManager:
             "customer_id": state.customer_id,
             "channel_type": state.channel_type.value,
             "current_phase": state.current_phase.value,
+            "sub_phase": state.sub_phase.value if state.sub_phase else None,
+            "end_reason": state.end_reason,
             "vip_level": state.vip_level,
             "card_types": state.card_types,
             "risk_tolerance": state.risk_tolerance,

@@ -198,6 +198,12 @@ class SessionSettings(BaseSettings):
     max_turns: int = 20
     # 低置信度连续计数阈值（L3 触发）
     low_confidence_threshold: int = 3
+    # 超时配置（秒）
+    bot_idle_timeout: int = 120       # BOT 阶段空闲超时
+    queue_timeout: int = 60           # AG_QUEUED 排队超时（超时回退 BOT）
+    ringing_timeout: int = 30         # AG_ASSIGNED 振铃超时
+    session_timeout: int = 1800       # AG_ACTIVE 会话总时长超时
+    review_timeout: int = 120         # AG_REVIEWING 话后小结超时
 
 
 class AssistSettings(BaseSettings):

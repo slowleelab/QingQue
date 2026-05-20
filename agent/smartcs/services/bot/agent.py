@@ -38,6 +38,7 @@ from smartcs.shared.models import (
     SentimentLabel,
     SessionPhase,
     SessionState,
+    SessionSubPhase,
 )
 
 if TYPE_CHECKING:
@@ -289,7 +290,7 @@ async def transfer_check_node(
 def transfer_router(state: AgentState) -> str:
     """转人工条件边"""
     if state.get("should_transfer"):
-        return "handoff"
+        return "transfer"
     return "respond"
 
 
@@ -321,7 +322,7 @@ async def respond_node(
     return state
 
 
-async def handoff_node(
+async def transfer_node(
     state: AgentState,
     *,
     session_manager: SessionManager,
@@ -332,7 +333,8 @@ async def handoff_node(
     try:
         await session_manager.transition_phase(
             state["session_id"],
-            SessionPhase.HANDOFF,
+            SessionPhase.AGENT,
+            new_sub_phase=SessionSubPhase.AG_QUEUED,
             reason=reason,
         )
     except Exception:
@@ -398,7 +400,7 @@ class SmartCSAgent:
         graph.add_node("fallback_agent", self._fallback_agent)
         graph.add_node("transfer_check", self._transfer_check)
         graph.add_node("respond", self._respond)
-        graph.add_node("handoff", self._handoff)
+        graph.add_node("transfer", self._transfer)
 
         # 定义边
         graph.set_entry_point("classify_intent")
@@ -419,12 +421,12 @@ class SmartCSAgent:
         # 转人工检查条件路由
         graph.add_conditional_edges("transfer_check", transfer_router, {
             "respond": "respond",
-            "handoff": "handoff",
+            "transfer": "transfer",
         })
 
         # 终止
         graph.add_edge("respond", END)
-        graph.add_edge("handoff", END)
+        graph.add_edge("transfer", END)
 
         return graph.compile()
 
@@ -475,8 +477,8 @@ class SmartCSAgent:
     async def _respond(self, state: AgentState) -> AgentState:
         return await respond_node(state, session_manager=self._session_manager)
 
-    async def _handoff(self, state: AgentState) -> AgentState:
-        return await handoff_node(state, session_manager=self._session_manager)
+    async def _transfer(self, state: AgentState) -> AgentState:
+        return await transfer_node(state, session_manager=self._session_manager)
 
 
 # ── 辅助函数 ──

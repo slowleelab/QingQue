@@ -10,12 +10,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from smartcs.services.assist.app import create_assist_app
 from smartcs.services.bot.app import create_bot_app
+from smartcs.services.bot.router import start_chat_worker, stop_chat_worker
 from smartcs.services.common.database import close_db, init_db
 from smartcs.services.common.deps import (
     close_agent,
@@ -30,6 +33,7 @@ from smartcs.services.common.deps import (
     close_minio,
     close_reranker,
     close_session_manager,
+    close_session_timeout_manager,
     close_star_client,
     close_state_manager,
     close_temporal_client,
@@ -46,6 +50,7 @@ from smartcs.services.common.deps import (
     init_minio,
     init_reranker,
     init_session_manager,
+    init_session_timeout_manager,
     init_star_client,
     init_state_manager,
     init_temporal_client,
@@ -53,14 +58,13 @@ from smartcs.services.common.deps import (
     init_transfer_checker,
 )
 from smartcs.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
-from smartcs.services.bot.router import start_chat_worker, stop_chat_worker
 from smartcs.services.common.redis_client import close_redis, init_redis
 from smartcs.shared.config import get_settings
 from smartcs.shared.logger import setup_logger
 from smartcs.shared.middleware import register_exception_handlers
 
 
-class _suppress_exceptions:
+class _SuppressExceptions:
     """上下文管理器：抑制异常并记录日志，用于关闭阶段避免一个失败阻塞后续清理"""
 
     def __init__(self, logger_obj: logging.Logger):
@@ -73,9 +77,6 @@ class _suppress_exceptions:
         if exc_val is not None:
             self._logger.warning("关闭步骤异常（已忽略）: %s", exc_val)
         return True
-
-
-import logging
 
 # 机器人服务启动/关闭步骤（按依赖顺序）
 _BOT_INIT_STEPS = [
@@ -138,7 +139,7 @@ async def bot_lifespan(app: FastAPI):
             close_fn_name = step_name.replace("init_", "close_").replace("start_", "stop_")
             for close_step in _BOT_CLOSE_STEPS:
                 if close_step.__name__ == close_fn_name:
-                    with _suppress_exceptions(logger):
+                    with _SuppressExceptions(logger):
                         await close_step(app)
                     break
         raise
@@ -147,7 +148,7 @@ async def bot_lifespan(app: FastAPI):
 
     logger.info("机器人服务关闭中...")
     for step in _BOT_CLOSE_STEPS:
-        with _suppress_exceptions(logger):
+        with _SuppressExceptions(logger):
             await step(app)
     logger.info("机器人服务已关闭")
 
@@ -162,10 +163,8 @@ async def _close_assist_ws_pool(app: FastAPI) -> None:
     """清理 WebSocket 连接池"""
     ws_pool: dict = getattr(app.state, "assist_ws_connections", {})
     for ws in list(ws_pool.values()):
-        try:
+        with contextlib.suppress(Exception):
             await ws.close()
-        except Exception:
-            pass
     ws_pool.clear()
 
 
@@ -180,6 +179,7 @@ _ASSIST_INIT_STEPS = [
     init_grpc_channels,
     init_llm,
     init_session_manager,
+    init_session_timeout_manager,
     init_classifier,
     init_assist_orchestrator,
     init_state_manager,
@@ -195,6 +195,7 @@ _ASSIST_CLOSE_STEPS = [
     close_state_manager,
     close_assist_orchestrator,
     close_classifier,
+    close_session_timeout_manager,
     close_session_manager,
     close_llm,
     close_grpc_channels,
@@ -228,7 +229,7 @@ async def assist_lifespan(app: FastAPI):
             close_fn_name = step_name.replace("init_", "close_").replace("start_", "stop_")
             for close_step in _ASSIST_CLOSE_STEPS:
                 if close_step.__name__ == close_fn_name:
-                    with _suppress_exceptions(logger):
+                    with _SuppressExceptions(logger):
                         await close_step(app)
                     break
         raise
@@ -237,7 +238,7 @@ async def assist_lifespan(app: FastAPI):
 
     logger.info("坐席辅助服务关闭中...")
     for step in _ASSIST_CLOSE_STEPS:
-        with _suppress_exceptions(logger):
+        with _SuppressExceptions(logger):
             await step(app)
     logger.info("坐席辅助服务已关闭")
 

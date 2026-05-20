@@ -325,6 +325,30 @@ async def init_session_manager(app: FastAPI) -> None:
     app.state.session_manager = SessionManager(redis)
 
 
+async def init_session_timeout_manager(app: FastAPI) -> None:
+    """初始化会话超时管理器，绑定到 SessionManager"""
+    from smartcs.services.common.session_timeout import SessionTimeoutManager
+
+    session_manager: SessionManager | None = getattr(app.state, "session_manager", None)
+    if session_manager is None:
+        _logger.warning("SessionManager 未初始化，跳过超时管理器")
+        return
+    timeout_mgr = SessionTimeoutManager(session_manager)
+    session_manager.set_timeout_manager(timeout_mgr)
+    app.state.session_timeout_manager = timeout_mgr
+    _logger.info("会话超时管理器初始化完成")
+
+
+async def close_session_timeout_manager(app: FastAPI) -> None:
+    """关闭会话超时管理器"""
+    timeout_mgr = getattr(app.state, "session_timeout_manager", None)
+    if timeout_mgr:
+        # 取消所有守卫任务
+        for session_id in list(timeout_mgr._guards.keys()):
+            timeout_mgr.cancel_guard(session_id)
+    app.state.session_timeout_manager = None
+
+
 async def close_session_manager(app: FastAPI) -> None:
     """关闭会话管理器（无需特殊清理）"""
     app.state.session_manager = None
@@ -409,7 +433,7 @@ async def close_agent(app: FastAPI) -> None:
     app.state.agent = None
 
 
-def get_agent(request: Request) -> Any:  # noqa: ANN401 — SmartCSAgent is constructed dynamically
+def get_agent(request: Request) -> Any:
     """获取对话 Agent（FastAPI 依赖注入）"""
     return request.app.state.agent
 
@@ -512,7 +536,7 @@ async def close_state_manager(app: FastAPI) -> None:
 
 def get_state_manager(request: Request) -> StateManager:
     """获取 CAS 状态管理器（FastAPI 依赖注入）"""
-    return request.app.state.state_manager
+    return getattr(request.app.state, "state_manager", None)  # type: ignore[return-value]
 
 
 # ── Temporal Client ──
@@ -538,7 +562,7 @@ async def close_temporal_client(app: FastAPI) -> None:
     app.state.temporal_client = None
 
 
-def get_temporal_client_dep(request: Request):
+def get_temporal_client_dep(request: Request) -> Any:
     """获取 Temporal Client（FastAPI 依赖注入）"""
     return getattr(request.app.state, "temporal_client", None)
 
@@ -580,15 +604,15 @@ LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
 SessionManagerDep = Annotated[SessionManager, Depends(get_session_manager)]
 ClassifierDep = Annotated[IntentClassifier, Depends(get_classifier)]
 TransferCheckerDep = Annotated[TransferChecker, Depends(get_transfer_checker)]
-AgentDep = Annotated[Any, Depends(get_agent)]  # noqa: ANN401
+AgentDep = Annotated[Any, Depends(get_agent)]
 HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
 DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
-def get_assist_orchestrator_dep(request: Request) -> Any:  # noqa: ANN401
+def get_assist_orchestrator_dep(request: Request) -> Any:
     """获取坐席辅助编排器（FastAPI 依赖注入）"""
     return request.app.state.assist_orchestrator
 
 
-AssistOrchestratorDep = Annotated[Any, Depends(get_assist_orchestrator_dep)]  # noqa: ANN401
+AssistOrchestratorDep = Annotated[Any, Depends(get_assist_orchestrator_dep)]
 StarClientDep = Annotated[StarConnectionClient, Depends(get_star_client)]
 StateManagerDep = Annotated[StateManager, Depends(get_state_manager)]
-TemporalClientDep = Annotated[Any, Depends(get_temporal_client_dep)]  # noqa: ANN401
+TemporalClientDep = Annotated[Any, Depends(get_temporal_client_dep)]

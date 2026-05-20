@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -13,11 +14,10 @@ from pydantic import BaseModel, Field
 
 from smartcs.shared.exceptions import SmartCSError
 from smartcs.shared.models import (
-    AssistPushMessage,
-    AssistPushPayload,
     IntentLabel,
     SentimentLabel,
     SessionPhase,
+    SessionSubPhase,
     SessionUpdateRequest,
     SessionUpdateResponse,
 )
@@ -63,14 +63,23 @@ async def session_update(body: SessionUpdateRequest, request: Request):
     try:
         phase = SessionPhase(body.phase.lower())
     except ValueError:
-        raise SmartCSError(code=2001, message=f"无效的会话阶段: {body.phase}")
+        raise SmartCSError(code=2001, message=f"无效的会话阶段: {body.phase}") from None
 
+    new_sub_phase = None
+    if body.sub_phase:
+        try:
+            new_sub_phase = SessionSubPhase(body.sub_phase)
+        except ValueError:
+            raise SmartCSError(code=2001, message=f"无效的子阶段: {body.sub_phase}") from None
+
+    reason = body.end_reason or body.agent_id or ""
     await session_manager.transition_phase(
         session_id=body.session_id,
         new_phase=phase,
-        reason=body.agent_id or "",
+        new_sub_phase=new_sub_phase,
+        reason=reason,
     )
-    logger.info("Session %s updated to %s", body.session_id, phase.value)
+    logger.info("Session %s updated to %s:%s", body.session_id, phase.value, new_sub_phase.value if new_sub_phase else "-")
     return SessionUpdateResponse(status="ok")
 
 
@@ -102,7 +111,7 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
             intent = intent_result.primary_intent
             confidence = intent_result.primary_confidence
             logger.debug("分类结果: intent=%s conf=%.2f source=%s", intent.value, confidence, source)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("意图分类超时，使用默认 FAQ")
         except Exception as e:
             logger.warning("意图分类失败: %s，使用默认 FAQ", e)
@@ -115,19 +124,16 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
     temporal_client = getattr(app.state, "temporal_client", None)
     if temporal_client is not None:
         try:
-            from smartcs.workflows.shared import ExecutorInput
-            from smartcs.workflows.orchestration_workflow import OrchestrationWorkflow
             from smartcs.shared.config import get_settings
+            from smartcs.workflows.orchestration_workflow import OrchestrationWorkflow
+            from smartcs.workflows.shared import ExecutorInput
 
             settings = get_settings()
             state_snapshot: dict = {}
             state_manager = getattr(app.state, "state_manager", None)
             if state_manager:
                 snapshot = await state_manager.read_state(body.session_id)
-                if snapshot:
-                    state_snapshot = snapshot
-                else:
-                    state_snapshot = {"last_confidence": confidence}
+                state_snapshot = snapshot or {"last_confidence": confidence}
 
             workflow_input = ExecutorInput(
                 session_id=body.session_id,
@@ -159,7 +165,7 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
                     "trace_id": result.trace_id,
                 },
             }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Temporal Workflow 超时 session=%s", body.session_id)
         except Exception as e:
             logger.warning("Temporal Workflow 执行失败: %s，降级到同步编排", e)
@@ -181,7 +187,7 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
                     timeout=5.0,
                 )
                 push_data = push_msg.model_dump(mode="json")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 push_data = {
                     "type": "assist_push",
                     "session_id": body.session_id,
@@ -253,6 +259,11 @@ def _action_to_confidence(action: str) -> float:
     return mapping.get(action, 0.0)
 
 
+# H2: 反馈延迟确认缓冲区（3 秒内可撤销）
+_feedback_buffer: dict[str, dict] = {}  # session_id → feedback_data
+_feedback_tasks: set[asyncio.Task] = set()  # 保持任务引用，防止 GC 回收
+
+
 @router.post("/feedback")
 async def record_feedback(body: FeedbackRequest, request: Request):
     """记录隐式反馈信号
@@ -262,35 +273,89 @@ async def record_feedback(body: FeedbackRequest, request: Request):
     - 修改后发送 → modify, confidence 0.5, modify_fields
     - 复制部分内容 → partial_accept, confidence 0.3
     - 忽略 → reject, confidence 0.0
+
+    H2: 3 秒延迟确认 — 缓冲反馈写入，允许 3 秒内撤销。
     """
     app = request.app
     confidence = _action_to_confidence(body.action)
 
-    # 写入反馈到 Redis 状态
-    state_manager = getattr(app.state, "state_manager", None)
-    if state_manager:
-        state = await state_manager.read_state(body.session_id)
-        if state:
-            await state_manager.cas_write(
-                session_id=body.session_id,
-                expected_version=state.get("version", 1),
-                patches={
-                    "last_feedback": {
-                        "action": body.action,
-                        "confidence": confidence,
-                        "modify_fields": body.modify_fields,
-                        "agent_id": body.agent_id,
-                    },
-                },
-                writer=f"feedback:{body.agent_id}",
-            )
+    # H2: 缓冲反馈，3 秒后才提交到 Redis
+    buffer_key = f"{body.session_id}:{body.agent_id}"
+    feedback_data = {
+        "action": body.action,
+        "confidence": confidence,
+        "modify_fields": body.modify_fields,
+        "agent_id": body.agent_id,
+    }
+    _feedback_buffer[buffer_key] = feedback_data
+
+    # 启动延迟提交任务
+    feedback_task = asyncio.create_task(_commit_feedback_after_delay(
+        app, body.session_id, buffer_key, feedback_data, delay=3.0,
+    ))
+    _feedback_tasks.add(feedback_task)
+    feedback_task.add_done_callback(_feedback_tasks.discard)
 
     logger.info(
-        "反馈 session=%s agent=%s action=%s confidence=%.1f",
+        "反馈(缓冲) session=%s agent=%s action=%s confidence=%.1f",
         body.session_id, body.agent_id, body.action, confidence,
     )
 
-    return {"status": "ok", "action": body.action, "confidence": confidence}
+    return {"status": "ok", "action": body.action, "confidence": confidence, "delayed_commit": True}
+
+
+@router.post("/feedback/undo")
+async def undo_feedback(body: FeedbackRequest, request: Request):
+    """H2: 撤销缓冲中的反馈
+
+    在 3 秒延迟期内，坐席可以撤销反馈。
+    """
+    buffer_key = f"{body.session_id}:{body.agent_id}"
+    if buffer_key in _feedback_buffer:
+        del _feedback_buffer[buffer_key]
+        logger.info("反馈撤销: session=%s agent=%s", body.session_id, body.agent_id)
+        return {"status": "ok", "undone": True}
+    return {"status": "ok", "undone": False, "reason": "not_buffered"}
+
+
+async def _commit_feedback_after_delay(
+    app: object,
+    session_id: str,
+    buffer_key: str,
+    feedback_data: dict,
+    delay: float = 3.0,
+) -> None:
+    """H2: 延迟提交反馈到 Redis"""
+    await asyncio.sleep(delay)
+
+    # 检查是否已被撤销
+    if buffer_key not in _feedback_buffer:
+        return
+
+    # 从缓冲区移除
+    _feedback_buffer.pop(buffer_key, None)
+
+    # 写入反馈到 Redis 状态
+    state_manager = getattr(app, "state", None)  # type: ignore[attr-defined]
+    if state_manager is None:
+        return
+    state_manager = getattr(state_manager, "state_manager", None)
+    if state_manager is None:
+        return
+
+    try:
+        state = await state_manager.read_state(session_id)  # type: ignore[attr-defined]
+        if state:
+            await state_manager.cas_write(  # type: ignore[attr-defined]
+                session_id=session_id,
+                expected_version=state.get("version", 1),
+                patches={
+                    "last_feedback": feedback_data,
+                },
+                writer=f"feedback:{feedback_data.get('agent_id', '')}",
+            )
+    except Exception as e:
+        logger.warning("反馈提交失败: session=%s error=%s", session_id, e)
 
 
 # ── WebSocket ──
@@ -337,7 +402,7 @@ async def assist_websocket(websocket: WebSocket, session_id: str):
 
     try:
         await _handle_messages(websocket, orchestrator, session_id, sentiment_history)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.info("WebSocket session=%s 超时关闭", session_id)
     except WebSocketDisconnect:
         logger.info("WebSocket session=%s 客户端断开", session_id)
@@ -347,10 +412,8 @@ async def assist_websocket(websocket: WebSocket, session_id: str):
         logger.debug("WebSocket 注销: session=%s, pool_size=%d", session_id, len(ws_pool))
 
         heartbeat_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await heartbeat_task
-        except asyncio.CancelledError:
-            pass
 
 
 async def _load_sentiment_history(session_manager: object, session_id: str) -> list[SentimentLabel]:

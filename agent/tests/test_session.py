@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -15,7 +15,7 @@ from smartcs.shared.models import (
     IntentLabel,
     IntentResult,
     SessionPhase,
-    SessionState,
+    SessionSubPhase,
 )
 
 
@@ -56,6 +56,7 @@ async def test_create_session() -> None:
     assert state.session_id
     assert state.customer_id == "cust-001"
     assert state.current_phase == SessionPhase.BOT
+    assert state.sub_phase == SessionSubPhase.BOT_ACTIVE
     assert state.turns == []
     redis.set.assert_called_once()
 
@@ -92,6 +93,8 @@ async def test_get_session_exists() -> None:
         "customer_id": None,
         "channel_type": "web",
         "current_phase": "bot",
+        "sub_phase": "bot:active",
+        "end_reason": None,
         "vip_level": "普通",
         "card_types": [],
         "risk_tolerance": "R2",
@@ -136,6 +139,8 @@ async def test_add_turn() -> None:
         "customer_id": None,
         "channel_type": "web",
         "current_phase": "bot",
+        "sub_phase": "bot:active",
+        "end_reason": None,
         "vip_level": "普通",
         "card_types": [],
         "risk_tolerance": "R2",
@@ -177,6 +182,8 @@ async def test_add_turn_low_confidence_increments_streak() -> None:
         "customer_id": None,
         "channel_type": "web",
         "current_phase": "bot",
+        "sub_phase": "bot:active",
+        "end_reason": None,
         "vip_level": "普通",
         "card_types": [],
         "risk_tolerance": "R2",
@@ -219,6 +226,8 @@ async def test_transition_phase() -> None:
         "customer_id": None,
         "channel_type": "web",
         "current_phase": "bot",
+        "sub_phase": "bot:active",
+        "end_reason": None,
         "vip_level": "普通",
         "card_types": [],
         "risk_tolerance": "R2",
@@ -238,8 +247,13 @@ async def test_transition_phase() -> None:
     redis.get = AsyncMock(return_value=meta)
     redis.lrange = AsyncMock(return_value=[])
 
-    updated = await manager.transition_phase(state.session_id, SessionPhase.HANDOFF, reason="L1_KEYWORD_HIT")
-    assert updated.current_phase == SessionPhase.HANDOFF
+    updated = await manager.transition_phase(
+        state.session_id, SessionPhase.AGENT,
+        new_sub_phase=SessionSubPhase.AG_QUEUED,
+        reason="L1_KEYWORD_HIT",
+    )
+    assert updated.current_phase == SessionPhase.AGENT
+    assert updated.sub_phase == SessionSubPhase.AG_QUEUED
     assert updated.transfer_reason == "L1_KEYWORD_HIT"
 
 
@@ -259,6 +273,8 @@ async def test_get_or_create_existing() -> None:
         "customer_id": None,
         "channel_type": "web",
         "current_phase": "bot",
+        "sub_phase": "bot:active",
+        "end_reason": None,
         "vip_level": "普通",
         "card_types": [],
         "risk_tolerance": "R2",
@@ -303,3 +319,113 @@ async def test_delete_session() -> None:
 
     await manager.delete_session("test-session")
     redis.delete.assert_called_once()
+
+
+# ── 状态转换校验 ──
+
+
+def test_validate_transition_legal() -> None:
+    """合法转换应通过校验"""
+    from smartcs.shared.models import validate_transition
+
+    assert validate_transition(SessionPhase.BOT, SessionSubPhase.BOT_ACTIVE, SessionSubPhase.AG_QUEUED) is True
+    assert validate_transition(SessionPhase.AGENT, SessionSubPhase.AG_QUEUED, SessionSubPhase.AG_ASSIGNED) is True
+    assert validate_transition(SessionPhase.AGENT, SessionSubPhase.AG_ACTIVE, SessionSubPhase.AG_REVIEWING) is True
+
+
+def test_validate_transition_illegal() -> None:
+    """非法转换应被拒绝"""
+    from smartcs.shared.models import validate_transition
+
+    # 不能从 BOT 直接跳到 AG_ACTIVE
+    assert validate_transition(SessionPhase.BOT, SessionSubPhase.BOT_ACTIVE, SessionSubPhase.AG_ACTIVE) is False
+    # 不能从 AG_REVIEWING 回到 AG_ACTIVE
+    assert validate_transition(SessionPhase.AGENT, SessionSubPhase.AG_REVIEWING, SessionSubPhase.AG_ACTIVE) is False
+
+
+@pytest.mark.asyncio
+async def test_transition_phase_illegal_raises() -> None:
+    """非法阶段切换应抛出 ValueError"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+
+    state = await manager.create_session()
+
+    # 模拟 Redis 中已处于 AG_ACTIVE 的会话
+    meta = json.dumps({
+        "session_id": state.session_id,
+        "customer_id": None,
+        "channel_type": "web",
+        "current_phase": "agent",
+        "sub_phase": "agent:reviewing",
+        "end_reason": None,
+        "vip_level": "普通",
+        "card_types": [],
+        "risk_tolerance": "R2",
+        "turn_count": 0,
+        "last_intent": None,
+        "last_entities": [],
+        "confidence_history": [],
+        "low_confidence_streak": 0,
+        "human_request_score": 0,
+        "agent_id": None,
+        "transfer_reason": None,
+        "transfer_summary": None,
+        "created_at": datetime.now().isoformat(),
+        "last_active_at": datetime.now().isoformat(),
+        "version": 1,
+    }, ensure_ascii=False)
+    redis.get = AsyncMock(return_value=meta)
+    redis.lrange = AsyncMock(return_value=[])
+
+    # AG_REVIEWING → AG_ACTIVE 是非法转换
+    with pytest.raises(ValueError, match="非法状态转换"):
+        await manager.transition_phase(
+            state.session_id, SessionPhase.AGENT,
+            new_sub_phase=SessionSubPhase.AG_ACTIVE,
+        )
+
+
+@pytest.mark.asyncio
+async def test_transition_phase_sub_phase_progression() -> None:
+    """子阶段正常推进链路: BOT → AG_QUEUED → AG_ASSIGNED → AG_ACTIVE"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+
+    state = await manager.create_session()
+
+    # 模拟 BOT 阶段
+    meta = json.dumps({
+        "session_id": state.session_id,
+        "customer_id": None,
+        "channel_type": "web",
+        "current_phase": "bot",
+        "sub_phase": "bot:active",
+        "end_reason": None,
+        "vip_level": "普通",
+        "card_types": [],
+        "risk_tolerance": "R2",
+        "turn_count": 0,
+        "last_intent": None,
+        "last_entities": [],
+        "confidence_history": [],
+        "low_confidence_streak": 0,
+        "human_request_score": 0,
+        "agent_id": None,
+        "transfer_reason": None,
+        "transfer_summary": None,
+        "created_at": datetime.now().isoformat(),
+        "last_active_at": datetime.now().isoformat(),
+        "version": 1,
+    }, ensure_ascii=False)
+    redis.get = AsyncMock(return_value=meta)
+    redis.lrange = AsyncMock(return_value=[])
+
+    # BOT → AG_QUEUED
+    result = await manager.transition_phase(
+        state.session_id, SessionPhase.AGENT,
+        new_sub_phase=SessionSubPhase.AG_QUEUED,
+        reason="L1_KEYWORD_HIT",
+    )
+    assert result.current_phase == SessionPhase.AGENT
+    assert result.sub_phase == SessionSubPhase.AG_QUEUED

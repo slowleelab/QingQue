@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
 import uuid as uuid_module
+from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 
 from smartcs.services.common.deps import (
     DbSession,
@@ -19,6 +22,7 @@ from smartcs.services.common.deps import (
     RerankerProviderDep,
 )
 from smartcs.services.common.retrieval import retrieve
+from smartcs.shared.config import get_settings
 from smartcs.shared.exceptions import DocumentFormatError
 from smartcs.shared.models import (
     ChatSendRequest,
@@ -28,6 +32,9 @@ from smartcs.shared.models import (
     RetrieveResponse,
 )
 from smartcs.shared.orm_models import KbDocStatus, KbDocument, KbSourceType
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +70,6 @@ async def chat_send(body: ChatSendRequest, req: Request):
     消息进入 Redis 队列，由后台 worker 异步处理。
     客户端通过 GET /api/chat/poll 轮询获取结果。
     """
-    from fastapi import HTTPException
-
     redis_client = getattr(req.app.state, "redis_client", None)
     if redis_client is None:
         raise HTTPException(status_code=503, detail="Redis 未就绪")
@@ -88,7 +93,7 @@ async def chat_send(body: ChatSendRequest, req: Request):
     )
 
 
-@router.get("/chat/poll", response_model=PollResponse)
+@router.get("/chat/poll")
 async def chat_poll(
     req: Request,
     session_id: str = Query(...),
@@ -97,10 +102,11 @@ async def chat_poll(
     """长轮询获取机器人回复
 
     每 0.5 秒检查一次 Redis 响应键，直到超时后返回空消息。
+    直接返回 Redis 中的 JSON 数据，避免 Pydantic 序列化丢失控制字符转义。
     """
     redis_client = getattr(req.app.state, "redis_client", None)
     if redis_client is None:
-        return PollResponse(has_message=False)
+        return JSONResponse(content=PollResponse(has_message=False).model_dump())
     response_key = f"{RESPONSE_KEY_PREFIX}:{session_id}"
 
     elapsed = 0.0
@@ -109,15 +115,17 @@ async def chat_poll(
         raw = await redis_client.get(response_key)
         if raw:
             await redis_client.delete(response_key)
+            # raw 是 decode_responses=True 的字符串，需重新编码为 JSON bytes
+            # 避免 reply 等字段中的控制字符（换行）在 HTTP 响应中未转义
             data = json.loads(raw)
-            return PollResponse(**data)
+            return Response(content=json.dumps(data, ensure_ascii=False).encode("utf-8"), media_type="application/json")
         await asyncio.sleep(interval)
         elapsed += interval
 
-    return PollResponse(has_message=False)
+    return JSONResponse(content=PollResponse(has_message=False).model_dump())
 
 
-async def process_chat_queue(app) -> None:
+async def process_chat_queue(app: FastAPI) -> None:
     """后台工作器：从 Redis 队列消费消息，调用 Agent 处理并写回响应
 
     由 lifespan 启动，BRPOP 阻塞等待消息，处理结果存入 Redis 响应键并设置 TTL。
@@ -148,6 +156,17 @@ async def process_chat_queue(app) -> None:
                 continue
 
             try:
+                # 检查会话是否已进入 AGENT 阶段，如果是则跳过 bot 处理
+                session_manager = getattr(app.state, "session_manager", None)
+                if session_manager:
+                    try:
+                        session_state = await session_manager.get_session(session_id)
+                        if session_state and session_state.current_phase.value == "agent":
+                            logger.info("会话已进入 AGENT 阶段，跳过 bot 处理: session_id=%s", session_id)
+                            continue
+                    except Exception:
+                        logger.debug("会话状态检查失败，继续处理: session_id=%s", session_id)
+
                 agent_result = await agent.run(session_id, message)
 
                 intent = agent_result.get("intent")
@@ -167,11 +186,24 @@ async def process_chat_queue(app) -> None:
                     star_client = getattr(app.state, "star_client", None)
                     if star_client:
                         try:
+                            # 加载对话历史传给坐席
+                            history = []
+                            if session_manager:
+                                try:
+                                    turns = await session_manager.get_history(session_id, limit=20)
+                                    history = [
+                                        {"speaker": t.speaker, "content": t.content}
+                                        for t in turns
+                                    ]
+                                except Exception:
+                                    logger.debug("加载对话历史失败: session_id=%s", session_id)
+
                             transfer_req = star_client.build_transfer_request(
                                 session_id=session_id,
                                 customer_id=task.get("customer_id"),
                                 transfer_reason=transfer_reason,
                                 transfer_summary=agent_result.get("response", ""),
+                                history=history,
                                 intent=str(primary_intent.value) if primary_intent and hasattr(primary_intent, "value") else "",
                                 sentiment="neutral",
                             )
@@ -189,7 +221,7 @@ async def process_chat_queue(app) -> None:
                 poll_data = {
                     "has_message": True,
                     "reply": agent_result.get("response", "抱歉，我暂时无法处理您的请求。"),
-                    "intent": primary_intent,
+                    "intent": primary_intent.value if primary_intent else None,
                     "confidence": primary_confidence,
                     "source": agent_result.get("response_source", "fallback"),
                     "is_transfer": is_transfer,
@@ -198,7 +230,9 @@ async def process_chat_queue(app) -> None:
                 }
 
                 response_key = f"{RESPONSE_KEY_PREFIX}:{session_id}"
-                await redis_client.setex(response_key, RESPONSE_TTL, json.dumps(poll_data, default=str))
+                # 序列化为 PollResponse 确保类型正确，再转 JSON 存入 Redis
+                poll_response = PollResponse(**poll_data)
+                await redis_client.setex(response_key, RESPONSE_TTL, poll_response.model_dump_json())
 
                 logger.info(
                     "消息处理完成: session_id=%s, intent=%s",
@@ -238,10 +272,8 @@ async def stop_chat_worker(app) -> None:
     task = getattr(app.state, "_chat_worker_task", None)
     if task and not task.done():
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
     logger.info("聊天队列后台工作器已停止")
 
 
@@ -312,9 +344,11 @@ async def upload_document(
     if minio_client:
         from io import BytesIO
 
+        settings = get_settings()
+        bucket_name = settings.minio.bucket
         await asyncio.to_thread(
             minio_client.put_object,
-            minio_client._bucket_name if hasattr(minio_client, "_bucket_name") else "smartcs-docs",
+            bucket_name,
             minio_object_key,
             BytesIO(content_bytes),
             file_size,
