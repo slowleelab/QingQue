@@ -165,14 +165,20 @@ def print_scan_summary(docs: list[dict]) -> None:
 
 def upload_to_minio(docs: list[dict]) -> None:
     """上传文件到 MinIO"""
+    import os
+
     from minio import Minio
 
-    print("\n📤 上传文件到 MinIO...")
+    endpoint = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+    access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+    secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+
+    print(f"\n📤 上传文件到 MinIO ({endpoint})...")
     try:
         client = Minio(
-            "localhost:9000",
-            access_key="minioadmin",
-            secret_key="minioadmin",
+            endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
             secure=False,
         )
     except Exception as e:

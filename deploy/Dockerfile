@@ -49,9 +49,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 # 多入口切换: 通过 SERVICE 环境变量选择启动目标
 #   SERVICE=bot     → Bot:8000 (默认)
 #   SERVICE=assist  → Assist:8001
-#   SERVICE=worker  → Worker (仅 Temporal Worker, 无 HTTP)
 # 使用: docker run -e SERVICE=assist smartcs:latest
 ENV SERVICE=bot
-COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 ENTRYPOINT ["/docker-entrypoint.sh"]

@@ -42,8 +42,8 @@ pre-commit: ## 安装并运行 pre-commit
 build: ## 构建 Docker 镜像（ES+IK）
 	cd deploy && docker compose build elasticsearch
 
-build-app: ## 构建应用 Docker 镜像
-	docker build -f deploy/Dockerfile -t smartcs:latest .
+build-app: ## 构建应用 Docker 镜像（构建上下文为 agent/）
+	docker build -f deploy/Dockerfile -t smartcs:latest agent/
 
 up: ## 启动所有中间件
 	cd deploy && docker compose up -d

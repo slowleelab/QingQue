@@ -1,0 +1,150 @@
+# ── SmartCS 一键 Demo 编排 ──────────────────────────────
+# 在中间件（docker-compose.yml）之上，追加应用服务与一次性初始化。
+#
+# 使用方式（在 deploy/ 目录）:
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+#
+# 或通过根目录 Makefile:
+#   make demo
+#
+# 说明:
+#   - 中间件服务全部复用主 compose 文件
+#   - bot/assist 由 deploy/Dockerfile 构建（构建上下文 agent/）
+#   - demo-init 为一次性容器：跑 DB 迁移 + 灌入预置知识库，完成后退出
+#   - 无本地 LLM 时系统自动降级（检索摘要 → 模板回复），不影响体验
+
+services:
+  # ── 一次性初始化：DB 迁移 + 种子知识库 ──
+  demo-init:
+    build:
+      context: ../agent
+      dockerfile: ../deploy/Dockerfile
+    image: smartcs:demo
+    container_name: smartcs-demo-init
+    environment:
+      POSTGRES_HOST: smartcs-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: smartcs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
+      POSTGRES_DATABASE: smartcs
+      MINIO_ENDPOINT: smartcs-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    # 挂载迁移/种子脚本与语料（只读），避免打入生产镜像
+    volumes:
+      - ../agent/alembic:/app/alembic:ro
+      - ../agent/alembic.ini:/app/alembic.ini:ro
+      - ../agent/scripts:/app/scripts:ro
+      - ../agent/test_data:/app/test_data:ro
+    # 迁移 + 种子；任何一步失败则非零退出，便于发现
+    command: >
+      sh -c "echo '==> 数据库迁移' && alembic upgrade head &&
+             echo '==> 灌入种子知识库' && python scripts/seed_knowledge.py &&
+             echo '==> Demo 初始化完成'"
+    networks:
+      - smartcs-net
+    restart: "no"
+
+  # ── Bot 自助服务 ──
+  bot:
+    build:
+      context: ../agent
+      dockerfile: ../deploy/Dockerfile
+    image: smartcs:demo
+    container_name: smartcs-bot
+    environment:
+      SERVICE: bot
+      SMARTCS_ENVIRONMENT: ${SMARTCS_ENVIRONMENT:-development}
+      SMARTCS_LOG_LEVEL: ${SMARTCS_LOG_LEVEL:-INFO}
+      POSTGRES_HOST: smartcs-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: smartcs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
+      POSTGRES_DATABASE: smartcs
+      REDIS_HOST: smartcs-redis
+      REDIS_PORT: "6379"
+      ES_HOSTS: http://smartcs-elasticsearch:9200
+      MILVUS_HOST: smartcs-milvus
+      MILVUS_PORT: "19530"
+      MINIO_ENDPOINT: smartcs-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      KAFKA_BOOTSTRAP_SERVERS: smartcs-kafka:9092
+      # 容器内无法访问宿主机 Ollama；不可达时自动降级，无需修改
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_PRIMARY_MODEL: ${LLM_PRIMARY_MODEL:-qwen2.5:7b}
+    ports:
+      - "8000:8000"
+    depends_on:
+      demo-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 允许访问宿主机 Ollama（可选）
+    networks:
+      - smartcs-net
+    restart: unless-stopped
+
+  # ── Assist 坐席辅助 ──
+  assist:
+    build:
+      context: ../agent
+      dockerfile: ../deploy/Dockerfile
+    image: smartcs:demo
+    container_name: smartcs-assist
+    environment:
+      SERVICE: assist
+      SMARTCS_ENVIRONMENT: ${SMARTCS_ENVIRONMENT:-development}
+      SMARTCS_LOG_LEVEL: ${SMARTCS_LOG_LEVEL:-INFO}
+      POSTGRES_HOST: smartcs-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: smartcs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
+      POSTGRES_DATABASE: smartcs
+      REDIS_HOST: smartcs-redis
+      REDIS_PORT: "6379"
+      ES_HOSTS: http://smartcs-elasticsearch:9200
+      MILVUS_HOST: smartcs-milvus
+      MILVUS_PORT: "19530"
+      MINIO_ENDPOINT: smartcs-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      KAFKA_BOOTSTRAP_SERVERS: smartcs-kafka:9092
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_PRIMARY_MODEL: ${LLM_PRIMARY_MODEL:-qwen2.5:7b}
+    ports:
+      - "8001:8001"
+    depends_on:
+      demo-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - smartcs-net
+    restart: unless-stopped
+
+networks:
+  smartcs-net:
+    driver: bridge
