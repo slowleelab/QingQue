@@ -86,13 +86,13 @@ scrape_configs:
 ```bash
 curl -X POST "http://admin:admin@localhost:3001/api/dashboards/db" \
   -H "Content-Type: application/json" \
-  -d "{\"dashboard\":$(cat deploy/grafana/dashboards/smartcs-overview.json),\"overwrite\":true}"
+  -d "{\"dashboard\":$(cat config/grafana/dashboards/smartcs-overview.json),\"overwrite\":true}"
 ```
 
 **方式二：UI 手动导入**
 1. 打开 `http://localhost:3001` → 登录
 2. 左侧菜单 → Dashboards → New → Import
-3. 上传 `deploy/grafana/dashboards/smartcs-overview.json`
+3. 上传 `config/grafana/dashboards/smartcs-overview.json`
 
 ### 访问 Dashboard
 - URL: `http://localhost:3001/d/smartcs-overview`
