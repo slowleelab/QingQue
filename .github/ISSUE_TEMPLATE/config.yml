@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: 📖 文档
-    url: https://github.com/OWNER/REPO/blob/main/docs/README.md
+    url: https://github.com/slowleelab/QingQue/blob/main/docs/README.md
     about: 先查阅技术文档与常见问题
   - name: 🔒 安全漏洞
-    url: https://github.com/OWNER/REPO/blob/main/SECURITY.md
+    url: https://github.com/slowleelab/QingQue/blob/main/SECURITY.md
     about: 安全问题请勿公开 Issue，请按安全策略私下报告

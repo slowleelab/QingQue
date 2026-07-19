@@ -8,8 +8,8 @@ SmartCS 面向银行信用卡客服场景，我们高度重视安全问题。
 
 请通过以下方式私下报告：
 
-- GitHub [Security Advisories](../../security/advisories/new)（推荐，私密）
-- 或通过仓库维护者的公开联系方式
+- GitHub [Security Advisories](https://github.com/slowleelab/QingQue/security/advisories/new)（推荐，私密）
+- 或邮件：305525396+slowleelab@users.noreply.github.com
 
 报告请尽量包含：
 
