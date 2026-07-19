@@ -1,0 +1,59 @@
+name: 🐛 Bug 报告
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: 感谢反馈！请提供以下信息帮助我们定位问题。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰简洁地描述这个 bug
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 最小复现步骤
+      placeholder: |
+        1. 启动 ...
+        2. 调用 ...
+        3. 看到错误 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望发生什么
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志 / 截图
+      render: shell
+  - type: dropdown
+    id: component
+    attributes:
+      label: 涉及组件
+      options:
+        - Bot Service (agent)
+        - Assist Service (agent)
+        - knowledge-platform
+        - star-connection
+        - web 前端
+        - 中间件 / 部署
+        - 文档
+        - 其他
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息
+      placeholder: |
+        OS: macOS 14 / Ubuntu 22.04
+        Python: 3.11
+        相关中间件版本: ES 8.19 / Milvus 2.4 ...
+    validations:
+      required: true

@@ -1,6 +1,15 @@
 # SmartCS - 银行信用卡智能客服平台
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](agent/pyproject.toml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](agent/pyproject.toml)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-D7FF64?logo=ruff)](agent/pyproject.toml)
+
 AI 坐席辅助 + 机器人自助问答系统。基于 RAG + Agent 编排 + 私有化大模型，为银行信用卡中心提供智能客服能力。
+
+> **这是银行级私有化智能客服的参考实现**，包含完整的检索增强、Agent 编排、合规过滤、实时监控能力，适合作为私有化部署的技术基座，而非开箱即用的 SaaS。
+
+**[架构](docs/architecture.md) · [API 文档](docs/api-reference.md) · [部署指南](docs/deployment.md) · [快速开始](#快速开始)**
 
 ## 项目架构
 
@@ -202,3 +211,33 @@ make clean        # 清理缓存
 | Sprint 3 | Agent 编排 + 机器人 MVP | ✅ 已完成 |
 | Sprint 4 | 大模型集成 + 降级策略 | ✅ 已完成 |
 | Sprint 5 | 坐席辅助服务 + OE 编排 | ⬜ 待开始 |
+
+## 文档
+
+- **[文档中心](docs/README.md)** — 全部文档索引
+- [系统架构](docs/architecture.md) — 三层设计、数据流、设计决策
+- [API 参考](docs/api-reference.md) — REST / WebSocket 接口
+- [部署指南](docs/deployment.md) — Docker Compose、初始化、监控
+- [配置参考](docs/configuration.md) — 环境变量全览
+- [开发指南](docs/development.md) — 本地开发、代码规范、测试
+
+## 子项目
+
+| 目录 | 说明 | 文档 |
+|------|------|------|
+| `agent/` | SmartCS 核心（Bot + Assist 编排服务） | 见上方文档 |
+| `knowledge-platform/` | 知识数据微服务（ES 原生 RRF） | [README](knowledge-platform/README.md) |
+| `star-connection/` | 在线客服接入系统（Java） | [README](star-connection/README.md) · [DESIGN](star-connection/DESIGN.md) |
+| `web/` | 坐席工作台 / 客户对话前端（Vue 3） | [README](web/README.md) |
+
+## 贡献
+
+欢迎贡献！请先阅读：
+
+- [贡献指南](CONTRIBUTING.md) — 环境搭建、分支与 commit 规范、PR 流程
+- [行为准则](CODE_OF_CONDUCT.md)
+- [安全策略](SECURITY.md) — 漏洞请私下报告
+
+## License
+
+本项目基于 [Apache License 2.0](LICENSE) 开源。
