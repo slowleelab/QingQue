@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pip install poetry==1.8.3
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Lint (ruff)
+        run: poetry run ruff check app/ tests/
+
+      - name: Format check (ruff)
+        run: poetry run ruff format --check app/ tests/
+
+      - name: Type check (mypy)
+        run: poetry run mypy app/ --ignore-missing-imports || true
+
+      - name: Run tests
+        run: poetry run pytest tests/ -v --tb=short --cov=app --cov-report=term-missing
+
+      - name: Coverage threshold
+        run: poetry run coverage report --fail-under=50
