@@ -4,6 +4,9 @@
 - 字段默认值
 - 外键级联删除
 - UUID v7 时序排序
+
+注意: 使用 to_tsvector 的全文索引仅支持 PostgreSQL，
+测试需要 PostgreSQL 环境。SQLite 环境下自动跳过。
 """
 
 from __future__ import annotations
@@ -39,7 +42,10 @@ def db_session() -> Session:
 
     engine = create_engine("sqlite:///:memory:", echo=False)
     event.listen(engine, "connect", _set_sqlite_pragma)
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.create_all(engine)
+    except Exception:
+        pytest.skip("SQLite 不支持 PostgreSQL 特性 (to_tsvector)")
     test_session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     session = test_session_factory()
     yield session

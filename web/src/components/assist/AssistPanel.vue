@@ -1,5 +1,5 @@
 <template>
-  <div class="assist-panel">
+  <div class="assist-panel" data-testid="assist-panel">
     <div class="panel-header">
       <span class="panel-title">AI 辅助</span>
     </div>

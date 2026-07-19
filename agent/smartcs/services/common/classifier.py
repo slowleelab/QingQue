@@ -171,12 +171,14 @@ class RuleClassifier:
         self._compiled: list[dict[str, Any]] = []
         for rule in self._rules:
             compiled_patterns = [re.compile(p) for p in rule.get("patterns", [])]
-            self._compiled.append({
-                "intent": rule["intent"],
-                "patterns": compiled_patterns,
-                "keywords": rule.get("keywords", []),
-                "confidence": rule.get("confidence", 0.7),
-            })
+            self._compiled.append(
+                {
+                    "intent": rule["intent"],
+                    "patterns": compiled_patterns,
+                    "keywords": rule.get("keywords", []),
+                    "confidence": rule.get("confidence", 0.7),
+                }
+            )
 
     def classify(self, text: str) -> IntentResult:
         """对用户输入进行规则分类
@@ -352,11 +354,13 @@ def _parse_entities(raw_entities: list[dict[str, Any]]) -> list[Entity]:
     entities: list[Entity] = []
     for e in raw_entities:
         try:
-            entities.append(Entity(
-                entity_type=e.get("entity_type", "unknown"),
-                value=e.get("value", ""),
-                confidence=e.get("confidence", 0.7),
-            ))
+            entities.append(
+                Entity(
+                    entity_type=e.get("entity_type", "unknown"),
+                    value=e.get("value", ""),
+                    confidence=e.get("confidence", 0.7),
+                )
+            )
         except Exception:
             logger.debug("实体解析失败: %s", e)
     return entities

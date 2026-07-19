@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from urllib.parse import quote_plus
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +23,8 @@ class DatabaseSettings(BaseSettings):
     user: str = "smartcs"
     password: str = "smartcs_pass"
     database: str = "smartcs"
+    pool_size: int = 5
+    max_overflow: int = 10
 
     @property
     def dsn(self) -> str:
@@ -86,17 +88,6 @@ class MinIOSettings(BaseSettings):
     secure: bool = False
 
 
-class KafkaSettings(BaseSettings):
-    """Kafka 配置"""
-
-    model_config = SettingsConfigDict(env_prefix="KAFKA_")
-
-    bootstrap_servers: str = "localhost:9094"
-    knowledge_topic: str = "smartcs.knowledge.update"
-    audit_topic: str = "smartcs.audit.log"
-    summary_topic: str = "smartcs.call.summary"
-
-
 class LLMSettings(BaseSettings):
     """大模型推理配置"""
 
@@ -105,21 +96,21 @@ class LLMSettings(BaseSettings):
     # OpenAI 兼容 API（vLLM / Ollama）
     base_url: str = "http://localhost:11434/v1"
     api_key: str = "ollama"
-    primary_model: str = "qwen2.5:14b"
+    primary_model: str = "qwen2.5:7b"
     fallback_model: str = "qwen2.5:7b"
     temperature: float = 0.2
     max_tokens: int = 2048
-    timeout_seconds: float = 2.0
+    timeout_seconds: float = 60.0
 
     # 健康探测
-    health_probe_interval_seconds: float = 1.0   # 初始探测间隔
-    health_probe_max_interval: float = 30.0      # 指数退避上限
-    health_probe_timeout: float = 5.0            # 探测超时
-    health_probe_fail_threshold: int = 2         # 连续失败降级阈值
-    health_probe_success_threshold: int = 2      # 连续成功恢复阈值
+    health_probe_interval_seconds: float = 1.0  # 初始探测间隔
+    health_probe_max_interval: float = 30.0  # 指数退避上限
+    health_probe_timeout: float = 5.0  # 探测超时
+    health_probe_fail_threshold: int = 2  # 连续失败降级阈值
+    health_probe_success_threshold: int = 2  # 连续成功恢复阈值
     # 各类独立超时
-    classify_timeout: float = 1.5                # 分类独立超时
-    generate_timeout: float = 2.0                # 生成独立超时
+    classify_timeout: float = 1.5  # 分类独立超时
+    generate_timeout: float = 2.0  # 生成独立超时
 
 
 class ClassificationSettings(BaseSettings):
@@ -149,7 +140,9 @@ class RAGSettings(BaseSettings):
     rerank: bool = True
     # RRF 融合参数
     rrf_k: int = 60
-    # 置信度阈值（低于此值触发兜底）
+    # RRF 置信度阈值（RRF 分数范围 ~0.005-0.05，远低于 Reranker 的 0-1）
+    rrf_confidence_threshold: float = 0.0
+    # Reranker 置信度阈值（Reranker 分数范围 0-1）
     confidence_threshold: float = 0.5
     # Embedding 模型
     embedding_provider: str = "ollama"  # ollama / tei
@@ -199,11 +192,24 @@ class SessionSettings(BaseSettings):
     # 低置信度连续计数阈值（L3 触发）
     low_confidence_threshold: int = 3
     # 超时配置（秒）
-    bot_idle_timeout: int = 120       # BOT 阶段空闲超时
-    queue_timeout: int = 60           # AG_QUEUED 排队超时（超时回退 BOT）
-    ringing_timeout: int = 30         # AG_ASSIGNED 振铃超时
-    session_timeout: int = 1800       # AG_ACTIVE 会话总时长超时
-    review_timeout: int = 120         # AG_REVIEWING 话后小结超时
+    bot_idle_timeout: int = 120  # BOT 阶段空闲超时
+    queue_timeout: int = 60  # AG_QUEUED 排队超时（超时回退 BOT）
+    ringing_timeout: int = 30  # AG_ASSIGNED 振铃超时
+    session_timeout: int = 1800  # AG_ACTIVE 会话总时长超时
+    review_timeout: int = 120  # AG_REVIEWING 话后小结超时
+
+
+class BotSettings(BaseSettings):
+    """Bot 服务配置"""
+
+    model_config = SettingsConfigDict(env_prefix="BOT_")
+
+    # 最大并发 Agent 数（Semaphore 槽位）
+    max_concurrent_agents: int = 10
+    # 消息过期时间（秒），超过此时间的消息跳过处理
+    message_ttl_seconds: int = 8
+    # fast_reply 冷却时间（秒），同一会话两次 fast_reply 的最小间隔
+    fast_reply_cooldown: int = 5
 
 
 class AssistSettings(BaseSettings):
@@ -237,6 +243,7 @@ class AssistSettings(BaseSettings):
 
 class OrchestrationSettings(BaseSettings):
     """编排层配置（对应设计文档 §3.3）"""
+
     model_config = SettingsConfigDict(env_prefix="ORCH_")
 
     # 评估器冷却轮数（对应文档 §3.3 三路评估器表）
@@ -252,9 +259,9 @@ class OrchestrationSettings(BaseSettings):
     global_timeout_ms: int = 5000
 
     # 执行器 SLA（对应文档 §3.4 执行器 SLA 表）
-    e1_sla_ms: int = 3000   # AI 服务
-    e2_sla_ms: int = 500    # 营销
-    e3_sla_ms: int = 100    # 风控
+    e1_sla_ms: int = 3000  # AI 服务
+    e2_sla_ms: int = 500  # 营销
+    e3_sla_ms: int = 100  # 风控
 
     # 营销延迟（对应文档 §3.3 策略: marketing_deferred）
     marketing_defer_ms: int = 500
@@ -262,6 +269,7 @@ class OrchestrationSettings(BaseSettings):
 
 class TemporalSettings(BaseSettings):
     """Temporal 配置"""
+
     model_config = SettingsConfigDict(env_prefix="TEMPORAL_")
 
     host: str = "localhost"
@@ -273,6 +281,7 @@ class TemporalSettings(BaseSettings):
 
 class CircuitBreakerConfigSettings(BaseSettings):
     """熔断器配置（各执行器独立，对应文档 §3.4 熔断器配置表）"""
+
     model_config = SettingsConfigDict(env_prefix="CB_")
 
     # AI 服务执行器
@@ -322,17 +331,38 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
+    # 认证（JWT）
+    jwt_secret: str = "smartcs-dev-secret-change-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 30  # access token 30 分钟
+    jwt_refresh_expire_days: int = 7  # refresh token 7 天
+
+    @model_validator(mode="after")
+    def _validate_production_security(self) -> Settings:
+        """生产环境安全检查: 拒绝使用默认 JWT 密钥启动"""
+        if self.environment == "production":
+            if self.jwt_secret == "smartcs-dev-secret-change-in-production":
+                raise ValueError("生产环境必须设置 SMARTCS_JWT_SECRET 环境变量，" "不能使用默认开发密钥")
+            if self.jwt_secret and len(self.jwt_secret) < 32:
+                raise ValueError("生产环境 JWT 密钥长度必须 >= 32 字符")
+        return self
+
+    # 限流
+    rate_limit_enabled: bool = True
+    rate_limit_default: str = "60/minute"
+    rate_limit_chat: str = "30/minute"
+
     # 子配置
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     elasticsearch: ElasticsearchSettings = Field(default_factory=ElasticsearchSettings)
     milvus: MilvusSettings = Field(default_factory=MilvusSettings)
     minio: MinIOSettings = Field(default_factory=MinIOSettings)
-    kafka: KafkaSettings = Field(default_factory=KafkaSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     classification: ClassificationSettings = Field(default_factory=ClassificationSettings)
     rag: RAGSettings = Field(default_factory=RAGSettings)
     safety: SafetySettings = Field(default_factory=SafetySettings)
+    bot: BotSettings = Field(default_factory=BotSettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
     assist: AssistSettings = Field(default_factory=AssistSettings)
     orchestration: OrchestrationSettings = Field(default_factory=OrchestrationSettings)

@@ -1,5 +1,5 @@
 <template>
-  <el-card shadow="hover" class="script-card">
+  <el-card shadow="hover" class="script-card" data-testid="script-card">
     <div class="priority">
       <el-icon v-for="n in card.priority" :key="n" color="#e6a23c"><Star /></el-icon>
     </div>

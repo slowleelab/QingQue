@@ -3,13 +3,42 @@
 对应设计文档 §3.5 仲裁与输出层 + §4.2 安全与隐私。
 优先级融合展示规则 + 全局合规校验 (PII 脱敏 + 合规短语过滤)。
 """
+
 from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass, field
 from typing import Any
 
-from smartcs.workflows.shared import ExecutorOutput, OrchestrationResult
+# ── 共享数据模型（原 workflows/shared.py）──
+
+
+@dataclass
+class ExecutorOutput:
+    """执行器输出"""
+
+    executor_id: str = ""
+    ui_schema: dict[str, Any] = field(default_factory=dict)
+    latency_ms: int = 0
+    success: bool = True
+    degraded: bool = False
+    degradation_type: str = ""
+    risk_action: str = ""  # PASS / WARN / BLOCK
+    trace_id: str = ""
+
+
+@dataclass
+class OrchestrationResult:
+    """编排结果"""
+
+    primary_card: dict[str, Any] = field(default_factory=dict)
+    risk_badge: dict[str, Any] | None = None
+    marketing_slot: dict[str, Any] | None = None
+    fusion_type: str = "service_only"
+    trace_id: str = ""
+    elapsed_ms: int = 0
+
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +53,12 @@ _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "[PHONE]"),
     # 中文姓名: 在"客户"或"姓名"后跟的2-4个汉字，保留前缀替换姓名
     # 使用非贪婪量词 + 前瞻断言，避免贪婪匹配到助词/后缀
-    (re.compile(r"(客户|姓名[是为：:]?\s*)([\u4e00-\u9fa5]{2,4}?)(?=[^\u4e00-\u9fa5]|的|了|是|在|有|和|与|先生|女士|同志|$)"), r"\1[NAME]"),
+    (
+        re.compile(
+            r"(客户|姓名[是为：:]?\s*)([\u4e00-\u9fa5]{2,4}?)(?=[^\u4e00-\u9fa5]|的|了|是|在|有|和|与|先生|女士|同志|$)"
+        ),
+        r"\1[NAME]",
+    ),
 ]
 
 # 独立姓名后缀脱敏: 2-4个中文字后跟"先生/女士/同志"
@@ -80,9 +114,7 @@ class GlobalArbitrator:
 
         return result
 
-    def _fuse_risk_blocked(
-        self, risk: ExecutorOutput | None, ai: ExecutorOutput | None
-    ) -> OrchestrationResult:
+    def _fuse_risk_blocked(self, risk: ExecutorOutput | None, ai: ExecutorOutput | None) -> OrchestrationResult:
         """风控 BLOCK 融合"""
         primary = {
             "type": "risk_block",
@@ -114,9 +146,7 @@ class GlobalArbitrator:
             fusion_type="service_risk_warn",
         )
 
-    def _fuse_risk_pass(
-        self, ai: ExecutorOutput | None, mkt: ExecutorOutput | None
-    ) -> OrchestrationResult:
+    def _fuse_risk_pass(self, ai: ExecutorOutput | None, mkt: ExecutorOutput | None) -> OrchestrationResult:
         """风控 PASS 融合"""
         primary = {"type": "service_answer", "content": ai.ui_schema if ai else {}}
         marketing_slot = None

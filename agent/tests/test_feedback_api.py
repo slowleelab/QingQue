@@ -3,6 +3,7 @@
 测试 POST /api/feedback 端点和 _action_to_confidence 映射。
 使用 httpx.AsyncClient + FastAPI TestClient 模式，无需启动真实服务器。
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
@@ -58,11 +59,14 @@ async def feedback_client():
 
 async def test_feedback_accept(feedback_client: AsyncClient):
     """POST /api/feedback accept 操作返回 confidence 1.0"""
-    resp = await feedback_client.post("/api/feedback", json={
-        "session_id": "test-session-1",
-        "agent_id": "agent-001",
-        "action": "accept",
-    })
+    resp = await feedback_client.post(
+        "/api/feedback",
+        json={
+            "session_id": "test-session-1",
+            "agent_id": "agent-001",
+            "action": "accept",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
@@ -72,12 +76,15 @@ async def test_feedback_accept(feedback_client: AsyncClient):
 
 async def test_feedback_modify(feedback_client: AsyncClient):
     """POST /api/feedback modify 操作返回 confidence 0.5"""
-    resp = await feedback_client.post("/api/feedback", json={
-        "session_id": "test-session-2",
-        "agent_id": "agent-001",
-        "action": "modify",
-        "modify_fields": ["script_content"],
-    })
+    resp = await feedback_client.post(
+        "/api/feedback",
+        json={
+            "session_id": "test-session-2",
+            "agent_id": "agent-001",
+            "action": "modify",
+            "modify_fields": ["script_content"],
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["action"] == "modify"
@@ -86,11 +93,14 @@ async def test_feedback_modify(feedback_client: AsyncClient):
 
 async def test_feedback_partial_accept(feedback_client: AsyncClient):
     """POST /api/feedback partial_accept 操作返回 confidence 0.3"""
-    resp = await feedback_client.post("/api/feedback", json={
-        "session_id": "test-session-3",
-        "agent_id": "agent-001",
-        "action": "partial_accept",
-    })
+    resp = await feedback_client.post(
+        "/api/feedback",
+        json={
+            "session_id": "test-session-3",
+            "agent_id": "agent-001",
+            "action": "partial_accept",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["action"] == "partial_accept"
@@ -99,11 +109,14 @@ async def test_feedback_partial_accept(feedback_client: AsyncClient):
 
 async def test_feedback_reject(feedback_client: AsyncClient):
     """POST /api/feedback reject 操作返回 confidence 0.0"""
-    resp = await feedback_client.post("/api/feedback", json={
-        "session_id": "test-session-4",
-        "agent_id": "agent-001",
-        "action": "reject",
-    })
+    resp = await feedback_client.post(
+        "/api/feedback",
+        json={
+            "session_id": "test-session-4",
+            "agent_id": "agent-001",
+            "action": "reject",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["action"] == "reject"
@@ -112,10 +125,13 @@ async def test_feedback_reject(feedback_client: AsyncClient):
 
 async def test_feedback_default_action(feedback_client: AsyncClient):
     """POST /api/feedback 不传 action 默认为 reject"""
-    resp = await feedback_client.post("/api/feedback", json={
-        "session_id": "test-session-5",
-        "agent_id": "agent-001",
-    })
+    resp = await feedback_client.post(
+        "/api/feedback",
+        json={
+            "session_id": "test-session-5",
+            "agent_id": "agent-001",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["action"] == "reject"
@@ -124,29 +140,38 @@ async def test_feedback_default_action(feedback_client: AsyncClient):
 
 async def test_feedback_missing_session_id(feedback_client: AsyncClient):
     """POST /api/feedback 缺少 session_id 返回 422"""
-    resp = await feedback_client.post("/api/feedback", json={
-        "agent_id": "agent-001",
-        "action": "accept",
-    })
+    resp = await feedback_client.post(
+        "/api/feedback",
+        json={
+            "agent_id": "agent-001",
+            "action": "accept",
+        },
+    )
     assert resp.status_code == 422
 
 
 async def test_feedback_missing_agent_id(feedback_client: AsyncClient):
     """POST /api/feedback 缺少 agent_id 返回 422"""
-    resp = await feedback_client.post("/api/feedback", json={
-        "session_id": "test-session",
-        "action": "accept",
-    })
+    resp = await feedback_client.post(
+        "/api/feedback",
+        json={
+            "session_id": "test-session",
+            "action": "accept",
+        },
+    )
     assert resp.status_code == 422
 
 
 async def test_feedback_invalid_action(feedback_client: AsyncClient):
     """POST /api/feedback 无效 action 返回 422"""
-    resp = await feedback_client.post("/api/feedback", json={
-        "session_id": "test-session",
-        "agent_id": "agent-001",
-        "action": "invalid_action",
-    })
+    resp = await feedback_client.post(
+        "/api/feedback",
+        json={
+            "session_id": "test-session",
+            "agent_id": "agent-001",
+            "action": "invalid_action",
+        },
+    )
     assert resp.status_code == 422
 
 
@@ -159,21 +184,31 @@ async def test_feedback_with_state_manager():
 
     # Mock state_manager
     mock_state_manager = AsyncMock()
-    mock_state_manager.read_state = AsyncMock(return_value={
-        "version": 3,
-        "last_confidence": 0.8,
-    })
+    mock_state_manager.read_state = AsyncMock(
+        return_value={
+            "version": 3,
+            "last_confidence": 0.8,
+        }
+    )
     mock_state_manager.cas_write = AsyncMock(return_value={"ok": True, "new_version": 4})
     app.state.state_manager = mock_state_manager
 
+    # Mock redis_client（反馈缓冲已迁移至 Redis）
+    mock_redis = AsyncMock()
+    mock_redis.setex = AsyncMock(return_value=True)
+    app.state.redis_client = mock_redis
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/feedback", json={
-            "session_id": "test-session-sm",
-            "agent_id": "agent-002",
-            "action": "modify",
-            "modify_fields": ["script_content", "knowledge_summary"],
-        })
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                "session_id": "test-session-sm",
+                "agent_id": "agent-002",
+                "action": "modify",
+                "modify_fields": ["script_content", "knowledge_summary"],
+            },
+        )
 
     assert resp.status_code == 200
     data = resp.json()
@@ -182,21 +217,16 @@ async def test_feedback_with_state_manager():
     # H2: 延迟确认标记
     assert data["delayed_commit"] is True
 
-    # H2: 反馈先缓冲，3秒后才提交到 Redis
+    # H2: 反馈先缓冲到 Redis，3秒后才提交到 state_manager
     # 在延迟确认模式下，cas_write 不会立即调用
     mock_state_manager.cas_write.assert_not_awaited()
 
-    # 验证缓冲区中有反馈数据
-    from smartcs.services.assist.router import _feedback_buffer
-    buffer_key = "test-session-sm:agent-002"
-    assert buffer_key in _feedback_buffer
-    assert _feedback_buffer[buffer_key]["action"] == "modify"
-    assert _feedback_buffer[buffer_key]["confidence"] == 0.5
-    assert _feedback_buffer[buffer_key]["modify_fields"] == ["script_content", "knowledge_summary"]
-    assert _feedback_buffer[buffer_key]["agent_id"] == "agent-002"
-
-    # 清理缓冲区
-    _feedback_buffer.pop(buffer_key, None)
+    # 验证反馈数据已写入 Redis 缓冲区
+    mock_redis.setex.assert_awaited_once()
+    call_args = mock_redis.setex.call_args
+    buffer_key = call_args[0][0] if call_args[0] else call_args.kwargs.get("key", "")
+    assert "test-session-sm" in str(buffer_key)
+    assert "agent-002" in str(buffer_key)
 
 
 async def test_feedback_no_state_no_cas_write():
@@ -211,20 +241,24 @@ async def test_feedback_no_state_no_cas_write():
     mock_state_manager.cas_write = AsyncMock()
     app.state.state_manager = mock_state_manager
 
+    # Mock redis_client
+    mock_redis = AsyncMock()
+    mock_redis.setex = AsyncMock(return_value=True)
+    app.state.redis_client = mock_redis
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/feedback", json={
-            "session_id": "nonexistent-session",
-            "agent_id": "agent-003",
-            "action": "accept",
-        })
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                "session_id": "nonexistent-session",
+                "agent_id": "agent-003",
+                "action": "accept",
+            },
+        )
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["confidence"] == 1.0
     # H2: 延迟确认模式下，cas_write 不会立即调用
     mock_state_manager.cas_write.assert_not_awaited()
-
-    # 清理缓冲区
-    from smartcs.services.assist.router import _feedback_buffer
-    _feedback_buffer.pop("nonexistent-session:agent-003", None)

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from smartcs.services.common.embedding import EmbeddingProvider
 
+from smartcs.shared.config import get_settings
 from smartcs.shared.exceptions import DocumentFormatError
 from smartcs.shared.models import DocumentMetadata
 from smartcs.shared.orm_models import (
@@ -373,7 +374,7 @@ async def embed_chunks(
 async def write_to_es(
     chunks: list[dict],
     es_client: Any,
-    index_name: str = "smartcs_knowledge",
+    index_name: str = "smartcs_kb_chunks",
 ) -> int:
     """将文本块写入 Elasticsearch
 
@@ -404,6 +405,10 @@ async def write_to_es(
                     "expiry_date": chunk.get("expiry_date"),
                     "security_level": chunk.get("security_level", "internal"),
                     "version": chunk.get("version", "1.0"),
+                    # 合规过滤字段（检索时按 approval_status=PUBLISHED + is_current_version=true 过滤）
+                    "approval_status": chunk.get("approval_status", "PUBLISHED"),
+                    "is_current_version": chunk.get("is_current_version", True),
+                    "doc_group": chunk.get("doc_group", ""),
                 },
             )
             success_count += 1
@@ -416,10 +421,12 @@ async def write_to_milvus(
     chunks: list[dict],
     collection: Any,
 ) -> int:
-    """将文本块写入 Milvus
+    """将文本块写入 Milvus (v2.1)
 
-    字段: chunk_id, doc_id, content, embedding, category, doc_type, keywords,
-    card_type, customer_tier, effective_date(int64 epoch), expiry_date(int64 epoch)
+    字段: chunk_id, doc_id, content, embedding, category, doc_type,
+    keywords(ARRAY), card_type, customer_tier, security_level,
+    effective_date(int64 epoch_sec), expiry_date(int64 epoch_sec),
+    chunk_type, parent_chunk_id
 
     Args:
         chunks: 待写入块列表，每个包含 embedding 和 metadata 字段
@@ -436,14 +443,20 @@ async def write_to_milvus(
             [c["embedding"] for c in chunks],
             [c.get("category", "") for c in chunks],
             [c.get("doc_type", "") for c in chunks],
+            # v2.1: keywords 直接传 list（ARRAY 类型）
             [
-                ",".join(c.get("keywords", [])) if isinstance(c.get("keywords"), list) else (c.get("keywords", "") or "")
+                c.get("keywords", [])
+                if isinstance(c.get("keywords"), list)
+                else ([k.strip() for k in c.get("keywords", "").split(",") if k.strip()] if c.get("keywords") else [])
                 for c in chunks
             ],
             [c.get("card_type", "") for c in chunks],
             [c.get("customer_tier", "") for c in chunks],
-            [int(c.get("effective_date", 0) * 1000) if c.get("effective_date", 0) else 0 for c in chunks],
-            [int(c.get("expiry_date", 0) * 1000) if c.get("expiry_date", 0) else 0 for c in chunks],
+            [c.get("security_level", "internal") for c in chunks],
+            [int(c.get("effective_date", 0)) if c.get("effective_date", 0) else 0 for c in chunks],
+            [int(c.get("expiry_date", 0)) if c.get("expiry_date", 0) else 0 for c in chunks],
+            [c.get("chunk_type", "child") for c in chunks],
+            [c.get("parent_chunk_id", "") for c in chunks],
         ]
         await asyncio.to_thread(collection.insert, data)
         return len(chunks)
@@ -453,49 +466,22 @@ async def write_to_milvus(
 
 
 # ══════════════════════════════════════════════════════════════
-# 6. Publish 阶段
-# ══════════════════════════════════════════════════════════════
-
-
-async def publish_kafka_event(
-    doc_id: str,
-    chunk_count: int,
-    status: str,
-    kafka_producer: Any,
-    topic: str = "smartcs.knowledge.update",
-) -> bool:
-    """发布 Kafka 事件通知文档处理完成
-
-    Args:
-        doc_id: 文档 ID
-        chunk_count: 分块数量
-        status: 处理状态
-        kafka_producer: aiokafka AIOKafkaProducer
-        topic: Kafka topic
-
-    Returns:
-        是否发布成功
-    """
-    try:
-        import json
-
-        message = json.dumps(
-            {
-                "doc_id": doc_id,
-                "chunk_count": chunk_count,
-                "status": status,
-                "timestamp": datetime.now().isoformat(),
-            }
-        ).encode("utf-8")
-        await kafka_producer.send_and_wait(topic, message)
-        return True
-    except Exception:
-        logger.exception("Kafka 发布失败: doc_id=%s", doc_id)
-        return False
-
-
-# ══════════════════════════════════════════════════════════════
 # 辅助函数
+
+
+async def _rollback_es_docs(es_client: Any, es_ids: list[str]) -> None:
+    """回滚 ES 文档（Milvus 写入失败时清理 ES）"""
+    settings = get_settings()
+    index_name = f"{settings.elasticsearch.index_prefix}_kb_chunks"
+    for es_id in es_ids:
+        try:
+            await es_client.delete(index=index_name, id=es_id)
+        except Exception:
+            logger.debug("ES 回滚删除失败（可能不存在）: id=%s", es_id)
+
+
+# ══════════════════════════════════════════════════════════════
+# 原有辅助函数
 # ══════════════════════════════════════════════════════════════
 
 
@@ -542,13 +528,12 @@ async def ingest_document(
     db_session: AsyncSession,
     es_client: Any | None = None,
     milvus_collection: Any | None = None,
-    kafka_producer: Any | None = None,
     chunk_size: int = 1500,
     chunk_overlap: int = 200,
 ) -> str:
     """文档摄入编排器
 
-    6 阶段流水线：Parse → Clean → Chunk → Embed → Dual-Write → Publish
+    5 阶段流水线：Parse → Clean → Chunk → Embed → Dual-Write
 
     Args:
         doc_id: 文档 UUID
@@ -559,12 +544,11 @@ async def ingest_document(
         db_session: 数据库异步会话
         es_client: Elasticsearch 异步客户端（可选）
         milvus_collection: Milvus Collection 对象（可选）
-        kafka_producer: Kafka 生产者（可选）
         chunk_size: 分块大小
         chunk_overlap: 分块重叠
 
     Returns:
-        最终状态: COMPLETED / PARTIAL_ES_ONLY / KAFKA_PENDING / FAILED
+        最终状态: COMPLETED / PARTIAL_ES_ONLY / FAILED
     """
     # 查询文档记录
     doc = await db_session.get(KbDocument, doc_id)
@@ -653,6 +637,10 @@ async def ingest_document(
                     "customer_tier": metadata.customer_tier or "",
                     "effective_date": eff_epoch,
                     "expiry_date": exp_epoch,
+                    # 合规过滤字段（写入 ES 索引，检索时按 PUBLISHED + current 过滤）
+                    "approval_status": "PUBLISHED",
+                    "is_current_version": True,
+                    "doc_group": str(doc_id),
                 }
             )
 
@@ -694,10 +682,17 @@ async def ingest_document(
             )
 
         if not milvus_ok:
+            # 回滚 ES 已写入的文档（保证双写一致性）
+            if es_client is not None:
+                try:
+                    es_ids = [r["chunk_id"] for r in chunk_records]
+                    await _rollback_es_docs(es_client, es_ids)
+                except Exception:
+                    logger.exception("ES 回滚失败: doc_id=%s", doc_id)
             doc.status = KbDocStatus.FAILED
             doc.chunk_count = len(chunks)
             await db_session.flush()
-            return "PARTIAL_ES_ONLY"
+            return "FAILED"
 
         # ── 保存 KbChunk 到 DB ──
         for idx, record in enumerate(chunk_records):
@@ -714,27 +709,12 @@ async def ingest_document(
             db_session.add(chunk)
         await db_session.flush()
 
-        # ── 6. Publish ──
-        final_status = "COMPLETED"
-        if kafka_producer is not None:
-            t0 = time.perf_counter()
-            kafka_ok = await publish_kafka_event(str(doc_id), len(chunks), "COMPLETED", kafka_producer)
-            await _log_stage(
-                db_session,
-                doc_id,
-                KbIngestionStage.KAFKA_PUBLISH,
-                KbIngestionStatus.SUCCESS if kafka_ok else KbIngestionStatus.FAILED,
-                int((time.perf_counter() - t0) * 1000),
-            )
-            if not kafka_ok:
-                final_status = "KAFKA_PENDING"
-
         # 更新文档状态
-        doc.status = KbDocStatus.COMPLETED if final_status == "COMPLETED" else KbDocStatus.KAFKA_PENDING
+        doc.status = KbDocStatus.COMPLETED
         doc.chunk_count = len(chunks)
         await db_session.flush()
 
-        return final_status
+        return "COMPLETED"
 
     except Exception:
         logger.exception("文档摄入失败: doc_id=%s", doc_id)

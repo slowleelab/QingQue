@@ -1,9 +1,17 @@
-import { ref, watch, onScopeDispose, type Ref } from "vue"
+import { ref, onScopeDispose, type Ref } from "vue"
 import { useAssistStore } from "@/stores/assist"
 
 export type WsStatus = "connecting" | "connected" | "disconnected" | "error"
 
-export function useWebSocket(sessionId: Ref<string | null>) {
+/**
+ * Assist WebSocket — per-agent 持久连接。
+ *
+ * v2.0 变更: 从按会话建连改为按坐席建连。
+ * - 坐席登录时 connect(agentId)，生命周期 = 上班周期
+ * - 会话上下文由消息中 session_id 字段区分
+ * - 坐席接受会话时 send({type:"session_activated", session_id})
+ */
+export function useWebSocket(agentId: Ref<string | null>) {
   const status = ref<WsStatus>("disconnected")
   let ws: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -12,19 +20,19 @@ export function useWebSocket(sessionId: Ref<string | null>) {
 
   const assistStore = useAssistStore()
 
-  function getWsUrl(sid: string): string {
+  function getWsUrl(aid: string): string {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    return `${protocol}//${window.location.host}/api/assist/ws/${sid}`
+    return `${protocol}//${window.location.host}/api/assist/ws/agent/${aid}`
   }
 
   function connect() {
-    if (!sessionId.value) return
+    if (!agentId.value) return
     disconnect()
 
     status.value = "connecting"
     assistStore.setWsStatus("connecting")
 
-    ws = new WebSocket(getWsUrl(sessionId.value))
+    ws = new WebSocket(getWsUrl(agentId.value))
 
     ws.onopen = () => {
       status.value = "connected"
@@ -36,6 +44,12 @@ export function useWebSocket(sessionId: Ref<string | null>) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
+        // "connected" 消息: 服务端确认连接
+        if (msg.type === "connected") {
+          status.value = "connected"
+          return
+        }
+        // 其他消息路由到 assist store (通过 session_id 区分)
         assistStore.onPushMessage(msg)
       } catch {
         // 非 JSON 消息，忽略
@@ -85,7 +99,7 @@ export function useWebSocket(sessionId: Ref<string | null>) {
   function startHeartbeat() {
     heartbeatTimer = setInterval(() => {
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send("ping")
+        ws.send(JSON.stringify({ type: "ping" }))
       }
     }, 30000)
   }
@@ -97,16 +111,8 @@ export function useWebSocket(sessionId: Ref<string | null>) {
     }
   }
 
-  // 当 sessionId 变化时自动重连（停止 watch 以便清理）
-  const stopWatch = watch(sessionId, (newId, oldId) => {
-    if (newId !== oldId) {
-      connect()
-    }
-  })
-
   // 组件卸载时自动清理
   onScopeDispose(() => {
-    stopWatch()
     disconnect()
   })
 
@@ -116,5 +122,15 @@ export function useWebSocket(sessionId: Ref<string | null>) {
     }
   }
 
-  return { status, connect, disconnect, send }
+  /** 坐席接受会话时调用，通知 Assist 激活该会话 */
+  function activateSession(sessionId: string) {
+    send({ type: "session_activated", session_id: sessionId })
+  }
+
+  /** 坐席发送回复时调用，通知 Assist 做合规检测 */
+  function notifyAgentMessage(sessionId: string, content: string) {
+    send({ type: "agent_message", session_id: sessionId, content })
+  }
+
+  return { status, connect, disconnect, send, activateSession, notifyAgentMessage }
 }

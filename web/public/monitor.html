@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartCS 系统监控</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}
+h1{text-align:center;margin-bottom:24px;color:#38bdf8}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.card{background:#1e293b;border-radius:12px;padding:20px;border:1px solid #334155}
+.card h2{font-size:16px;margin-bottom:12px;color:#94a3b8}
+.metric{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e293b}
+.metric .label{color:#94a3b8;font-size:13px}
+.metric .value{font-weight:700;font-size:14px}
+.value.good{color:#4ade80}.value.warn{color:#fbbf24}.value.bad{color:#f87171}
+.bar{height:6px;border-radius:3px;margin-top:4px;transition:width .5s}
+.bar.green{background:#4ade80}.bar.yellow{background:#fbbf24}.bar.red{background:#f87171}
+.refresh{text-align:center;color:#64748b;font-size:12px;margin-top:16px}
+.error{color:#f87171;padding:8px;text-align:center}
+</style>
+</head>
+<body>
+<h1>🔍 SmartCS 系统监控</h1>
+<div class="grid">
+  <div class="card" id="botCard"><h2>🤖 Bot 服务</h2><div class="error">加载中...</div></div>
+  <div class="card" id="assistCard"><h2>🛠️ Assist 服务</h2><div class="error">加载中...</div></div>
+  <div class="card" id="nginxCard"><h2>🌐 Nginx 网关</h2><div class="error">加载中...</div></div>
+  <div class="card" id="starCard"><h2>📡 star-conn</h2><div class="error">加载中...</div></div>
+</div>
+<div class="refresh">每 10 秒自动刷新 | <span id="lastRefresh">--</span></div>
+
+<script>
+async function checkBot() {
+  try {
+    const r = await fetch('/api/health')
+    const d = await r.json()
+    const sem = Math.round((1 - d.agent_slots.available / d.agent_slots.total) * 100)
+    document.getElementById('botCard').innerHTML = `<h2>🤖 Bot 服务 <span style="color:#4ade80">● 健康</span></h2>
+      <div class="metric"><span class="label">Agent 槽位</span><span class="value">${d.agent_slots.available} / ${d.agent_slots.total}</span></div>
+      <div class="bar green" style="width:${sem}%"></div>
+      <div class="metric"><span class="label">Stream 长度</span><span class="value">${d.streams.stream_length}</span></div>
+      <div class="metric"><span class="label">PEL 待处理</span><span class="value" style="color:${d.streams.pending>10?'#f87171':'#4ade80'}">${d.streams.pending}</span></div>
+      <div class="metric"><span class="label">活跃 Worker</span><span class="value">${d.streams.active_workers}</span></div>
+      <div class="metric"><span class="label">Semaphore 利用率</span><span class="value">${d.streams.semaphore_utilization * 100}%</span></div>
+      <div class="metric"><span class="label">快速兜底 (累计)</span><span class="value">${d.stats.fast_reply_total}</span></div>
+      <div class="metric"><span class="label">超时跳过 (累计)</span><span class="value">${d.stats.timeout_total}</span></div>`
+  } catch { document.getElementById('botCard').innerHTML = '<h2>🤖 Bot 服务 <span style="color:#f87171">● 离线</span></h2><div class="error">无法连接</div>' }
+}
+
+async function checkAssist() {
+  try {
+    const r = await fetch('/api/health')
+    if (r.status === 200) {
+      document.getElementById('assistCard').innerHTML = '<h2>🛠️ Assist 服务 <span style="color:#4ade80">● 健康</span></h2>'
+    }
+  } catch { document.getElementById('assistCard').innerHTML = '<h2>🛠️ Assist 服务 <span style="color:#f87171">● 离线</span></h2>' }
+}
+
+async function checkNginx() {
+  try {
+    const t0 = performance.now()
+    await fetch('/')
+    const t1 = performance.now()
+    document.getElementById('nginxCard').innerHTML = `<h2>🌐 Nginx 网关 <span style="color:#4ade80">● 运行中</span></h2>
+      <div class="metric"><span class="label">响应延迟</span><span class="value">${Math.round(t1-t0)}ms</span></div>
+      <div class="metric"><span class="label">前端版本</span><span class="value">v2.1</span></div>`
+  } catch { document.getElementById('nginxCard').innerHTML = '<h2>🌐 Nginx 网关 <span style="color:#f87171">● 离线</span></h2>' }
+}
+
+async function checkStar() {
+  try {
+    const r = await fetch('http://localhost:8080/health')
+    document.getElementById('starCard').innerHTML = `<h2>📡 star-conn <span style="color:${r.ok?'#4ade80':'#fbbf24'}">● ${r.ok?'可达':'异常'}</span></h2>`
+  } catch { document.getElementById('starCard').innerHTML = '<h2>📡 star-conn <span style="color:#f87171">● 离线</span></h2>' }
+}
+
+async function refresh() {
+  await Promise.all([checkBot(), checkAssist(), checkNginx(), checkStar()])
+  document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString()
+}
+refresh()
+setInterval(refresh, 10000)
+</script>
+</body>
+</html>

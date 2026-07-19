@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid as uuid_module
 from datetime import UTC, datetime
@@ -61,20 +60,21 @@ async def _get_session_from_redis(session_id: str) -> dict | None:
 
 
 @pytest.mark.slow
-async def test_session_update_to_agent_phase(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_session_update_to_agent_phase(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """BOT → AGENT:queued 回调成功"""
     session_id = "e2e-lifecycle-agent-" + uuid_module.uuid4().hex[:8]
     await _create_session_in_redis(session_id, "bot", "bot:active")
 
     # 模拟 star-connection 回调: 会话进入 AGENT 阶段
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "AGENT",
-        "sub_phase": "agent:queued",
-        "agent_id": "agent-001",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "AGENT",
+            "sub_phase": "agent:queued",
+            "agent_id": "agent-001",
+        },
+    )
     assert resp.status_code == 200, f"Session update failed: {resp.text}"
 
     # 验证 Redis 中状态已更新
@@ -85,19 +85,20 @@ async def test_session_update_to_agent_phase(
 
 
 @pytest.mark.slow
-async def test_session_update_to_ended(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_session_update_to_ended(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """AGENT:active → ENDED 回调成功，end_reason 记录"""
     session_id = "e2e-lifecycle-ended-" + uuid_module.uuid4().hex[:8]
     await _create_session_in_redis(session_id, "agent", "agent:active")
 
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "ENDED",
-        "agent_id": "agent-001",
-        "end_reason": "completed",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "ENDED",
+            "agent_id": "agent-001",
+            "end_reason": "completed",
+        },
+    )
     assert resp.status_code == 200
 
     state = await _get_session_from_redis(session_id)
@@ -114,49 +115,59 @@ async def test_session_update_invalid_transition(
     session_id = "e2e-lifecycle-invalid-" + uuid_module.uuid4().hex[:8]
     await _create_session_in_redis(session_id, "bot", "bot:active")
 
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "AGENT",
-        "sub_phase": "agent:active",
-    })
-    assert resp.status_code == 500  # ValueError → 500
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "AGENT",
+            "sub_phase": "agent:active",
+        },
+    )
+    assert resp.status_code == 409  # InvalidTransitionError → 409
 
 
 # ── 2. 子阶段推进链路 ──
 
 
 @pytest.mark.slow
-async def test_sub_phase_progression(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_sub_phase_progression(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """完整子阶段推进: bot:active → agent:queued → agent:assigned → agent:active"""
     session_id = "e2e-lifecycle-prog-" + uuid_module.uuid4().hex[:8]
     await _create_session_in_redis(session_id, "bot", "bot:active")
 
     # BOT → AG_QUEUED
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "AGENT",
-        "sub_phase": "agent:queued",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "AGENT",
+            "sub_phase": "agent:queued",
+        },
+    )
     assert resp.status_code == 200
 
     # AG_QUEUED → AG_ASSIGNED
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "AGENT",
-        "sub_phase": "agent:assigned",
-        "agent_id": "agent-002",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "AGENT",
+            "sub_phase": "agent:assigned",
+            "agent_id": "agent-002",
+        },
+    )
     assert resp.status_code == 200
 
     # AG_ASSIGNED → AG_ACTIVE
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "AGENT",
-        "sub_phase": "agent:active",
-        "agent_id": "agent-002",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "AGENT",
+            "sub_phase": "agent:active",
+            "agent_id": "agent-002",
+        },
+    )
     assert resp.status_code == 200
 
     state = await _get_session_from_redis(session_id)
@@ -168,19 +179,20 @@ async def test_sub_phase_progression(
 
 
 @pytest.mark.slow
-async def test_hold_resume_flow(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_hold_resume_flow(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """AG_ACTIVE → AG_ON_HOLD → AG_ACTIVE 保持恢复流程"""
     session_id = "e2e-lifecycle-hold-" + uuid_module.uuid4().hex[:8]
     await _create_session_in_redis(session_id, "agent", "agent:active")
 
     # Hold
-    resp = await assist_client.post("/api/hold", json={
-        "session_id": session_id,
-        "agent_id": "agent-003",
-        "reason": "查询系统",
-    })
+    resp = await assist_client.post(
+        "/api/hold",
+        json={
+            "session_id": session_id,
+            "agent_id": "agent-003",
+            "reason": "查询系统",
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["sub_phase"] == "agent:on_hold"
 
@@ -188,10 +200,13 @@ async def test_hold_resume_flow(
     assert state["sub_phase"] == "agent:on_hold"
 
     # Resume
-    resp = await assist_client.post("/api/resume", json={
-        "session_id": session_id,
-        "agent_id": "agent-003",
-    })
+    resp = await assist_client.post(
+        "/api/resume",
+        json={
+            "session_id": session_id,
+            "agent_id": "agent-003",
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["sub_phase"] == "agent:active"
 
@@ -203,17 +218,18 @@ async def test_hold_resume_flow(
 
 
 @pytest.mark.slow
-async def test_review_generate_without_llm(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_review_generate_without_llm(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """AG_REVIEWING 阶段生成小结 (LLM 不可用时降级模板)"""
     session_id = "e2e-lifecycle-review-" + uuid_module.uuid4().hex[:8]
     await _create_session_in_redis(session_id, "agent", "agent:reviewing")
 
-    resp = await assist_client.post("/api/review/generate", json={
-        "session_id": session_id,
-        "agent_id": "agent-004",
-    })
+    resp = await assist_client.post(
+        "/api/review/generate",
+        json={
+            "session_id": session_id,
+            "agent_id": "agent-004",
+        },
+    )
     # LLM 不可用时，session_manager 可能返回空历史，小结为空
     # 但端点应正常返回
     assert resp.status_code in (200, 500)  # 500 if session_manager not set up
@@ -223,18 +239,19 @@ async def test_review_generate_without_llm(
 
 
 @pytest.mark.slow
-async def test_analyze_callback(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_analyze_callback(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """POST /api/analyze 回调正常响应"""
     session_id = "e2e-lifecycle-analyze-" + uuid_module.uuid4().hex[:8]
     await _create_session_in_redis(session_id, "agent", "agent:active")
 
-    resp = await assist_client.post("/api/analyze", json={
-        "session_id": session_id,
-        "message": "我想查一下信用卡账单",
-        "customer_id": "cust-001",
-    })
+    resp = await assist_client.post(
+        "/api/analyze",
+        json={
+            "session_id": session_id,
+            "message": "我想查一下信用卡账单",
+            "customer_id": "cust-001",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
@@ -250,19 +267,25 @@ async def test_feedback_flow(assist_client: httpx.AsyncClient):
     session_id = "e2e-lifecycle-feedback-" + uuid_module.uuid4().hex[:8]
 
     # 提交反馈
-    resp = await assist_client.post("/api/feedback", json={
-        "session_id": session_id,
-        "agent_id": "agent-005",
-        "action": "accept",
-    })
+    resp = await assist_client.post(
+        "/api/feedback",
+        json={
+            "session_id": session_id,
+            "agent_id": "agent-005",
+            "action": "accept",
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["delayed_commit"] is True
     assert resp.json()["confidence"] == 1.0
 
     # 撤销反馈
-    resp = await assist_client.post("/api/feedback/undo", json={
-        "session_id": session_id,
-        "agent_id": "agent-005",
-    })
+    resp = await assist_client.post(
+        "/api/feedback/undo",
+        json={
+            "session_id": session_id,
+            "agent_id": "agent-005",
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["undone"] is True

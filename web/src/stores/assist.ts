@@ -9,6 +9,7 @@ export const useAssistStore = defineStore("assist", () => {
   const sessions = ref<SessionInfo[]>([])
   const fetching = ref(false)
 
+  const currentAgentId = ref<string | null>(null)  // v2.0: per-agent WS
   const activeSessionId = ref<string | null>(null)
   const wsStatus = ref<"connecting" | "connected" | "disconnected" | "error">("disconnected")
 
@@ -82,7 +83,7 @@ export const useAssistStore = defineStore("assist", () => {
         .filter((s) => s.status !== "CLOSED")
         .map((s) => ({
           sessionId: s.sessionId,
-          phase: s.status === "ACTIVE" ? "assist" as const : "handoff" as const,
+          phase: s.status === "ACTIVE" ? "agent" as const : "bot" as const,
           lastActiveAt: new Date(s.createTime),
           customerName: s.customerId || "访客",
           agentId: s.agentId || undefined,
@@ -112,6 +113,7 @@ export const useAssistStore = defineStore("assist", () => {
   }
 
   return {
+    currentAgentId,
     sessions, activeSessionId, wsStatus, activePushData, activeMessages, activeSession,
     fetching, fetchSessions,
     onPushMessage, addMessage, selectSession, setWsStatus,

@@ -1,0 +1,72 @@
+{
+  "title": "SmartCS 服务监控",
+  "uid": "smartcs-overview",
+  "panels": [
+    {
+      "id": 1, "title": "HTTP 请求速率", "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 3},
+      "targets": [{"expr": "rate(http_requests_total[1m])", "legendFormat": "{{method}} {{path}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}}
+    },
+    {
+      "id": 2, "title": "Agent 槽位利用率", "type": "gauge",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 3},
+      "targets": [{"expr": "smartcs_bot_semaphore_utilization"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"steps": [{"value": 50, "color": "green"}, {"value": 80, "color": "yellow"}, {"value": 90, "color": "red"}]}}}
+    },
+    {
+      "id": 3, "title": "PEL 待处理消息", "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 3},
+      "targets": [{"expr": "smartcs_stream_pending_total"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 10, "color": "yellow"}, {"value": 50, "color": "red"}]}}}
+    },
+    {
+      "id": 4, "title": "活跃 Worker 数", "type": "stat",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 3},
+      "targets": [{"expr": "smartcs_active_workers"}]
+    },
+    {
+      "id": 5, "title": "请求延迟 P50/P99", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 3, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "P50"},
+        {"expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "P99"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 6, "title": "会话阶段转换", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 3, "w": 12, "h": 6},
+      "targets": [{"expr": "rate(session_transitions_total[5m])", "legendFormat": "{{from_phase}}→{{to_phase}}"}]
+    },
+    {
+      "id": 7, "title": "快速兜底 vs 标准 Agent", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 9, "w": 12, "h": 5},
+      "targets": [
+        {"expr": "rate(smartcs_fast_reply_total[5m])", "legendFormat": "Fast Reply"},
+        {"expr": "rate(smartcs_agent_responses_total[5m])", "legendFormat": "Standard Agent"}
+      ]
+    },
+    {
+      "id": 8, "title": "会话超时事件", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 9, "w": 12, "h": 5},
+      "targets": [{"expr": "rate(session_timeouts_total[5m])", "legendFormat": "{{sub_phase}}"}]
+    },
+    {
+      "id": 9, "title": "Stream 长度趋势", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 14, "w": 12, "h": 5},
+      "targets": [{"expr": "smartcs_stream_length", "legendFormat": "Stream Length"}]
+    },
+    {
+      "id": 10, "title": "LLM 调用延迟", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 14, "w": 12, "h": 5},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(llm_call_duration_seconds_bucket[5m]))", "legendFormat": "LLM P50"},
+        {"expr": "histogram_quantile(0.99, rate(llm_call_duration_seconds_bucket[5m]))", "legendFormat": "LLM P99"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    }
+  ],
+  "refresh": "10s",
+  "time": {"from": "now-15m", "to": "now"}
+}

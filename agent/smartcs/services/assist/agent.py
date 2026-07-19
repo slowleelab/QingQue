@@ -55,7 +55,6 @@ class AssistOrchestrator:
         self._embedding_provider = embedding_provider
         self._embedding_breaker = embedding_breaker
         self._reranker = reranker
-        self._last_push: dict[str, float] = {}
         self._settings = get_settings().assist
 
     async def process(
@@ -81,7 +80,9 @@ class AssistOrchestrator:
 
         async def _alert_branch():
             return self._alert_engine.check_all(
-                message, sentiment, sentiment_history,
+                message,
+                sentiment,
+                sentiment_history,
                 self._settings.sentiment_trend_window,
             )
 
@@ -117,7 +118,13 @@ class AssistOrchestrator:
         elapsed = (time.monotonic() - t_start) * 1000
         logger.info(
             "assist orchestration session=%s intent=%s scripts=%d knowledge=%d alerts=%d products=%d elapsed=%.1fms",
-            session_id, intent.value, len(scripts), len(knowledge), len(alerts), len(products), elapsed,
+            session_id,
+            intent.value,
+            len(scripts),
+            len(knowledge),
+            len(alerts),
+            len(products),
+            elapsed,
         )
 
         return AssistPushMessage(
@@ -127,9 +134,7 @@ class AssistOrchestrator:
             payload=payload,
         )
 
-    async def _run_script_branch(
-        self, intent: IntentLabel, context: str, variables: dict[str, str]
-    ) -> list[dict]:
+    async def _run_script_branch(self, intent: IntentLabel, context: str, variables: dict[str, str]) -> list[dict]:
         scripts = self._script_service.retrieve(intent, top_k=self._settings.max_scripts_per_push)
         if not scripts:
             return []
@@ -140,15 +145,19 @@ class AssistOrchestrator:
             if self._llm_client and self._settings.script_timeout_ms > 1000:
                 with contextlib.suppress(Exception):
                     resolved = await self._script_service.polish(
-                        resolved, context, self._llm_client,
+                        resolved,
+                        context,
+                        self._llm_client,
                         timeout_ms=self._settings.script_timeout_ms - 50,
                     )
-            result.append({
-                "script_id": s["script_id"],
-                "content": resolved,
-                "tags": s.get("tags", []),
-                "priority": s.get("priority", 5),
-            })
+            result.append(
+                {
+                    "script_id": s["script_id"],
+                    "content": resolved,
+                    "tags": s.get("tags", []),
+                    "priority": s.get("priority", 5),
+                }
+            )
         return result
 
     async def _run_knowledge_branch(self, message: str, intent: IntentLabel) -> list[dict]:
@@ -167,7 +176,9 @@ class AssistOrchestrator:
             search_type = "hybrid" if embedding_ok else "bm25_only"
             logger.debug(
                 "knowledge branch: embedding_ok=%s search_type=%s query=%s",
-                embedding_ok, search_type, message[:30],
+                embedding_ok,
+                search_type,
+                message[:30],
             )
 
             req = RetrieveRequest(
@@ -198,7 +209,8 @@ class AssistOrchestrator:
 
     async def _run_product_branch(self, intent: IntentLabel) -> list[dict]:
         products = self._product_catalog.match(
-            intent, top_k=self._settings.max_recommendations_per_push,
+            intent,
+            top_k=self._settings.max_recommendations_per_push,
         )
         return [
             {
@@ -213,17 +225,16 @@ class AssistOrchestrator:
         ]
 
     def should_throttle(self, session_id: str) -> bool:
-        """检查是否需要节流"""
-        now = time.monotonic()
-        last = self._last_push.get(session_id, 0)
-        if now - last < self._settings.throttle_window_ms / 1000:
-            return True
-        self._last_push[session_id] = now
+        """节流检查已统一到 PushTracker（Redis 持久化，跨实例一致）
+
+        此方法保留向后兼容，始终返回 False（不节流）。
+        实际节流由 OE pipeline 中的 should_show() + PushTracker 负责。
+        """
         return False
 
     def force_reset_throttle(self, session_id: str) -> None:
-        """重置节流计时器（告警消息不受节流限制）"""
-        self._last_push.pop(session_id, None)
+        """重置节流计时器（已由 PushTracker 管理，此方法为空操作）"""
+        pass
 
 
 async def _parallel_dispatch(

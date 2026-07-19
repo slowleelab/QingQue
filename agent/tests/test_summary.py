@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from smartcs.services.assist.summary import (
     _format_conversation,
-    _template_summary,
     generate_call_summary,
 )
 from smartcs.shared.models import DialogueTurn, SentimentLabel, SessionPhase, SessionSubPhase
@@ -44,14 +43,18 @@ async def test_generate_summary_with_llm() -> None:
     ]
     mgr = _mock_session_manager(turns)
     llm = AsyncMock()
-    llm.chat = AsyncMock(return_value=json.dumps({
-        "customer_demand": "咨询信用卡年费扣费情况",
-        "problem_category": "账单查询",
-        "solution_provided": "告知年费金额和扣费规则",
-        "resolution_status": "已解决",
-        "sentiment": "中性",
-        "key_info": {"card_last4": "1234"},
-    }))
+    llm.chat = AsyncMock(
+        return_value=json.dumps(
+            {
+                "customer_demand": "咨询信用卡年费扣费情况",
+                "problem_category": "账单查询",
+                "solution_provided": "告知年费金额和扣费规则",
+                "resolution_status": "已解决",
+                "sentiment": "中性",
+                "key_info": {"card_last4": "1234"},
+            }
+        )
+    )
 
     summary = await generate_call_summary("s1", mgr, llm)
     assert summary.customer_demand == "咨询信用卡年费扣费情况"
@@ -117,37 +120,45 @@ def test_format_conversation() -> None:
 @pytest.mark.asyncio
 async def test_hold_transition() -> None:
     """AG_ACTIVE → AG_ON_HOLD 状态转换"""
-    from smartcs.services.common.session import SessionManager
     from unittest.mock import AsyncMock
+
+    from smartcs.services.common.session import SessionManager
 
     redis = AsyncMock()
     redis.set = AsyncMock()
     redis.lrange = AsyncMock(return_value=[])
+    redis.eval = AsyncMock(return_value=1)  # CAS 成功
+    redis.evalsha = AsyncMock(return_value=1)
+    redis.script_load = AsyncMock(return_value="mock-sha")
+    redis.expire = AsyncMock()
     manager = SessionManager(redis)
 
-    meta = json.dumps({
-        "session_id": "sess-hold",
-        "customer_id": None,
-        "channel_type": "web",
-        "current_phase": "agent",
-        "sub_phase": "agent:active",
-        "end_reason": None,
-        "vip_level": "普通",
-        "card_types": [],
-        "risk_tolerance": "R2",
-        "turn_count": 0,
-        "last_intent": None,
-        "last_entities": [],
-        "confidence_history": [],
-        "low_confidence_streak": 0,
-        "human_request_score": 0,
-        "agent_id": None,
-        "transfer_reason": None,
-        "transfer_summary": None,
-        "created_at": datetime.now().isoformat(),
-        "last_active_at": datetime.now().isoformat(),
-        "version": 1,
-    }, ensure_ascii=False)
+    meta = json.dumps(
+        {
+            "session_id": "sess-hold",
+            "customer_id": None,
+            "channel_type": "web",
+            "current_phase": "agent",
+            "sub_phase": "agent:active",
+            "end_reason": None,
+            "vip_level": "普通",
+            "card_types": [],
+            "risk_tolerance": "R2",
+            "turn_count": 0,
+            "last_intent": None,
+            "last_entities": [],
+            "confidence_history": [],
+            "low_confidence_streak": 0,
+            "human_request_score": 0,
+            "agent_id": None,
+            "transfer_reason": None,
+            "transfer_summary": None,
+            "created_at": datetime.now().isoformat(),
+            "last_active_at": datetime.now().isoformat(),
+            "version": 1,
+        },
+        ensure_ascii=False,
+    )
     redis.get = AsyncMock(return_value=meta)
 
     result = await manager.transition_phase(
@@ -162,37 +173,45 @@ async def test_hold_transition() -> None:
 @pytest.mark.asyncio
 async def test_resume_transition() -> None:
     """AG_ON_HOLD → AG_ACTIVE 状态转换"""
-    from smartcs.services.common.session import SessionManager
     from unittest.mock import AsyncMock
+
+    from smartcs.services.common.session import SessionManager
 
     redis = AsyncMock()
     redis.set = AsyncMock()
     redis.lrange = AsyncMock(return_value=[])
+    redis.eval = AsyncMock(return_value=1)  # CAS 成功
+    redis.evalsha = AsyncMock(return_value=1)
+    redis.script_load = AsyncMock(return_value="mock-sha")
+    redis.expire = AsyncMock()
     manager = SessionManager(redis)
 
-    meta = json.dumps({
-        "session_id": "sess-resume",
-        "customer_id": None,
-        "channel_type": "web",
-        "current_phase": "agent",
-        "sub_phase": "agent:on_hold",
-        "end_reason": None,
-        "vip_level": "普通",
-        "card_types": [],
-        "risk_tolerance": "R2",
-        "turn_count": 0,
-        "last_intent": None,
-        "last_entities": [],
-        "confidence_history": [],
-        "low_confidence_streak": 0,
-        "human_request_score": 0,
-        "agent_id": None,
-        "transfer_reason": None,
-        "transfer_summary": None,
-        "created_at": datetime.now().isoformat(),
-        "last_active_at": datetime.now().isoformat(),
-        "version": 1,
-    }, ensure_ascii=False)
+    meta = json.dumps(
+        {
+            "session_id": "sess-resume",
+            "customer_id": None,
+            "channel_type": "web",
+            "current_phase": "agent",
+            "sub_phase": "agent:on_hold",
+            "end_reason": None,
+            "vip_level": "普通",
+            "card_types": [],
+            "risk_tolerance": "R2",
+            "turn_count": 0,
+            "last_intent": None,
+            "last_entities": [],
+            "confidence_history": [],
+            "low_confidence_streak": 0,
+            "human_request_score": 0,
+            "agent_id": None,
+            "transfer_reason": None,
+            "transfer_summary": None,
+            "created_at": datetime.now().isoformat(),
+            "last_active_at": datetime.now().isoformat(),
+            "version": 1,
+        },
+        ensure_ascii=False,
+    )
     redis.get = AsyncMock(return_value=meta)
 
     result = await manager.transition_phase(

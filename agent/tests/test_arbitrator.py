@@ -2,12 +2,12 @@
 
 覆盖: 优先级融合规则 + PII 脱敏 + 合规短语过滤。
 """
+
 from __future__ import annotations
 
 import pytest
 
-from smartcs.services.assist.arbitrator import GlobalArbitrator
-from smartcs.workflows.shared import ExecutorOutput, OrchestrationResult
+from smartcs.services.assist.arbitrator import ExecutorOutput, GlobalArbitrator, OrchestrationResult
 
 # ── Fixtures ──
 
@@ -247,9 +247,7 @@ class TestComplianceFilter:
     def test_compliance_filter_in_arbitrate(self, arbitrator: GlobalArbitrator):
         """仲裁时自动过滤合规短语"""
         # 同步方式验证递归合规过滤
-        result = arbitrator._filter_compliance_recursive(
-            {"answer": "本产品保证收益，绝对安全"}
-        )
+        result = arbitrator._filter_compliance_recursive({"answer": "本产品保证收益，绝对安全"})
         assert result["answer"] == "本产品[已过滤]，[已过滤]"
 
 

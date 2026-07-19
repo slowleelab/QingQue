@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Protocol, runtime_checkable
 
 import httpx
@@ -63,17 +64,20 @@ class OllamaReranker:
         return f"ollama:{self.model}"
 
     def rerank(self, query: str, documents: list[str], top_k: int = 5) -> list[RerankResult]:
-        """使用 Ollama /api/generate 对每篇文档评分并排序
+        """使用 Ollama /api/generate 对每篇文档并发评分并排序
 
-        向模型发送评分 prompt，从响应中提取浮点数作为相关性分数。
+        所有文档并发评分，而非逐文档串行调用。
         """
         if not documents:
             return []
 
         scored: list[tuple[int, float, str]] = []
-        for idx, doc in enumerate(documents):
-            score = self._score_document(query, doc)
-            scored.append((idx, score, doc))
+        with ThreadPoolExecutor(max_workers=min(len(documents), 10)) as executor:
+            futures = {executor.submit(self._score_document, query, doc): idx for idx, doc in enumerate(documents)}
+            for future in as_completed(futures):
+                idx = futures[future]
+                score = future.result()
+                scored.append((idx, score, documents[idx]))
 
         scored.sort(key=lambda x: x[1], reverse=True)
         return [RerankResult(index=idx, relevance_score=score, text=text) for idx, score, text in scored[:top_k]]

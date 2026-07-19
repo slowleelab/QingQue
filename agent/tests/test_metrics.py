@@ -1,4 +1,5 @@
 """RAG 评估指标测试"""
+
 from __future__ import annotations
 
 from scripts.experiments.metrics import hit_at_k, mrr, ndcg_at_k, precision_at_k

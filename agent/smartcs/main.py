@@ -17,14 +17,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from smartcs.services.assist.app import create_assist_app
+from smartcs.services.assist.router import start_notify_worker, stop_notify_worker
 from smartcs.services.bot.app import create_bot_app
-from smartcs.services.bot.router import start_chat_worker, stop_chat_worker
+from smartcs.services.bot.router import start_bot_worker, stop_bot_worker
 from smartcs.services.common.database import close_db, init_db
 from smartcs.services.common.deps import (
     close_agent,
     close_assist_orchestrator,
     close_classifier,
     close_degradation_manager,
+    close_dependency_breakers,
     close_elasticsearch,
     close_embedding,
     close_health_monitor,
@@ -35,13 +37,11 @@ from smartcs.services.common.deps import (
     close_session_manager,
     close_session_timeout_manager,
     close_star_client,
-    close_state_manager,
-    close_temporal_client,
-    close_temporal_worker,
     init_agent,
     init_assist_orchestrator,
     init_classifier,
     init_degradation_manager,
+    init_dependency_breakers,
     init_elasticsearch,
     init_embedding,
     init_health_monitor,
@@ -52,9 +52,6 @@ from smartcs.services.common.deps import (
     init_session_manager,
     init_session_timeout_manager,
     init_star_client,
-    init_state_manager,
-    init_temporal_client,
-    init_temporal_worker,
     init_transfer_checker,
 )
 from smartcs.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
@@ -78,17 +75,41 @@ class _SuppressExceptions:
             self._logger.warning("关闭步骤异常（已忽略）: %s", exc_val)
         return True
 
-# 机器人服务启动/关闭步骤（按依赖顺序）
-_BOT_INIT_STEPS = [
+
+# ── 公共初始化/关闭步骤（两个服务共享的基础设施）──
+_COMMON_INIT_STEPS = [
     init_db,
     init_redis,
     init_elasticsearch,
     init_milvus,
     init_minio,
+    init_dependency_breakers,
     init_embedding,
     init_reranker,
     init_grpc_channels,
     init_llm,
+    init_session_manager,
+    init_classifier,
+]
+
+_COMMON_CLOSE_STEPS = [
+    close_classifier,
+    close_session_manager,
+    close_llm,
+    close_grpc_channels,
+    close_reranker,
+    close_embedding,
+    close_dependency_breakers,
+    close_minio,
+    close_milvus,
+    close_elasticsearch,
+    close_redis,
+    close_db,
+]
+
+# 机器人服务启动/关闭步骤 = 公共步骤 + Bot 专有步骤
+_BOT_INIT_STEPS = [
+    *_COMMON_INIT_STEPS[:10],  # init_db ... init_llm
     init_health_monitor,
     init_degradation_manager,
     init_session_manager,
@@ -96,26 +117,17 @@ _BOT_INIT_STEPS = [
     init_transfer_checker,
     init_star_client,
     init_agent,
-    start_chat_worker,
+    start_bot_worker,
 ]
 
 _BOT_CLOSE_STEPS = [
-    stop_chat_worker,
+    stop_bot_worker,
     close_star_client,
     close_agent,
-    close_classifier,
-    close_session_manager,
+    *_COMMON_CLOSE_STEPS[:2],  # close_classifier, close_session_manager
     close_degradation_manager,
     close_health_monitor,
-    close_llm,
-    close_grpc_channels,
-    close_reranker,
-    close_embedding,
-    close_minio,
-    close_milvus,
-    close_elasticsearch,
-    close_redis,
-    close_db,
+    *_COMMON_CLOSE_STEPS[2:],  # close_llm ... close_db
 ]
 
 
@@ -156,12 +168,12 @@ async def bot_lifespan(app: FastAPI):
 # 坐席辅助服务启动/关闭步骤
 async def _init_assist_ws_pool(app: FastAPI) -> None:
     """初始化 WebSocket 连接池"""
-    app.state.assist_ws_connections = {}
+    app.state.assist_ws_pool = {}
 
 
 async def _close_assist_ws_pool(app: FastAPI) -> None:
     """清理 WebSocket 连接池"""
-    ws_pool: dict = getattr(app.state, "assist_ws_connections", {})
+    ws_pool: dict = getattr(app.state, "assist_ws_pool", {})
     for ws in list(ws_pool.values()):
         with contextlib.suppress(Exception):
             await ws.close()
@@ -169,43 +181,22 @@ async def _close_assist_ws_pool(app: FastAPI) -> None:
 
 
 _ASSIST_INIT_STEPS = [
-    init_db,
-    init_redis,
-    init_elasticsearch,
-    init_milvus,
-    init_minio,
-    init_embedding,
-    init_reranker,
-    init_grpc_channels,
-    init_llm,
+    *_COMMON_INIT_STEPS[:10],  # init_db ... init_llm
     init_session_manager,
     init_session_timeout_manager,
     init_classifier,
     init_assist_orchestrator,
-    init_state_manager,
-    init_temporal_client,
-    init_temporal_worker,
     _init_assist_ws_pool,
+    start_notify_worker,
 ]
 
 _ASSIST_CLOSE_STEPS = [
+    stop_notify_worker,
     _close_assist_ws_pool,
-    close_temporal_worker,
-    close_temporal_client,
-    close_state_manager,
     close_assist_orchestrator,
-    close_classifier,
+    *_COMMON_CLOSE_STEPS[:2],  # close_classifier, close_session_manager
     close_session_timeout_manager,
-    close_session_manager,
-    close_llm,
-    close_grpc_channels,
-    close_reranker,
-    close_embedding,
-    close_minio,
-    close_milvus,
-    close_elasticsearch,
-    close_redis,
-    close_db,
+    *_COMMON_CLOSE_STEPS[2:],  # close_llm ... close_db
 ]
 
 

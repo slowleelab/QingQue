@@ -49,7 +49,7 @@ export const useChatStore = defineStore("chat", () => {
       sessionId.value = sendResp.session_id
 
       const pollResp = await pollReply(sendResp.session_id, 30)
-      if (pollResp.has_message) {
+      if (pollResp.status === "done") {
         const botMsg: ChatMessage = {
           id: `msg-${++msgCounter}`,
           role: "bot",

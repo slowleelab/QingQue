@@ -1,6 +1,7 @@
 """统一日志配置
 
 支持标准文本格式和 JSON 结构化格式（生产环境推荐）。
+内置 PII 脱敏过滤器，自动屏蔽日志中的手机号/身份证/银行卡等敏感信息。
 """
 
 from __future__ import annotations
@@ -9,6 +10,25 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
+
+from smartcs.shared.pii import mask_pii
+
+
+class PIIMaskFilter(logging.Filter):
+    """日志 PII 脱敏过滤器
+
+    自动屏蔽日志消息中的手机号、身份证号、银行卡号、邮箱、敏感字段值。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.msg and isinstance(record.msg, str):
+            record.msg = mask_pii(record.msg)
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = {k: mask_pii(v) if isinstance(v, str) else v for k, v in record.args.items()}
+            elif isinstance(record.args, tuple):
+                record.args = tuple(mask_pii(a) if isinstance(a, str) else a for a in record.args)
+        return True
 
 
 class JSONFormatter(logging.Formatter):
@@ -53,6 +73,7 @@ def setup_logger(name: str, level: str = "INFO", *, json_format: bool = False) -
     logger.setLevel(level_value)
 
     handler = logging.StreamHandler(sys.stdout)
+    handler.addFilter(PIIMaskFilter())
     if json_format:
         handler.setFormatter(JSONFormatter())
     else:

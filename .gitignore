@@ -45,6 +45,13 @@ logs/
 .coverage
 htmlcov/
 
+# 前端产物 / 依赖（任何子项目都不应入库）
+node_modules/
+.vite/
+test-results/
+playwright-report/
+*.tsbuildinfo
+
 # Ruff
 .ruff_cache/
 

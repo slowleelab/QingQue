@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncGenerator
@@ -37,7 +38,6 @@ from smartcs.services.common.reranker import (
 )
 from smartcs.services.common.session import SessionManager
 from smartcs.services.common.star_client import StarConnectionClient
-from smartcs.services.common.state_manager import StateManager
 from smartcs.services.common.transfer import TransferChecker
 from smartcs.shared.config import get_settings
 
@@ -159,12 +159,14 @@ async def init_milvus(app: FastAPI) -> None:
             alias="default",
             host=settings.milvus.host,
             port=settings.milvus.port,
+            timeout=3,
         )
         collection = Collection(settings.milvus.collection_name)
-        collection.load()
+        # load() 可能长时间阻塞, 用线程池 + 超时保护
+        await asyncio.wait_for(asyncio.to_thread(collection.load), timeout=5)
         app.state.milvus_collection = collection
-    except Exception as e:
-        _logger.warning("Milvus 连接失败，将使用降级模式: %s", e)
+    except (TimeoutError, Exception) as e:
+        _logger.warning("Milvus 连接/加载超时，将使用降级模式: %s", e)
         app.state.milvus_collection = None
 
 
@@ -324,17 +326,25 @@ async def init_session_manager(app: FastAPI) -> None:
     redis = get_redis(app)
     app.state.session_manager = SessionManager(redis)
 
+    # 注入 DB session factory 供对话记录持久化
+    db_session_factory = getattr(app.state, "db_session_factory", None)
+    if db_session_factory:
+        app.state.session_manager.set_db_session_factory(db_session_factory)
+
 
 async def init_session_timeout_manager(app: FastAPI) -> None:
     """初始化会话超时管理器，绑定到 SessionManager"""
     from fastapi import WebSocket
+
     from smartcs.services.assist.router import WS_POOL_KEY
-    from smartcs.services.common.session_timeout import SessionTimeoutManager, SessionSubPhase
+    from smartcs.services.common.session_timeout import SessionSubPhase, SessionTimeoutManager
 
     session_manager: SessionManager | None = getattr(app.state, "session_manager", None)
     if session_manager is None:
         _logger.warning("SessionManager 未初始化，跳过超时管理器")
         return
+
+    redis = get_redis(app)
 
     async def on_timeout(session_id: str, sub_phase: SessionSubPhase, reason: str) -> None:
         """超时时推送 WebSocket 事件给坐席"""
@@ -342,33 +352,41 @@ async def init_session_timeout_manager(app: FastAPI) -> None:
         ws = ws_pool.get(session_id)
         if ws is not None:
             try:
-                await ws.send_json({
-                    "type": "session_timeout",
-                    "session_id": session_id,
-                    "sub_phase": sub_phase.value,
-                    "reason": reason,
-                })
+                await ws.send_json(
+                    {
+                        "type": "session_timeout",
+                        "session_id": session_id,
+                        "sub_phase": sub_phase.value,
+                        "reason": reason,
+                    }
+                )
             except Exception:
                 _logger.debug("超时通知推送失败: session=%s", session_id)
 
-    timeout_mgr = SessionTimeoutManager(session_manager, on_timeout=on_timeout)
+    timeout_mgr = SessionTimeoutManager(
+        session_manager,
+        redis=redis,
+        on_timeout=on_timeout,
+    )
     session_manager.set_timeout_manager(timeout_mgr)
+    await timeout_mgr.start_poller()
     app.state.session_timeout_manager = timeout_mgr
-    _logger.info("会话超时管理器初始化完成")
+    _logger.info("会话超时管理器初始化完成 (Redis ZSET 分布式方案)")
 
 
 async def close_session_timeout_manager(app: FastAPI) -> None:
     """关闭会话超时管理器"""
     timeout_mgr = getattr(app.state, "session_timeout_manager", None)
     if timeout_mgr:
-        # 取消所有守卫任务
-        for session_id in list(timeout_mgr._guards.keys()):
-            timeout_mgr.cancel_guard(session_id)
+        await timeout_mgr.stop_poller()
     app.state.session_timeout_manager = None
 
 
 async def close_session_manager(app: FastAPI) -> None:
-    """关闭会话管理器（无需特殊清理）"""
+    """关闭会话管理器（先等待持久化任务完成）"""
+    mgr = getattr(app.state, "session_manager", None)
+    if mgr:
+        await mgr.flush_pending_persists(timeout=10.0)
     app.state.session_manager = None
 
 
@@ -422,7 +440,7 @@ def get_transfer_checker(request: Request) -> TransferChecker:
 
 async def init_agent(app: FastAPI) -> None:
     """初始化对话 Agent，存储到 app.state"""
-    from smartcs.services.bot.agent import SmartCSAgent
+    from smartcs.services.bot.bot_agent import SmartCSAgent
 
     classifier: IntentClassifier = app.state.classifier
     degradation_mgr: DegradationManager = app.state.degradation_manager
@@ -510,7 +528,25 @@ async def init_assist_orchestrator(app: FastAPI) -> None:
         reranker=reranker,
     )
     app.state.assist_orchestrator = orchestrator
+    app.state.script_service = script_service
+    app.state.alert_engine = alert_engine
     _logger.info("坐席辅助编排器初始化完成")
+
+    # 初始化 AI 执行器 (PydanticAI)
+    from smartcs.services.assist.ai_executor import AIExecutor
+
+    ai_executor = AIExecutor(
+        script_service=script_service,
+        es_client=es_client,
+        milvus_collection=milvus_col,
+        embedding_provider=embedding_provider,
+        embedding_breaker=embedding_breaker,
+        reranker=reranker,
+        llm_client=llm_client,
+        alert_engine=alert_engine,
+    )
+    app.state.ai_executor = ai_executor
+    _logger.info("AI 执行器 (PydanticAI) 初始化完成")
 
 
 async def close_assist_orchestrator(app: FastAPI) -> None:
@@ -537,79 +573,6 @@ def get_star_client(request: Request) -> StarConnectionClient:
     return request.app.state.star_client
 
 
-# ── CAS 状态管理器 ──
-
-
-async def init_state_manager(app: FastAPI) -> None:
-    """初始化 CAS 状态管理器"""
-    redis = get_redis(app)
-    settings = get_settings()
-    app.state.state_manager = StateManager(redis=redis, ttl=settings.session.ttl_seconds)
-
-
-async def close_state_manager(app: FastAPI) -> None:
-    """关闭 CAS 状态管理器"""
-    app.state.state_manager = None
-
-
-def get_state_manager(request: Request) -> StateManager:
-    """获取 CAS 状态管理器（FastAPI 依赖注入）"""
-    return getattr(request.app.state, "state_manager", None)  # type: ignore[return-value]
-
-
-# ── Temporal Client ──
-
-
-async def init_temporal_client(app: FastAPI) -> None:
-    """初始化 Temporal Client"""
-    from smartcs.workflows.temporal_client import get_temporal_client
-
-    try:
-        client = await get_temporal_client()
-        app.state.temporal_client = client
-    except Exception as e:
-        _logger.warning("Temporal Client 连接失败: %s，将使用同步编排降级", e)
-        app.state.temporal_client = None
-
-
-async def close_temporal_client(app: FastAPI) -> None:
-    """关闭 Temporal Client"""
-    from smartcs.workflows.temporal_client import close_temporal_client
-
-    await close_temporal_client()
-    app.state.temporal_client = None
-
-
-def get_temporal_client_dep(request: Request) -> Any:
-    """获取 Temporal Client（FastAPI 依赖注入）"""
-    return getattr(request.app.state, "temporal_client", None)
-
-
-# ── Temporal Worker ──
-
-
-async def init_temporal_worker(app: FastAPI) -> None:
-    """启动 Temporal Worker"""
-    client = getattr(app.state, "temporal_client", None)
-    if client is None:
-        _logger.warning("Temporal Client 不可用，跳过 Worker 启动")
-        app.state.temporal_worker_task = None
-        return
-    from smartcs.workflows.worker import start_worker
-
-    task = await start_worker(client)
-    app.state.temporal_worker_task = task
-
-
-async def close_temporal_worker(app: FastAPI) -> None:
-    """关闭 Temporal Worker"""
-    from smartcs.workflows.worker import stop_worker
-
-    task = getattr(app.state, "temporal_worker_task", None)
-    await stop_worker(task)
-    app.state.temporal_worker_task = None
-
-
 # ── 类型别名 ──
 
 EmbeddingProviderDep = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
@@ -625,12 +588,50 @@ TransferCheckerDep = Annotated[TransferChecker, Depends(get_transfer_checker)]
 AgentDep = Annotated[Any, Depends(get_agent)]
 HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
 DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
+
+
 def get_assist_orchestrator_dep(request: Request) -> Any:
     """获取坐席辅助编排器（FastAPI 依赖注入）"""
     return request.app.state.assist_orchestrator
 
 
+# ── 依赖组件熔断器 (ES / Milvus) ──
+
+
+async def init_dependency_breakers(app: FastAPI) -> None:
+    """初始化 ES/Milvus 熔断器"""
+    from smartcs.services.common.circuit_breaker import CircuitBreaker
+
+    app.state.es_breaker = CircuitBreaker(
+        failure_rate_threshold=0.5,
+        window_size=20,
+        recovery_timeout=30.0,
+    )
+    app.state.milvus_breaker = CircuitBreaker(
+        failure_rate_threshold=0.5,
+        window_size=20,
+        recovery_timeout=30.0,
+    )
+
+
+async def close_dependency_breakers(app: FastAPI) -> None:
+    """关闭熔断器（无需特殊清理）"""
+    pass
+
+
+def get_es_breaker(request: Request):
+    """获取 ES 熔断器"""
+    return getattr(request.app.state, "es_breaker", None)
+
+
+def get_milvus_breaker(request: Request):
+    """获取 Milvus 熔断器"""
+    return getattr(request.app.state, "milvus_breaker", None)
+
+
+ESBreakerDep = Annotated[Any, Depends(get_es_breaker)]
+MilvusBreakerDep = Annotated[Any, Depends(get_milvus_breaker)]
+
+
 AssistOrchestratorDep = Annotated[Any, Depends(get_assist_orchestrator_dep)]
 StarClientDep = Annotated[StarConnectionClient, Depends(get_star_client)]
-StateManagerDep = Annotated[StateManager, Depends(get_state_manager)]
-TemporalClientDep = Annotated[Any, Depends(get_temporal_client_dep)]

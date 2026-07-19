@@ -37,7 +37,7 @@
       <!-- 输入区域 -->
       <div class="conversation-input">
         <el-input
-          v-model="inputText"
+data-testid="chat-input"           v-model="inputText"
           type="textarea"
           :autosize="{ minRows: 1, maxRows: 3 }"
           placeholder="输入消息回复客户..."
@@ -48,7 +48,7 @@
           :icon="Promotion"
           circle
           :disabled="!inputText.trim()"
-          @click="handleSend"
+          @click="handleSend" data-testid="send-button"
         />
       </div>
     </template>
@@ -64,7 +64,17 @@ import MessageBubble from "@/components/chat/MessageBubble.vue"
 import type { SessionPhase } from "@/api/types"
 
 const assistStore = useAssistStore()
-useWebSocket(computed(() => assistStore.activeSessionId))  // 接收 SmartCS 推送
+
+// v2.0: per-agent WS, 坐席登录时建连, 不再按会话
+const agentId = computed(() => assistStore.currentAgentId)
+const { activateSession, notifyAgentMessage } = useWebSocket(agentId)
+
+// 坐席激活会话时通知 Assist
+watch(() => assistStore.activeSessionId, (newSid, oldSid) => {
+  if (newSid && newSid !== oldSid) {
+    activateSession(newSid)
+  }
+})
 
 const inputText = ref("")
 const messageListRef = ref<HTMLElement | null>(null)
@@ -73,8 +83,7 @@ const session = computed(() => assistStore.activeSession)
 
 const phaseMap: Record<SessionPhase, { type: "" | "warning" | "success" | "danger"; label: string }> = {
   bot: { type: "", label: "机器人服务中" },
-  handoff: { type: "warning", label: "转接中" },
-  assist: { type: "success", label: "坐席辅助中" },
+  agent: { type: "success", label: "坐席辅助中" },
   ended: { type: "danger", label: "已结束" },
 }
 
@@ -102,6 +111,9 @@ async function handleSend() {
   assistStore.addMessage(sid, "agent", text)
   inputText.value = ""
 
+  // 通知 Assist：坐席已回复（合规检测 + 隐式反馈推断）
+  notifyAgentMessage(sid, text)
+
   // 发送坐席消息到 star-connection
   try {
     await fetch(`/api/star/sessions/${sid}/messages`, {
@@ -109,7 +121,6 @@ async function handleSend() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sender: "agent", content: text }),
     })
-    // 更新游标：避免轮询拉回自己刚发的消息
     lastPollTimestamp = Date.now()
   } catch { /* star-connection 不可用时静默 */ }
 

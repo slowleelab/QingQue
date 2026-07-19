@@ -17,14 +17,23 @@ if TYPE_CHECKING:
 
 
 async def init_db(app: FastAPI) -> None:
-    """初始化数据库引擎和会话工厂，存储到 app.state"""
+    """初始化数据库引擎和会话工厂，存储到 app.state
+
+    生产级连接池配置:
+    - pool_size / max_overflow 可通过环境变量配置
+    - pool_recycle=3600: 1 小时回收连接，防止 PG/防火墙 idle timeout 断连
+    - pool_pre_ping: 使用前检查连接活性
+    - pool_reset_on_return: 归还连接时回滚未提交事务
+    """
     settings = get_settings()
     engine = create_async_engine(
         settings.database.dsn,
         echo=settings.debug,
-        pool_size=5,
-        max_overflow=10,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
         pool_pre_ping=True,
+        pool_recycle=3600,
+        pool_reset_on_return="rollback",
     )
     session_factory = async_sessionmaker(
         engine,

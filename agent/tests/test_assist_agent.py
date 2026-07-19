@@ -71,5 +71,6 @@ def test_should_throttle_first_message(orchestrator):
 
 
 def test_should_throttle_repeated(orchestrator):
+    """节流已统一到 PushTracker（Redis 持久化），should_throttle 始终返回 False"""
     orchestrator.should_throttle("s1")  # first
-    assert orchestrator.should_throttle("s1") is True  # too soon
+    assert orchestrator.should_throttle("s1") is False  # 节流由 PushTracker 管理

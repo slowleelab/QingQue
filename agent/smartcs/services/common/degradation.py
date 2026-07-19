@@ -2,6 +2,7 @@
 
 HealthMonitor（主动探测+被动熔断融合）→ DegradationManager（生成降级编排）→ ContentDegrader（内容降级链）
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GenerateResult:
     """生成结果，包含内容和来源标记"""
+
     content: str
     source: str  # "llm" | "retrieval" | "template" | "fallback"
 
@@ -101,7 +103,7 @@ class HealthMonitor:
         if n == 0:
             self._current_interval = self._probe_interval
         else:
-            self._current_interval = min(2.0 ** n, self._max_interval)
+            self._current_interval = min(2.0**n, self._max_interval)
 
     def _recompute_level(self) -> None:
         """根据连续成功/失败次数重新计算降级级别"""
@@ -138,7 +140,7 @@ class ContentDegrader:
             last_period = first.rfind("。", 0, max_chars)
             last_newline = first.rfind("\n", 0, max_chars)
             cut = max(last_period, last_newline, max_chars - 10)
-            first = first[:cut + 1]
+            first = first[: cut + 1]
         summary = f"根据相关信息：{first}"
         if len(chunks) > 1:
             summary += f"\n\n还有 {len(chunks) - 1} 条相关内容，如需了解请详细描述您的问题。"
@@ -176,6 +178,7 @@ class DegradationManager:
         user_input: str,
         context: str = "",
         intent_label: IntentLabel | None = None,
+        history: list[dict[str, str]] | None = None,
     ) -> GenerateResult:
         """根据降级级别决定生成策略
 
@@ -192,6 +195,7 @@ class DegradationManager:
                     system_prompt=system_prompt,
                     user_input=user_input,
                     context=context,
+                    history=history,
                 )
                 return GenerateResult(content=resp, source="llm")
             except Exception:

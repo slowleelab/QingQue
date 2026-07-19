@@ -99,9 +99,10 @@ agent/tests/              # pytest with httpx AsyncClient fixtures
 ## Sprint Status
 
 - Sprint 1 (completed): Infrastructure + skeleton
-- Sprint 2 (in progress): RAG core + knowledge base (retrieval, embedding, reranker, ingestion implemented)
-- Sprint 3 (in progress): Agent orchestration + bot MVP (LangGraph agent, chat queue, long-poll implemented)
-- Sprint 4 (in progress): LLM integration + degradation strategy (circuit breaker, health monitor, content degrader implemented)
+- Sprint 2 (completed): RAG core + knowledge base (retrieval, embedding, reranker, ingestion, chunker, dual-write)
+- Sprint 3 (completed): Agent orchestration + bot MVP (LangGraph agent, chat queue, long-poll, session lifecycle)
+- Sprint 4 (completed): LLM integration + degradation strategy (circuit breaker, health monitor, content degrader, OE pipeline)
+- Sprint 5 (pending): Assist agent with parallel OE execution (Temporal + LangGraph DAG architecture upgrade)
 
 ## Environment Variables
 

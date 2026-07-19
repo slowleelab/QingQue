@@ -3,7 +3,8 @@
 // ── 枚举类型 ──
 
 export type ChannelType = "web" | "app" | "wechat" | "phone"
-export type SessionPhase = "bot" | "handoff" | "assist" | "ended"
+export type SessionPhase = "bot" | "agent" | "ended"
+export type SessionSubPhase = "bot:active" | "agent:queued" | "agent:assigned" | "agent:active" | "agent:on_hold" | "agent:reviewing"
 export type IntentLabel =
   | "faq"
   | "bill_query"
@@ -123,15 +124,19 @@ export interface ChatSendResponse {
   session_id: string
 }
 
+// v2.0: 轮询返回 status 字段替代 has_message
 export interface PollResponse {
-  has_message: boolean
-  reply: string
+  status: "done" | "queued" | "processing" | "timeout"
+  reply?: string
   intent?: IntentLabel
-  confidence: number
-  source: string
-  is_transfer: boolean
-  transfer_url: string
-  transfer_reason: string
+  confidence?: number
+  source?: string
+  is_transfer?: boolean
+  transfer_url?: string
+  transfer_reason?: string
+  position?: number
+  est_wait?: string
+  suggestion?: string
 }
 
 export interface CustomerPollResponse {

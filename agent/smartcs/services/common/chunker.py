@@ -53,7 +53,16 @@ class Section:
 class StructuredChunk:
     """结构化分块结果"""
 
-    __slots__ = ("char_count", "child_indices", "chunk_type", "content", "heading_path", "is_parent", "metadata", "parent_index")
+    __slots__ = (
+        "char_count",
+        "child_indices",
+        "chunk_type",
+        "content",
+        "heading_path",
+        "is_parent",
+        "metadata",
+        "parent_index",
+    )
 
     def __init__(
         self,
@@ -612,7 +621,9 @@ def _split_section_with_parent_child(
 
     # 为每个子 section 创建 child 块
     for child in section.children:
-        _add_subsection_child(child, doc_metadata, doc_title, section.heading_text, max_size, parent_idx, chunks, child_indices)
+        _add_subsection_child(
+            child, doc_metadata, doc_title, section.heading_text, max_size, parent_idx, chunks, child_indices
+        )
 
     # 回写 parent 的 child_indices
     parent_chunk.child_indices = child_indices
@@ -787,11 +798,15 @@ def _add_subsection_child(
 
         # 列表 child
         for lst in subsection.lists:
-            _add_list_child(lst, doc_metadata, doc_title, subsection.heading_text, max_size, parent_idx, chunks, child_indices)
+            _add_list_child(
+                lst, doc_metadata, doc_title, subsection.heading_text, max_size, parent_idx, chunks, child_indices
+            )
 
         # 更深层子 section
         for deeper in subsection.children:
-            _add_subsection_child(deeper, doc_metadata, doc_title, subsection.heading_text, max_size, parent_idx, chunks, child_indices)
+            _add_subsection_child(
+                deeper, doc_metadata, doc_title, subsection.heading_text, max_size, parent_idx, chunks, child_indices
+            )
 
 
 # ══════════════════════════════════════════════════════════════

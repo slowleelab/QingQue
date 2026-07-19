@@ -46,5 +46,12 @@ USER smartcs
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
 
-# 默认启动 bot 服务（可通过 CMD 覆盖）
-CMD ["uvicorn", "smartcs.main:bot_app", "--host", "0.0.0.0", "--port", "8000"]
+# 多入口切换: 通过 SERVICE 环境变量选择启动目标
+#   SERVICE=bot     → Bot:8000 (默认)
+#   SERVICE=assist  → Assist:8001
+#   SERVICE=worker  → Worker (仅 Temporal Worker, 无 HTTP)
+# 使用: docker run -e SERVICE=assist smartcs:latest
+ENV SERVICE=bot
+COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+ENTRYPOINT ["/docker-entrypoint.sh"]

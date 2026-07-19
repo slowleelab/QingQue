@@ -86,13 +86,15 @@ class TransferTriggerLevel(StrEnum):
 
 class DegradationLevel(StrEnum):
     """LLM 降级级别"""
-    NORMAL = "normal"        # LLM 可用，正常调用
-    DEGRADED = "degraded"    # LLM 降级，跳过 LLM 用检索摘要
-    FALLBACK = "fallback"    # LLM 不可用，跳过检索直接用模板
+
+    NORMAL = "normal"  # LLM 可用，正常调用
+    DEGRADED = "degraded"  # LLM 降级，跳过 LLM 用检索摘要
+    FALLBACK = "fallback"  # LLM 不可用，跳过检索直接用模板
 
 
 class RiskActionEnum(StrEnum):
     """风控动作"""
+
     PASS = "PASS"
     WARN = "WARN"
     BLOCK = "BLOCK"
@@ -100,6 +102,7 @@ class RiskActionEnum(StrEnum):
 
 class OEState(StrEnum):
     """编排引擎状态"""
+
     IDLE = "IDLE"
     EVALUATING = "EVALUATING"
     DISPATCHING = "DISPATCHING"
@@ -172,6 +175,7 @@ class EmotionVector(BaseModel):
     emotion_vector(t) = emotion_raw × exp(-λ × Δt)
     λ = 0.005 (半衰期约 2.3 分钟, 适配客服对话节奏)
     """
+
     label: SentimentLabel
     score: float = Field(ge=0.0, le=1.0)
     decay_lambda: float = 0.005
@@ -180,11 +184,15 @@ class EmotionVector(BaseModel):
     def decayed_score(self, delta_seconds: float) -> float:
         """计算衰减后的情绪分数"""
         import math
+
         return self.score * math.exp(-self.decay_lambda * delta_seconds)
 
 
 class DialogueTurn(BaseModel):
-    """对话轮次"""
+    """对话轮次
+
+    包含完整决策上下文，支持事后回溯 Bot 推理链。
+    """
 
     turn_id: str
     session_id: str
@@ -193,6 +201,13 @@ class DialogueTurn(BaseModel):
     emotion_label: SentimentLabel | None = None
     emotion_score: float | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    # 决策上下文（Bot 轮次填充，支持回溯推理链）
+    intent: IntentLabel | None = None
+    confidence: float | None = None
+    entities: list[Entity] = Field(default_factory=list)
+    response_source: str = ""  # rag / fallback / template / bank_api
+    retrieval_context: str = ""  # RAG 检索到的知识片段摘要
 
 
 # ── 会话状态 ──
@@ -226,6 +241,11 @@ class SessionState(BaseModel):
     confidence_history: list[float] = Field(default_factory=list)
     low_confidence_streak: int = 0
     human_request_score: int = 0
+
+    # 对话摘要压缩（长对话场景）
+    conversation_summary: str = ""  # 被裁剪轮次的摘要
+    summary_turn_count: int = 0  # 已纳入摘要的轮次数（近似值，LTRIM 后可能不准）
+    last_summarized_turn_id: str = ""  # 最后一个被摘要的 turn_id（精确追踪）
 
     # 坐席阶段状态
     agent_id: str | None = None
@@ -308,6 +328,10 @@ class RetrieveRequest(BaseModel):
     search_type: Literal["hybrid", "bm25_only", "vector_only"] = "hybrid"
     rrf_k: int | None = None  # 覆盖 RRF k 参数；None 时使用配置默认值
 
+    # 银行合规: 权限 + 时间过滤
+    user_role: str | None = None  # 调用者角色，用于权限过滤
+    include_expired: bool = False  # 是否包含已过期政策（默认仅返回生效中的）
+
 
 class RetrieveResponse(BaseModel):
     """检索响应"""
@@ -379,6 +403,7 @@ class AssistPushMessage(BaseModel):
 
 class ExecutorResult(BaseModel):
     """执行器结果"""
+
     executor_id: str
     ui_schema: dict = Field(default_factory=dict)
     latency_ms: int = 0
@@ -391,6 +416,7 @@ class ExecutorResult(BaseModel):
 
 class ArbitrationResult(BaseModel):
     """仲裁结果"""
+
     primary_card: dict | None = None
     risk_badge: dict | None = None
     marketing_slot: dict | None = None
@@ -400,6 +426,7 @@ class ArbitrationResult(BaseModel):
 
 class OrchestrationState(BaseModel):
     """编排引擎状态（每次 OE 调度周期的快照）"""
+
     session_id: str
     oe_state: OEState = OEState.IDLE
     d1_activated: bool = False
@@ -420,6 +447,7 @@ class FeedbackSignal(BaseModel):
     - 复制部分内容 → partial_accept, confidence 0.3
     - 忽略 → reject, confidence 0.0
     """
+
     session_id: str
     agent_id: str
     action: Literal["accept", "modify", "partial_accept", "reject"] = "reject"

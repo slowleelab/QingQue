@@ -1,4 +1,5 @@
 """结构感知分块器测试"""
+
 from __future__ import annotations
 
 from smartcs.services.common.chunker import ChunkType, chunk_by_structure
@@ -110,8 +111,11 @@ class TestHeadingInheritance:
 class TestParentChildIndices:
     def test_parent_child_link(self):
         """parent.child_indices 和 child.parent_index 正确关联"""
-        text = """## 章节
-""" + "内容很多。" * 300 + """
+        text = (
+            """## 章节
+"""
+            + "内容很多。" * 300
+            + """
 
 ### 子节1
 子节1内容。
@@ -119,6 +123,7 @@ class TestParentChildIndices:
 ### 子节2
 子节2内容。
 """
+        )
         chunks = chunk_by_structure(text, source_type="MARKDOWN", doc_type="", max_chunk_size=200)
         parents = [c for c in chunks if c.is_parent]
         children = [c for c in chunks if c.parent_index is not None]

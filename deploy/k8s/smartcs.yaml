@@ -1,0 +1,187 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smartcs-bot
+  labels:
+    app: smartcs
+    service: bot
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: smartcs
+      service: bot
+  template:
+    metadata:
+      labels:
+        app: smartcs
+        service: bot
+    spec:
+      containers:
+        - name: bot
+          image: smartcs:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SMARTCS_ENVIRONMENT
+              value: "production"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: ES_HOSTS
+              value: "http://elasticsearch:9200"
+            - name: MILVUS_HOST
+              value: "milvus"
+            - name: MINIO_ENDPOINT
+              value: "minio:9000"
+            - name: SMARTCS_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: smartcs-secrets
+                  key: jwt-secret
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smartcs-bot
+spec:
+  selector:
+    app: smartcs
+    service: bot
+  ports:
+    - port: 80
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smartcs-assist
+  labels:
+    app: smartcs
+    service: assist
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: smartcs
+      service: assist
+  template:
+    metadata:
+      labels:
+        app: smartcs
+        service: assist
+    spec:
+      containers:
+        - name: assist
+          image: smartcs:latest
+          ports:
+            - containerPort: 8001
+          env:
+            - name: SMARTCS_ENVIRONMENT
+              value: "production"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: ES_HOSTS
+              value: "http://elasticsearch:9200"
+            - name: MILVUS_HOST
+              value: "milvus"
+            - name: MINIO_ENDPOINT
+              value: "minio:9000"
+            - name: SMARTCS_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: smartcs-secrets
+                  key: jwt-secret
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smartcs-assist
+spec:
+  selector:
+    app: smartcs
+    service: assist
+  ports:
+    - port: 80
+      targetPort: 8001
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: smartcs-bot-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: smartcs-bot
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: smartcs-assist-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: smartcs-assist
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

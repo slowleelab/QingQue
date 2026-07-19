@@ -1,7 +1,7 @@
 # SmartCS Makefile — 标准化开发命令
 # 使用: make <target>
 
-.PHONY: help install dev test lint format type-check build up down init init-minio seed seed-dry verify clean migrate
+.PHONY: help install dev test test-cov lint format type-check build up down init init-minio init-temporal seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama
 
 # ── 默认 ──
 help: ## 显示帮助信息
@@ -11,6 +11,8 @@ help: ## 显示帮助信息
 # ── AI Agent（Python） ──
 install: ## 安装项目依赖（Poetry）
 	cd agent && poetry install
+	@echo "Generating gRPC stubs..."
+	cd agent && poetry run python scripts/generate_grpc.py 2>/dev/null || echo "⚠️  gRPC stubs 生成失败，请手动运行: make proto"
 
 dev: ## 启动开发模式（bot :8000 + assist :8001）
 	@echo "Starting bot service on :8000 and assist service on :8001..."
@@ -56,11 +58,12 @@ logs: ## 查看中间件日志
 	cd deploy && docker compose logs -f
 
 # ── 初始化 ──
-init: ## 初始化所有中间件（Milvus + ES + Kafka）
+init: ## 初始化所有中间件（Milvus + ES + Kafka + Temporal）
 	@echo "Initializing middleware..."
 	cd agent && poetry run python scripts/init_milvus.py
 	cd agent && poetry run python scripts/init_elasticsearch.py
 	cd agent && poetry run python scripts/init_kafka.py
+	cd agent && poetry run python scripts/init_temporal.py
 
 # ── 验证 ──
 verify: ## 验证所有中间件连通性
@@ -71,6 +74,11 @@ verify-ollama: ## 验证 Ollama + Qwen2.5-7B
 
 # ── gRPC ──
 proto: ## 编译 gRPC Proto 文件
+	cd agent && poetry run python scripts/generate_grpc.py
+	@echo "Proto files compiled successfully"
+
+init-temporal: ## 初始化 Temporal
+	cd agent && poetry run python scripts/init_temporal.py
 	cd agent && poetry run python scripts/generate_grpc.py
 
 # ── 数据库迁移 ──

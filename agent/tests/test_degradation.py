@@ -1,4 +1,5 @@
 """降级策略单元测试"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -51,7 +52,9 @@ class MockBreaker:
 async def test_health_monitor_initial_state():
     llm = MockLLMClient()
     breaker = MockBreaker()
-    monitor = HealthMonitor(llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2)
+    monitor = HealthMonitor(
+        llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2
+    )
     assert monitor.level == DegradationLevel.NORMAL
     assert monitor.is_llm_available is True
 
@@ -60,7 +63,9 @@ async def test_health_monitor_initial_state():
 async def test_health_monitor_probe_success():
     llm = MockLLMClient()
     breaker = MockBreaker()
-    monitor = HealthMonitor(llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2)
+    monitor = HealthMonitor(
+        llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2
+    )
     await monitor._probe_once()
     assert monitor.level == DegradationLevel.NORMAL
 
@@ -69,7 +74,9 @@ async def test_health_monitor_probe_success():
 async def test_health_monitor_degraded_after_failures():
     llm = MockLLMClient(fail_count=10)
     breaker = MockBreaker()
-    monitor = HealthMonitor(llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2)
+    monitor = HealthMonitor(
+        llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2
+    )
     await monitor._probe_once()
     assert monitor.level == DegradationLevel.NORMAL
     await monitor._probe_once()
@@ -80,7 +87,9 @@ async def test_health_monitor_degraded_after_failures():
 async def test_health_monitor_fallback_when_breaker_open():
     llm = MockLLMClient()
     breaker = MockBreaker(is_available=False)
-    monitor = HealthMonitor(llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2)
+    monitor = HealthMonitor(
+        llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2
+    )
     assert monitor.level == DegradationLevel.FALLBACK
 
 
@@ -88,7 +97,9 @@ async def test_health_monitor_fallback_when_breaker_open():
 async def test_health_monitor_recovery():
     llm = MockLLMClient(fail_count=2)
     breaker = MockBreaker()
-    monitor = HealthMonitor(llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2)
+    monitor = HealthMonitor(
+        llm_client=llm, breaker=breaker, probe_interval=0.1, probe_timeout=5.0, fail_threshold=2, success_threshold=2
+    )
     await monitor._probe_once()
     await monitor._probe_once()
     assert monitor.level == DegradationLevel.DEGRADED
@@ -101,7 +112,14 @@ async def test_health_monitor_recovery():
 
 @pytest.mark.asyncio
 async def test_health_monitor_backoff():
-    monitor = HealthMonitor(llm_client=MockLLMClient(), breaker=MockBreaker(), probe_interval=1.0, probe_timeout=5.0, fail_threshold=2, success_threshold=2)
+    monitor = HealthMonitor(
+        llm_client=MockLLMClient(),
+        breaker=MockBreaker(),
+        probe_interval=1.0,
+        probe_timeout=5.0,
+        fail_threshold=2,
+        success_threshold=2,
+    )
     assert monitor._current_interval == 1.0
     monitor._consecutive_failures = 3
     monitor._update_interval()
@@ -188,54 +206,79 @@ def mock_content_degrader_fixture():
 
 
 @pytest.mark.asyncio
-async def test_generate_normal_success(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture):
+async def test_generate_normal_success(
+    mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture
+):
     mock_llm_client_fixture.generate = AsyncMock(return_value="LLM 生成的回复")
     mgr = DegradationManager(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture)
-    result = await mgr.generate_with_fallback(system_prompt="你是客服", user_input="账单怎么查", context="账单查询：登录APP...")
+    result = await mgr.generate_with_fallback(
+        system_prompt="你是客服", user_input="账单怎么查", context="账单查询：登录APP..."
+    )
     assert result.content == "LLM 生成的回复"
     assert result.source == "llm"
 
 
 @pytest.mark.asyncio
-async def test_generate_normal_llm_timeout_falls_back_to_retrieval(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture):
+async def test_generate_normal_llm_timeout_falls_back_to_retrieval(
+    mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture
+):
     mock_llm_client_fixture.generate = AsyncMock(side_effect=Exception("超时"))
     mgr = DegradationManager(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture)
-    result = await mgr.generate_with_fallback(system_prompt="你是客服", user_input="账单怎么查", context="账单查询相关信息...")
+    result = await mgr.generate_with_fallback(
+        system_prompt="你是客服", user_input="账单怎么查", context="账单查询相关信息..."
+    )
     assert result.source == "retrieval"
     mock_content_degrader_fixture.retrieval_summary.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_generate_normal_no_context_falls_back_to_template(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture):
+async def test_generate_normal_no_context_falls_back_to_template(
+    mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture
+):
     mock_llm_client_fixture.generate = AsyncMock(side_effect=Exception("超时"))
     mgr = DegradationManager(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture)
-    result = await mgr.generate_with_fallback(system_prompt="你是客服", user_input="你好", context="", intent_label=IntentLabel.CHITCHAT)
+    result = await mgr.generate_with_fallback(
+        system_prompt="你是客服", user_input="你好", context="", intent_label=IntentLabel.CHITCHAT
+    )
     assert result.source == "template"
     mock_content_degrader_fixture.get_template.assert_called_once_with(IntentLabel.CHITCHAT)
 
 
 @pytest.mark.asyncio
-async def test_generate_degraded_skips_llm(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture):
+async def test_generate_degraded_skips_llm(
+    mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture
+):
     mock_health_monitor_fixture.level = DegradationLevel.DEGRADED
     mock_llm_client_fixture.generate = AsyncMock()
     mgr = DegradationManager(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture)
-    result = await mgr.generate_with_fallback(system_prompt="你是客服", user_input="账单怎么查", context="账单查询相关信息...")
+    result = await mgr.generate_with_fallback(
+        system_prompt="你是客服", user_input="账单怎么查", context="账单查询相关信息..."
+    )
     assert result.source == "retrieval"
     mock_llm_client_fixture.generate.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_generate_fallback_skips_llm_and_retrieval(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture):
+async def test_generate_fallback_skips_llm_and_retrieval(
+    mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture
+):
     mock_health_monitor_fixture.level = DegradationLevel.FALLBACK
     mock_llm_client_fixture.generate = AsyncMock()
     mgr = DegradationManager(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture)
-    result = await mgr.generate_with_fallback(system_prompt="你是客服", user_input="账单怎么查", context="账单查询相关信息...", intent_label=IntentLabel.BILL_QUERY)
+    result = await mgr.generate_with_fallback(
+        system_prompt="你是客服",
+        user_input="账单怎么查",
+        context="账单查询相关信息...",
+        intent_label=IntentLabel.BILL_QUERY,
+    )
     assert result.source == "template"
     mock_llm_client_fixture.generate.assert_not_called()
     mock_content_degrader_fixture.get_template.assert_called_once_with(IntentLabel.BILL_QUERY)
 
 
 @pytest.mark.asyncio
-async def test_degradation_manager_level_property(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture):
+async def test_degradation_manager_level_property(
+    mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture
+):
     mgr = DegradationManager(mock_llm_client_fixture, mock_health_monitor_fixture, mock_content_degrader_fixture)
     assert mgr.level == DegradationLevel.NORMAL

@@ -1,12 +1,12 @@
 import { createRouter, createWebHistory } from "vue-router"
+import CustomerChat from "@/views/CustomerChat.vue"
 import AgentWorkbench from "@/views/AgentWorkbench.vue"
-import BotChat from "@/views/BotChat.vue"
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", name: "workbench", component: AgentWorkbench },
-    { path: "/chat", name: "chat", component: BotChat },
+    { path: "/", name: "customer", component: CustomerChat },
+    { path: "/agent", name: "agent", component: AgentWorkbench },
   ],
 })
 

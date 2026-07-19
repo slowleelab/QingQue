@@ -37,6 +37,9 @@ async def generate_call_summary(
 ) -> CallSummary:
     """生成话后小结
 
+    优先复用对话过程中已生成的 conversation_summary，
+    避免对已摘要过的轮次重复处理。
+
     Args:
         session_id: 会话 ID
         session_manager: 会话管理器
@@ -45,13 +48,21 @@ async def generate_call_summary(
     Returns:
         CallSummary 对象
     """
+    # 加载会话状态（获取已有摘要）
+    state = await session_manager.get_session(session_id)
+
     # 加载对话历史
     turns = await session_manager.get_history(session_id, limit=30)
-    if not turns:
+    if not turns and not (state and state.conversation_summary):
         return _empty_summary(session_id)
 
-    # 构造对话文本
-    conversation = _format_conversation(turns)
+    # 构造对话文本：已有摘要 + 近期对话
+    conversation_parts = []
+    if state and state.conversation_summary:
+        conversation_parts.append(f"[前期摘要]\n{state.conversation_summary}")
+    if turns:
+        conversation_parts.append(f"[近期对话]\n{_format_conversation(turns)}")
+    conversation = "\n\n".join(conversation_parts)
 
     # LLM 不可用时返回基于模板的小结
     if llm_client is None:

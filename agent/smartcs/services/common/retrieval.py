@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 from typing import TYPE_CHECKING, Any
 
 from smartcs.shared.config import get_settings
 from smartcs.shared.models import RetrievedChunk, RetrieveRequest, RetrieveResponse
+from smartcs.shared.tracing import traced
 
 if TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
@@ -24,7 +27,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ES keyword 过滤字段
-_ES_KEYWORD_FIELDS = {"category", "doc_type", "card_type", "customer_tier", "security_level", "version", "chunk_type"}
+_ES_KEYWORD_FIELDS = {
+    "category",
+    "doc_type",
+    "card_type",
+    "customer_tier",
+    "security_level",
+    "version",
+    "chunk_type",
+    "approval_status",
+    "is_current_version",
+}
+# Milvus 标量索引字段（在 build_milvus_expr 中 == 比较）
+_MILVUS_SCALAR_FIELDS = {"category", "doc_type", "card_type", "customer_tier", "security_level", "chunk_type"}
 # ES date 过滤字段
 _ES_DATE_FIELDS = {"effective_date", "expiry_date"}
 
@@ -66,7 +81,7 @@ def build_milvus_expr(filters: dict) -> str:
     """将 RetrieveRequest.filters 转换为 Milvus 过滤表达式字符串
 
     - keyword 字段 → field == "value"
-    - date 字段 → field >= epoch_ms (整型比较)
+    - date 字段 → field >= epoch_sec (整型比较)
     - keywords → keywords like "%value%" (VARCHAR 字段)
     - 多条件用 " and " 连接
     - 空 filters 返回 ""
@@ -75,39 +90,48 @@ def build_milvus_expr(filters: dict) -> str:
     for key, value in filters.items():
         if value is None:
             continue
-        if key in _ES_KEYWORD_FIELDS or key == "chunk_type":
+        if key in _MILVUS_SCALAR_FIELDS:
             conditions.append(f'{key} == "{value}"')
         elif key in _ES_DATE_FIELDS:
-            # 将日期字符串转为 epoch 毫秒
+            # 将日期字符串转为 epoch 秒（与 ES mapping epoch_second 格式对齐）
             if isinstance(value, dict):
                 if "gte" in value:
-                    epoch_ms = _date_to_epoch_ms(value["gte"])
-                    if epoch_ms:
-                        conditions.append(f"{key} >= {epoch_ms}")
+                    epoch_sec = _date_to_epoch(value["gte"])
+                    if epoch_sec:
+                        conditions.append(f"{key} >= {epoch_sec}")
                 if "lte" in value:
-                    epoch_ms = _date_to_epoch_ms(value["lte"])
-                    if epoch_ms:
-                        conditions.append(f"{key} <= {epoch_ms}")
+                    epoch_sec = _date_to_epoch(value["lte"])
+                    if epoch_sec:
+                        conditions.append(f"{key} <= {epoch_sec}")
             elif isinstance(value, str):
-                epoch_ms = _date_to_epoch_ms(value)
-                if epoch_ms:
-                    conditions.append(f"{key} >= {epoch_ms}")
+                epoch_sec = _date_to_epoch(value)
+                if epoch_sec:
+                    conditions.append(f"{key} >= {epoch_sec}")
         elif key == "keywords":
+            # v2.1: ARRAY_CONTAINS 精确过滤，替代 like 模糊匹配
             if isinstance(value, list):
-                for kw in value:
-                    conditions.append(f'keywords like "%{kw}%"')
+                kw_conds = [f'ARRAY_CONTAINS(keywords, "{kw}")' for kw in value]
+                conditions.append("(" + " or ".join(kw_conds) + ")")
             else:
-                conditions.append(f'keywords like "%{value}%"')
+                conditions.append(f'ARRAY_CONTAINS(keywords, "{value}")')
     return " and ".join(conditions)
 
 
-def _date_to_epoch_ms(date_str: str) -> int | None:
-    """将 yyyy-MM-dd 日期字符串转为 epoch 毫秒"""
+def _build_cache_key(query: str, filters: dict, search_type: str) -> str:
+    """生成检索缓存 key: smartcs:rag:cache:{search_type}:{query_hash}:{filters_hash}"""
+    query_hash = hashlib.md5(query.encode()).hexdigest()[:12]
+    filters_str = json.dumps(filters, sort_keys=True, ensure_ascii=False) if filters else "{}"
+    filters_hash = hashlib.md5(filters_str.encode()).hexdigest()[:8]
+    return f"smartcs:rag:cache:{search_type}:{query_hash}:{filters_hash}"
+
+
+def _date_to_epoch(date_str: str) -> int | None:
+    """将 yyyy-MM-dd 日期字符串转为 epoch 秒（与 ES mapping epoch_second 格式对齐）"""
     try:
         from datetime import datetime
 
         dt = datetime.strptime(date_str, "%Y-%m-%d")
-        return int(dt.timestamp() * 1000)
+        return int(dt.timestamp())
     except (ValueError, TypeError):
         return None
 
@@ -133,7 +157,7 @@ async def search_bm25(
         return []
 
     settings = get_settings()
-    index_name = f"{settings.elasticsearch.index_prefix}_knowledge"
+    index_name = f"{settings.elasticsearch.index_prefix}_kb_chunks"
 
     # 构建 ES 查询体
     match_query = {"match": {"content": {"query": query, "analyzer": "ik_smart"}}}
@@ -147,20 +171,23 @@ async def search_bm25(
     try:
         resp = await es_client.search(index=index_name, body=body, size=top_k)
         results: list[RetrievedChunk] = []
+
+        # 收集所有 parent_chunk_id，批量获取 parent 内容
+        parent_ids = set()
+        for hit in resp["hits"]["hits"]:
+            pid = hit["_source"].get("parent_chunk_id")
+            if pid:
+                parent_ids.add(pid)
+        parent_contents = await _batch_fetch_parents_es(es_client, index_name, list(parent_ids))
+
         for hit in resp["hits"]["hits"]:
             source = hit["_source"]
             chunk_id = source.get("chunk_id", hit["_id"])
-            # Parent-Child 展开：如果是 child chunk，查询 parent 内容
-            parent_content = None
             parent_chunk_id = source.get("parent_chunk_id")
-            if parent_chunk_id:
-                parent_content = await _fetch_parent_content(es_client, index_name, parent_chunk_id)
 
-            metadata = {
-                k: v for k, v in source.items() if k not in ("chunk_id", "content", "doc_id")
-            }
-            if parent_content:
-                metadata["parent_content"] = parent_content
+            metadata = {k: v for k, v in source.items() if k not in ("chunk_id", "content", "doc_id")}
+            if parent_chunk_id and parent_chunk_id in parent_contents:
+                metadata["parent_content"] = parent_contents[parent_chunk_id]
 
             results.append(
                 RetrievedChunk(
@@ -177,18 +204,24 @@ async def search_bm25(
         return []
 
 
-async def _fetch_parent_content(
+async def _batch_fetch_parents_es(
     es_client: AsyncElasticsearch,
     index_name: str,
-    parent_chunk_id: str,
-) -> str | None:
-    """从 ES 获取 parent chunk 的内容"""
+    parent_ids: list[str],
+) -> dict[str, str]:
+    """批量从 ES 获取 parent chunk 内容"""
+    if not parent_ids:
+        return {}
     try:
-        resp = await es_client.get(index=index_name, id=parent_chunk_id)
-        return resp["_source"].get("content")
+        resp = await es_client.mget(index=index_name, body={"ids": parent_ids})
+        contents: dict[str, str] = {}
+        for doc in resp.get("docs", []):
+            if doc.get("found") and doc.get("_source"):
+                contents[doc["_id"]] = doc["_source"].get("content", "")
+        return contents
     except Exception:
-        logger.debug("获取 parent chunk 内容失败: parent_chunk_id=%s", parent_chunk_id)
-        return None
+        logger.debug("批量获取 ES parent 内容失败: count=%d", len(parent_ids))
+        return {}
 
 
 async def search_vector(
@@ -219,8 +252,17 @@ async def search_vector(
 
     search_params = {"metric_type": "COSINE", "params": {"nprobe": 16}}
     output_fields = [
-        "chunk_id", "doc_id", "content", "category", "doc_type",
-        "keywords", "card_type", "customer_tier", "chunk_type", "parent_chunk_id",
+        "chunk_id",
+        "doc_id",
+        "content",
+        "category",
+        "doc_type",
+        "keywords",
+        "card_type",
+        "customer_tier",
+        "security_level",
+        "chunk_type",
+        "parent_chunk_id",
     ]
 
     try:
@@ -236,28 +278,31 @@ async def search_vector(
 
         results: list[RetrievedChunk] = []
         if results_raw and len(results_raw) > 0:
+            # 收集所有 parent_chunk_id，批量获取 parent 内容
+            parent_ids = set()
+            for hit in results_raw[0]:
+                pid = hit.entity.get("parent_chunk_id")
+                if pid:
+                    parent_ids.add(pid)
+            parent_contents = await _batch_fetch_parents_milvus(milvus_collection, list(parent_ids))
+
             for hit in results_raw[0]:
                 entity = hit.entity
                 chunk_id = entity.get("chunk_id") or str(hit.id)
                 parent_chunk_id = entity.get("parent_chunk_id")
 
-                # Parent-Child 展开
-                parent_content = None
-                if parent_chunk_id:
-                    parent_content = await _fetch_parent_from_milvus(milvus_collection, parent_chunk_id)
-
                 metadata: dict[str, Any] = {}
                 for field_name in output_fields:
                     if field_name not in ("chunk_id", "content", "doc_id") and entity.get(field_name) is not None:
                         metadata[field_name] = entity.get(field_name)
-                if parent_content:
-                    metadata["parent_content"] = parent_content
+                if parent_chunk_id and parent_chunk_id in parent_contents:
+                    metadata["parent_content"] = parent_contents[parent_chunk_id]
 
                 results.append(
                     RetrievedChunk(
                         chunk_id=chunk_id,
                         content=entity.get("content", ""),
-                        score=hit.distance,  # Milvus COSINE 返回 0~1 相似度
+                        score=hit.distance,
                         source_doc=entity.get("doc_id", ""),
                         metadata=metadata,
                     )
@@ -268,22 +313,31 @@ async def search_vector(
         return []
 
 
-async def _fetch_parent_from_milvus(
+async def _batch_fetch_parents_milvus(
     milvus_collection: Collection,
-    parent_chunk_id: str,
-) -> str | None:
-    """从 Milvus 获取 parent chunk 的内容"""
+    parent_ids: list[str],
+) -> dict[str, str]:
+    """批量从 Milvus 获取 parent chunk 内容"""
+    if not parent_ids:
+        return {}
     try:
+        ids_str = ", ".join(f'"{pid}"' for pid in parent_ids)
+        expr = f"chunk_id in [{ids_str}]"
         results = await asyncio.to_thread(
             milvus_collection.query,
-            expr=f'chunk_id == "{parent_chunk_id}"',
-            output_fields=["content"],
+            expr=expr,
+            output_fields=["chunk_id", "content"],
         )
-        if results and len(results) > 0:
-            return results[0].get("content")
+        contents: dict[str, str] = {}
+        for r in results:
+            cid = r.get("chunk_id", "")
+            content = r.get("content", "")
+            if cid and content:
+                contents[cid] = content
+        return contents
     except Exception:
-        logger.debug("从 Milvus 获取 parent 内容失败: parent_chunk_id=%s", parent_chunk_id)
-    return None
+        logger.debug("批量获取 Milvus parent 内容失败: count=%d", len(parent_ids))
+        return {}
 
 
 def rrf_fusion(
@@ -341,21 +395,24 @@ def rrf_fusion(
     ]
 
 
+@traced("Agent: retrieval")
 async def retrieve(
     request: RetrieveRequest,
     es_client: AsyncElasticsearch | None = None,
     milvus_collection: Collection | None = None,
     embedding_provider: EmbeddingProvider | None = None,
     reranker: RerankerProvider | None = None,
+    redis_client: Any = None,
 ) -> RetrieveResponse:
     """混合检索编排
 
     流程:
+    0. Redis 缓存命中 → 直接返回
     1. 按 search_type 分发: hybrid / bm25_only / vector_only
     2. Hybrid: 并发执行 BM25 + 向量检索，RRF 融合
     3. 可选 Reranker 精排
     4. 置信度阈值过滤
-    5. 截断到 top_k
+    5. 截断到 top_k → 写入缓存
 
     降级矩阵:
     | ES | Milvus | 行为 |
@@ -370,24 +427,64 @@ async def retrieve(
     rrf_k = request.rrf_k if request.rrf_k is not None else settings.rag.rrf_k
     confidence_threshold = settings.rag.confidence_threshold
 
+    # 0. Redis 缓存检查
+    cache_key = _build_cache_key(request.query, request.filters or {}, request.search_type)
+    if redis_client and request.search_type != "vector_only":
+        try:
+            cached_raw = await redis_client.get(cache_key)
+            if cached_raw:
+                cached_data = json.loads(cached_raw)
+                cached_results = [
+                    RetrievedChunk(
+                        chunk_id=c["chunk_id"],
+                        content=c["content"],
+                        score=c["score"],
+                        source_doc=c.get("source_doc", ""),
+                        metadata=c.get("metadata", {}),
+                    )
+                    for c in cached_data["results"]
+                ]
+                return RetrieveResponse(
+                    results=cached_results[: request.top_k],
+                    total_candidates=cached_data["total_candidates"],
+                    latency_ms=int((time.monotonic() - start_time) * 1000),
+                )
+        except Exception:
+            logger.debug("Redis 缓存读取失败，走检索路径")
+
     # 扩展候选集
     expanded_k = request.top_k * 3
+
+    # ── 银行合规过滤: 注入审批状态 + 当前版本 + 时间过滤 ──
+    compliance_filters = dict(request.filters or {})
+    compliance_filters["approval_status"] = "PUBLISHED"
+    compliance_filters["is_current_version"] = True
+    if not request.include_expired:
+        from datetime import date as _date
+
+        today_str = _date.today().isoformat()
+        compliance_filters["effective_date"] = {"lte": today_str}
+        # expiry_date 为空或 >= 今天（ES 层用 should 处理 OR 逻辑，这里简化为不传，Python 侧后过滤）
 
     bm25_results: list[RetrievedChunk] = []
     vector_results: list[RetrievedChunk] = []
 
     if request.search_type == "hybrid":
-        # 并发执行 BM25 + 向量检索
-        bm25_task = search_bm25(es_client, request.query, expanded_k, request.filters)
+        # 并行: ES BM25 ∥ (embed → Milvus vector)
+        bm25_task = asyncio.create_task(search_bm25(es_client, request.query, expanded_k, compliance_filters))
 
-        # 向量检索需要先 embed query
         if embedding_provider and milvus_collection:
             try:
                 query_embedding = await embedding_provider.embed_query(request.query)
-                vector_task = search_vector(milvus_collection, query_embedding, expanded_k, request.filters)
+                vector_task = asyncio.create_task(
+                    search_vector(milvus_collection, query_embedding, expanded_k, compliance_filters)
+                )
                 bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
             except Exception:
                 logger.warning("向量检索嵌入失败，降级到 BM25 only")
+                for t in (bm25_task, vector_task):
+                    if not t.done():
+                        t.cancel()
                 bm25_results = await bm25_task
         else:
             bm25_results = await bm25_task
@@ -405,14 +502,14 @@ async def retrieve(
             fused = []
 
     elif request.search_type == "bm25_only":
-        bm25_results = await search_bm25(es_client, request.query, expanded_k, request.filters)
+        bm25_results = await search_bm25(es_client, request.query, expanded_k, compliance_filters)
         fused = bm25_results
 
     elif request.search_type == "vector_only":
         if embedding_provider and milvus_collection:
             try:
                 query_embedding = await embedding_provider.embed_query(request.query)
-                vector_results = await search_vector(milvus_collection, query_embedding, expanded_k, request.filters)
+                vector_results = await search_vector(milvus_collection, query_embedding, expanded_k, compliance_filters)
             except Exception:
                 logger.warning("向量检索失败: query=%s", request.query)
         fused = vector_results
@@ -422,15 +519,14 @@ async def retrieve(
         fused = []
 
     # Reranker 精排
+    use_reranker_threshold = False
     if request.rerank and reranker and fused:
         candidate_count = request.top_k * 2
         candidates = fused[:candidate_count]
         content_list = [c.content for c in candidates]
 
         try:
-            rerank_results = await asyncio.to_thread(
-                reranker.rerank, request.query, content_list, request.top_k
-            )
+            rerank_results = await asyncio.to_thread(reranker.rerank, request.query, content_list, request.top_k)
             # 映射回 RetrievedChunk
             reranked: list[RetrievedChunk] = []
             for rr in rerank_results:
@@ -447,18 +543,59 @@ async def retrieve(
                     )
             if reranked:
                 fused = reranked
+                use_reranker_threshold = True
         except Exception:
             logger.warning("Reranker 调用失败，使用 RRF 结果", exc_info=True)
 
-    # 置信度阈值过滤
-    if confidence_threshold > 0:
-        fused = [c for c in fused if c.score >= confidence_threshold]
+    # 置信度阈值过滤（RRF 和 Reranker 使用不同阈值）
+    threshold = confidence_threshold if use_reranker_threshold else settings.rag.rrf_confidence_threshold
+    if threshold > 0 and fused:
+        fused = [c for c in fused if c.score >= threshold]
+        if not fused:
+            logger.warning("置信度过滤后无结果: threshold=%.3f", threshold)
+
+    # ── Milvus 合规后过滤 ──
+    # Milvus schema 不含 approval_status/is_current_version 字段，
+    # ES 侧已通过 term 过滤，这里对 Milvus 返回的结果做 Python 侧后过滤。
+    # 通过 metadata 中的字段判断（write_to_es 已写入这些字段；
+    # Milvus 结果的 metadata 中不含这些字段，需通过 doc_id 查 PG 过滤）。
+    # 简化方案：ES 结果已有合规过滤，Milvus 结果通过 metadata 过滤。
+    if fused:
+        pre_count = len(fused)
+        fused = [
+            c
+            for c in fused
+            if c.metadata.get("approval_status", "PUBLISHED") == "PUBLISHED"
+            and c.metadata.get("is_current_version", True) is True
+        ]
+        if len(fused) < pre_count:
+            logger.debug("合规后过滤: %d → %d", pre_count, len(fused))
 
     # 截断到 top_k
     fused = fused[: request.top_k]
 
     latency_ms = int((time.monotonic() - start_time) * 1000)
     total_candidates = len(bm25_results) + len(vector_results)
+
+    # 写入 Redis 缓存（TTL 300s，仅非空结果）
+    if redis_client and fused and request.search_type != "vector_only":
+        try:
+            cache_data = {
+                "results": [
+                    {
+                        "chunk_id": c.chunk_id,
+                        "content": c.content,
+                        "score": c.score,
+                        "source_doc": c.source_doc,
+                        "metadata": c.metadata,
+                    }
+                    for c in fused
+                ],
+                "total_candidates": total_candidates,
+            }
+            await redis_client.setex(cache_key, 300, json.dumps(cache_data, ensure_ascii=False))
+        except Exception:
+            logger.debug("Redis 缓存写入失败")
 
     return RetrieveResponse(
         results=fused,

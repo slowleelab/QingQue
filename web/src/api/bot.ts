@@ -1,5 +1,5 @@
 import { client } from "./client"
-import type { ChatRequest, ChatSendResponse, PollResponse, ChatResponse } from "./types"
+import type { ChatRequest, ChatSendResponse, PollResponse } from "./types"
 
 export function sendMessage(request: ChatRequest): Promise<ChatSendResponse> {
   return client.post("/bot/chat/send", request)

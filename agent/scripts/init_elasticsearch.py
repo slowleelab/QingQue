@@ -47,7 +47,7 @@ def init_elasticsearch():
         print("   安装后需重启 ES 容器: docker-compose restart elasticsearch")
 
     # 创建索引
-    index_name = "smartcs_knowledge"
+    index_name = "smartcs_kb_chunks"
 
     if es.indices.exists(index=index_name):
         print(f"\n⚠️  索引 '{index_name}' 已存在，跳过创建")
@@ -85,8 +85,8 @@ def init_elasticsearch():
                     "keywords": {"type": "keyword"},
                     "card_type": {"type": "keyword"},
                     "customer_tier": {"type": "keyword"},
-                    "effective_date": {"type": "date", "format": "yyyy-MM-dd"},
-                    "expiry_date": {"type": "date", "format": "yyyy-MM-dd"},
+                    "effective_date": {"type": "date", "format": "epoch_second"},
+                    "expiry_date": {"type": "date", "format": "epoch_second"},
                     "security_level": {"type": "keyword"},
                     "version": {"type": "keyword"},
                     "chunk_type": {"type": "keyword"},

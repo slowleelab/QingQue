@@ -79,12 +79,14 @@ def test_rule_keyword_lower_confidence_than_regex() -> None:
 async def test_llm_classify_success() -> None:
     """LLM 分类应返回结构化结果"""
     mock_llm = MagicMock()
-    mock_llm.classify = AsyncMock(return_value={
-        "intent": "bill_query",
-        "confidence": 0.85,
-        "entities": [{"entity_type": "time_range", "value": "上个月"}],
-        "sentiment": "neutral",
-    })
+    mock_llm.classify = AsyncMock(
+        return_value={
+            "intent": "bill_query",
+            "confidence": 0.85,
+            "entities": [{"entity_type": "time_range", "value": "上个月"}],
+            "sentiment": "neutral",
+        }
+    )
 
     classifier = LLMClassifier(mock_llm)
     intent, entities, sentiment = await classifier.classify("上个月消费了多少")
@@ -130,11 +132,13 @@ async def test_dual_path_slow_path_fallthrough() -> None:
     """低置信度时应 fallthrough 到 LLM"""
     rule = RuleClassifier()
     mock_llm_classifier = MagicMock()
-    mock_llm_classifier.classify = AsyncMock(return_value=(
-        IntentResult(primary_intent=IntentLabel.FAQ, primary_confidence=0.6),
-        [],
-        SentimentLabel.NEUTRAL,
-    ))
+    mock_llm_classifier.classify = AsyncMock(
+        return_value=(
+            IntentResult(primary_intent=IntentLabel.FAQ, primary_confidence=0.6),
+            [],
+            SentimentLabel.NEUTRAL,
+        )
+    )
 
     classifier = IntentClassifier(rule_classifier=rule, llm_classifier=mock_llm_classifier, fast_threshold=0.7)
     intent, entities, sentiment, source = await classifier.classify("这个怎么弄")

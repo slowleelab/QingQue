@@ -198,6 +198,7 @@ make clean        # 清理缓存
 | Sprint | 目标 | 状态 |
 |--------|------|------|
 | Sprint 1 | 基础设施 + 项目骨架 | ✅ 已完成 |
-| Sprint 2 | RAG 核心 + 知识库 | ⬜ 待开始 |
-| Sprint 3 | Agent 编排 + 机器人 MVP | ⬜ 待开始 |
-| Sprint 4 | 大模型集成 + 降级策略 | ⬜ 待开始 |
+| Sprint 2 | RAG 核心 + 知识库 | ✅ 已完成 |
+| Sprint 3 | Agent 编排 + 机器人 MVP | ✅ 已完成 |
+| Sprint 4 | 大模型集成 + 降级策略 | ✅ 已完成 |
+| Sprint 5 | 坐席辅助服务 + OE 编排 | ⬜ 待开始 |

@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-input">
+  <div class="chat-input" data-testid="chat-input">
     <el-input
       v-model="text"
       type="textarea"
@@ -9,6 +9,7 @@
       @keydown.enter.exact.prevent="handleSend"
     />
     <el-button
+      data-testid="send-button"
       type="primary"
       :icon="Promotion"
       circle

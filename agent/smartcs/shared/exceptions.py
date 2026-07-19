@@ -84,6 +84,28 @@ class IngestionConflictError(SmartCSError):
     message = "文档正在被处理，拒绝并发写入"
 
 
+class SessionNotFoundError(SmartCSError):
+    """3004: 会话不存在"""
+
+    code = 3004
+    message = "会话不存在"
+
+    def __init__(self, session_id: str = "") -> None:
+        msg = f"会话不存在: {session_id}" if session_id else "会话不存在"
+        super().__init__(message=msg)
+
+
+class InvalidTransitionError(SmartCSError):
+    """3005: 非法状态转换"""
+
+    code = 3005
+    message = "非法状态转换"
+
+    def __init__(self, detail: str = "") -> None:
+        msg = f"非法状态转换: {detail}" if detail else "非法状态转换"
+        super().__init__(message=msg)
+
+
 # ── 外部依赖错误 4xxx ──
 
 

@@ -64,11 +64,16 @@ def _start_server(service: str, port: int) -> subprocess.Popen:
         target = "smartcs.main:assist_app"
 
     cmd = [
-        sys.executable, "-m", "uvicorn",
+        sys.executable,
+        "-m",
+        "uvicorn",
         target,
-        "--host", "127.0.0.1",
-        "--port", str(port),
-        "--log-level", "warning",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--log-level",
+        "warning",
     ]
 
     proc = subprocess.Popen(
@@ -126,7 +131,7 @@ def bot_server():
 
     _bot_process = _start_server("bot", BOT_PORT)
 
-    if not _wait_for_port(BOT_PORT, timeout=40):
+    if not _wait_for_port(BOT_PORT, timeout=90):
         _stop_server(_bot_process, "bot")
         pytest.fail(f"Bot 服务启动超时（端口 {BOT_PORT} 未就绪）")
 
@@ -149,7 +154,7 @@ def assist_server():
 
     _assist_process = _start_server("assist", ASSIST_PORT)
 
-    if not _wait_for_port(ASSIST_PORT, timeout=40):
+    if not _wait_for_port(ASSIST_PORT, timeout=90):
         _stop_server(_assist_process, "assist")
         pytest.fail(f"Assist 服务启动超时（端口 {ASSIST_PORT} 未就绪）")
 

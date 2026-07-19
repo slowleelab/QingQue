@@ -19,6 +19,7 @@ from openai import AsyncOpenAI
 
 from smartcs.shared.config import LLMSettings, get_settings
 from smartcs.shared.exceptions import LLMInferenceError, LLMTimeoutError
+from smartcs.shared.tracing import traced
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,7 @@ class LLMClient:
         """熔断器实例"""
         return self._breaker
 
+    @traced("Agent: llm_generate")
     async def chat(
         self,
         messages: list[dict[str, str]],
@@ -154,7 +156,7 @@ class LLMClient:
                 logger.warning("LLM 调用异常 (attempt %d/%d): %s", attempt + 1, max_retries, exc)
 
             if attempt < max_retries - 1:
-                await asyncio.sleep(0.5 * (2 ** attempt))
+                await asyncio.sleep(0.5 * (2**attempt))
 
         self._breaker.record_failure()
         raise LLMTimeoutError(f"LLM 调用失败: {last_error}") from last_error
@@ -238,16 +240,18 @@ class LLMClient:
         user_input: str,
         context: str = "",
         *,
+        history: list[dict[str, str]] | None = None,
         model: str | None = None,
     ) -> str:
         """RAG 生成专用接口
 
-        基于检索上下文生成回复。
+        基于检索上下文和对话历史生成回复。
 
         Args:
             system_prompt: 系统 prompt
             user_input: 用户问题
             context: RAG 检索上下文
+            history: 对话历史 [{"role":"user","content":"..."}, {"role":"assistant","content":"..."}]
             model: 模型名称
 
         Returns:
@@ -256,6 +260,8 @@ class LLMClient:
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system_prompt},
         ]
+        if history:
+            messages.extend(history[-6:])  # 最近 3 对对话
         if context:
             messages.append({"role": "system", "content": f"参考知识：\n{context}"})
         messages.append({"role": "user", "content": user_input})

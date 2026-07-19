@@ -8,9 +8,11 @@ from httpx import ASGITransport, AsyncClient
 
 from smartcs.shared.exceptions import (
     IntentUnrecognizedError,
+    InvalidTransitionError,
     KnowledgeMissError,
     LLMTimeoutError,
     SessionCorruptedError,
+    SessionNotFoundError,
     SmartCSError,
 )
 from smartcs.shared.middleware import register_exception_handlers
@@ -26,6 +28,8 @@ def _create_test_app() -> FastAPI:
         error_classes = {
             2001: IntentUnrecognizedError,
             3001: KnowledgeMissError,
+            3004: SessionNotFoundError,
+            3005: InvalidTransitionError,
             4001: LLMTimeoutError,
             5001: SessionCorruptedError,
         }
@@ -70,6 +74,24 @@ async def test_smartcs_error_3xxx_returns_422(client: AsyncClient):
     assert data["error"]["code"] == 3001
 
 
+async def test_session_not_found_returns_404(client: AsyncClient):
+    """会话不存在 (3004) 映射为 HTTP 404"""
+    resp = await client.get("/raise-smartcs/3004")
+    assert resp.status_code == 404
+    data = resp.json()
+    assert data["error"]["code"] == 3004
+    assert data["error"]["type"] == "SessionNotFoundError"
+
+
+async def test_invalid_transition_returns_409(client: AsyncClient):
+    """非法状态转换 (3005) 映射为 HTTP 409"""
+    resp = await client.get("/raise-smartcs/3005")
+    assert resp.status_code == 409
+    data = resp.json()
+    assert data["error"]["code"] == 3005
+    assert data["error"]["type"] == "InvalidTransitionError"
+
+
 async def test_smartcs_error_4xxx_returns_502(client: AsyncClient):
     """外部依赖错误 (4xxx) 映射为 HTTP 502"""
     resp = await client.get("/raise-smartcs/4001")
@@ -108,9 +130,11 @@ async def test_generic_error_production_hides_type():
     import os
 
     os.environ["SMARTCS_ENVIRONMENT"] = "production"
+    os.environ["SMARTCS_JWT_SECRET"] = "x" * 32  # 生产环境必须设置安全密钥
     try:
         # 清除 lru_cache 以读取新的环境变量
         from smartcs.shared.config import get_settings
+
         get_settings.cache_clear()
 
         app = _create_test_app()
@@ -121,6 +145,8 @@ async def test_generic_error_production_hides_type():
             assert data["error"]["type"] == "InternalError"
     finally:
         os.environ.pop("SMARTCS_ENVIRONMENT", None)
+        os.environ.pop("SMARTCS_JWT_SECRET", None)
         # 恢复 lru_cache
         from smartcs.shared.config import get_settings
+
         get_settings.cache_clear()

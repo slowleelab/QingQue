@@ -1,5 +1,5 @@
 <template>
-  <div class="message-bubble" :class="[message.role]">
+  <div :data-testid="'message-' + message.role" class="message-bubble" :class="[message.role]">
     <div class="avatar">
       <el-avatar :size="32" :style="avatarStyle">
         {{ avatarText }}

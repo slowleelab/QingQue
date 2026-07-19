@@ -1,5 +1,5 @@
 <template>
-  <el-card shadow="hover" class="product-card">
+  <el-card shadow="hover" class="product-card" data-testid="marketing-card">
     <div class="product-header">
       <span class="product-name">{{ recommendation.product_name }}</span>
       <el-tag :type="recommendation.eligibility_match ? 'success' : 'danger'" size="small">

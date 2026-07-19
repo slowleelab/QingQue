@@ -1,5 +1,5 @@
 <template>
-  <div class="session-list">
+  <div class="session-list" data-testid="session-list">
     <div class="list-header">
       <span class="title">会话列表</span>
       <el-badge :value="activeCount" :max="99" type="primary" />
@@ -8,7 +8,7 @@
       <div
         v-for="session in assistStore.sessions"
         :key="session.sessionId"
-        class="session-item"
+        class="session-item" data-testid="session-item"
         :class="{ active: session.sessionId === assistStore.activeSessionId }"
         @click="assistStore.selectSession(session.sessionId)"
       >
@@ -37,8 +37,7 @@ const activeCount = computed(
 
 const phaseTagMap: Record<SessionPhase, { type: "" | "warning" | "success" | "danger"; label: string }> = {
   bot: { type: "", label: "机器人" },
-  handoff: { type: "warning", label: "转接中" },
-  assist: { type: "success", label: "坐席辅助" },
+  agent: { type: "success", label: "坐席辅助" },
   ended: { type: "danger", label: "已结束" },
 }
 

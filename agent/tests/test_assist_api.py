@@ -25,7 +25,7 @@ _SESSION_META_PREFIX = "smartcs:session"
 
 async def _create_session_in_redis(session_id: str, phase: str = "bot"):
     """直接在 Redis 中创建会话状态（绕过 bot worker 的缺失 get_or_create 调用）"""
-    from smartcs.shared.models import ChannelType, SessionPhase, SessionSubPhase, SessionState
+    from smartcs.shared.models import ChannelType, SessionPhase, SessionState
 
     state = SessionState(
         session_id=session_id,
@@ -44,10 +44,13 @@ async def _create_session_in_redis(session_id: str, phase: str = "bot"):
 
 async def _ensure_session_exists(bot_client: httpx.AsyncClient, session_id: str):
     """Helper: 通过 Bot 发送消息，然后在 Redis 中创建 session"""
-    send_resp = await bot_client.post("/api/chat/send", json={
-        "message": "你好",
-        "session_id": session_id,
-    })
+    send_resp = await bot_client.post(
+        "/api/chat/send",
+        json={
+            "message": "你好",
+            "session_id": session_id,
+        },
+    )
     assert send_resp.status_code == 200
 
     # 等待 worker 处理消息
@@ -69,9 +72,7 @@ async def test_health_check(assist_client: httpx.AsyncClient):
     assert data["service"] == "assist"
 
 
-async def test_health_check_both_services(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_health_check_both_services(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """两个服务同时可达，互不影响"""
     bot_resp = await bot_client.get("/api/health")
     assist_resp = await assist_client.get("/api/health")
@@ -84,9 +85,7 @@ async def test_health_check_both_services(
 # ── Session Update ──
 
 
-async def test_session_update_success(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_session_update_success(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """POST /api/session/update 成功更新会话状态
 
     流程：先通过 Bot 聊天创建 session，再通过 Assist 更新其状态。
@@ -95,49 +94,57 @@ async def test_session_update_success(
     await _ensure_session_exists(bot_client, session_id)
 
     # 更新会话状态为 AGENT（star-connection 回调）
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "AGENT",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "AGENT",
+        },
+    )
     assert resp.status_code == 200, f"Session update failed: {resp.text}"
     data = resp.json()
     assert data["status"] == "ok"
 
 
-async def test_session_update_lowercase_phase(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_session_update_lowercase_phase(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """POST /api/session/update 接受小写 phase 值"""
     session_id = "e2e-assist-lower-" + uuid_module.uuid4().hex[:8]
     await _ensure_session_exists(bot_client, session_id)
 
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "agent",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "agent",
+        },
+    )
     assert resp.status_code == 200
 
 
-async def test_session_update_ended_phase(
-    bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient
-):
+async def test_session_update_ended_phase(bot_client: httpx.AsyncClient, assist_client: httpx.AsyncClient):
     """POST /api/session/update 结束会话"""
     session_id = "e2e-assist-ended-" + uuid_module.uuid4().hex[:8]
     await _ensure_session_exists(bot_client, session_id)
 
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "ENDED",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "ENDED",
+        },
+    )
     assert resp.status_code == 200
 
 
 async def test_session_update_invalid_phase(assist_client: httpx.AsyncClient):
     """POST /api/session/update 无效 phase 值返回 422（Pydantic 校验失败）"""
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": "test-invalid-phase",
-        "phase": "INVALID_PHASE",
-    })
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": "test-invalid-phase",
+            "phase": "INVALID_PHASE",
+        },
+    )
     assert resp.status_code == 422
     data = resp.json()
     assert data["error"]["code"] == 2000  # RequestValidationError
@@ -151,14 +158,17 @@ async def test_session_update_missing_fields(assist_client: httpx.AsyncClient):
 
 
 async def test_session_update_nonexistent_session(assist_client: httpx.AsyncClient):
-    """POST /api/session/update 不存在的 session 返回 500（业务逻辑异常）"""
+    """POST /api/session/update 不存在的 session 返回 404"""
     session_id = "e2e-nonexist-" + uuid_module.uuid4().hex[:8]
-    resp = await assist_client.post("/api/session/update", json={
-        "session_id": session_id,
-        "phase": "AGENT",
-    })
-    # Session 不存在时会触发 ValueError → 500
-    assert resp.status_code == 500
+    resp = await assist_client.post(
+        "/api/session/update",
+        json={
+            "session_id": session_id,
+            "phase": "AGENT",
+        },
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == 3004
 
 
 # ── WebSocket ──
@@ -234,9 +244,7 @@ async def test_websocket_customer_message(assist_server: str):
         raw = await ws.recv()
         push_data = json.loads(raw)
 
-        assert push_data["type"] == "assist_push", (
-            f"Expected assist_push, got {push_data.get('type')}: {push_data}"
-        )
+        assert push_data["type"] == "assist_push", f"Expected assist_push, got {push_data.get('type')}: {push_data}"
         assert push_data["session_id"] == session_id
 
         payload = push_data.get("payload", {})
@@ -284,15 +292,21 @@ async def test_concurrent_chat_sessions(bot_client: httpx.AsyncClient):
     import asyncio
 
     async def send_and_poll(session_id: str, message: str) -> dict:
-        await bot_client.post("/api/chat/send", json={
-            "message": message,
-            "session_id": session_id,
-        })
+        await bot_client.post(
+            "/api/chat/send",
+            json={
+                "message": message,
+                "session_id": session_id,
+            },
+        )
         await asyncio.sleep(4)
-        poll_resp = await bot_client.get("/api/chat/poll", params={
-            "session_id": session_id,
-            "timeout": 10,
-        })
+        poll_resp = await bot_client.get(
+            "/api/chat/poll",
+            params={
+                "session_id": session_id,
+                "timeout": 10,
+            },
+        )
         return poll_resp.json()
 
     sessions = [
@@ -301,9 +315,7 @@ async def test_concurrent_chat_sessions(bot_client: httpx.AsyncClient):
         ("e2e-concurrent-c-" + uuid_module.uuid4().hex[:6], "积分怎么兑换"),
     ]
 
-    results = await asyncio.gather(*[
-        send_and_poll(sid, msg) for sid, msg in sessions
-    ])
+    results = await asyncio.gather(*[send_and_poll(sid, msg) for sid, msg in sessions])
 
     for i, result in enumerate(results):
         assert result["has_message"] is True, f"Session {i}: {result}"

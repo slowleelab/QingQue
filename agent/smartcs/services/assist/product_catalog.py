@@ -85,3 +85,27 @@ class ProductCatalog:
             if p.product_id == product_id:
                 return p
         return None
+
+    async def load_from_db(self, db_session) -> int:
+        """从数据库加载产品（替代/补充内存种子数据）"""
+        from sqlalchemy import select
+
+        from smartcs.shared.orm_models import KbProduct, ProductStatus
+
+        result = await db_session.execute(select(KbProduct).where(KbProduct.status == ProductStatus.ACTIVE.value))
+        rows = result.scalars().all()
+        loaded = 0
+        for row in rows:
+            product = Product(
+                product_id=str(row.id),
+                product_name=row.product_name,
+                category=row.category,
+                intents=row.intents or [],
+                description=row.description or "",
+                eligibility_keywords=row.eligibility_keywords or [],
+            )
+            self.add_product(product)
+            loaded += 1
+
+        logger.info("从数据库加载了 %d 个产品", loaded)
+        return loaded

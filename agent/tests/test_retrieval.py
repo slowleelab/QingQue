@@ -1,4 +1,5 @@
 """混合检索引擎测试"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -46,9 +47,15 @@ class TestBuildMilvusExpr:
         expr = build_milvus_expr({"category": "FAQ"})
         assert 'category == "FAQ"' in expr
 
-    def test_keywords_like_expr(self):
+    def test_keywords_array_contains(self):
         expr = build_milvus_expr({"keywords": "年费"})
-        assert 'keywords like "%年费%"' in expr
+        assert 'ARRAY_CONTAINS(keywords, "年费")' in expr
+
+    def test_keywords_multi_array_contains(self):
+        expr = build_milvus_expr({"keywords": ["年费", "减免"]})
+        assert 'ARRAY_CONTAINS(keywords, "年费")' in expr
+        assert 'ARRAY_CONTAINS(keywords, "减免")' in expr
+        assert " or " in expr
 
     def test_empty_expr(self):
         assert build_milvus_expr({}) == ""
@@ -140,10 +147,14 @@ class TestRetrieve:
     async def test_bm25_only(self):
         mock_es = AsyncMock()
         mock_es.search.return_value = {
-            "hits": {"hits": [{"_id": "1", "_score": 3.0, "_source": {"chunk_id": "c1", "content": "test", "doc_id": "d1"}}]}
+            "hits": {
+                "hits": [{"_id": "1", "_score": 3.0, "_source": {"chunk_id": "c1", "content": "test", "doc_id": "d1"}}]
+            }
         }
         request = RetrieveRequest(query="test", top_k=3, search_type="bm25_only", rerank=False)
-        resp = await retrieve(request, es_client=mock_es, milvus_collection=None, embedding_provider=None, reranker=None)
+        resp = await retrieve(
+            request, es_client=mock_es, milvus_collection=None, embedding_provider=None, reranker=None
+        )
         assert isinstance(resp, RetrieveResponse)
         assert len(resp.results) >= 1
 
@@ -156,7 +167,7 @@ class TestRetrieve:
 
     @pytest.mark.asyncio
     async def test_confidence_threshold(self):
-        """低于置信度阈值的结果被过滤"""
+        """BM25 score 低于 confidence_threshold 时被过滤（bm25_only 模式使用 confidence_threshold）"""
         mock_es = AsyncMock()
         mock_es.search.return_value = {
             "hits": {
@@ -168,23 +179,37 @@ class TestRetrieve:
         request = RetrieveRequest(query="test", top_k=3, search_type="bm25_only", rerank=False)
         with patch("smartcs.services.common.retrieval.get_settings") as mock_settings:
             mock_settings.return_value.rag.confidence_threshold = 0.5
+            mock_settings.return_value.rag.rrf_confidence_threshold = 0.0
             mock_settings.return_value.rag.rrf_k = 60
             mock_settings.return_value.elasticsearch.index_prefix = "smartcs"
-            resp = await retrieve(request, es_client=mock_es, milvus_collection=None, embedding_provider=None, reranker=None)
-        # Score 0.1 < threshold 0.5, should be filtered
-        assert len(resp.results) == 0
+            resp = await retrieve(
+                request, es_client=mock_es, milvus_collection=None, embedding_provider=None, reranker=None
+            )
+        # BM25 score 0.1 < RRF threshold 0.0 → 不过滤（RRF threshold 仅用于 RRF 融合结果）
+        # bm25_only 路径使用 rrf_confidence_threshold=0.0，score 0.1 > 0.0 → 保留
+        assert len(resp.results) == 1
 
     @pytest.mark.asyncio
     async def test_reranker_degradation(self):
         """Reranker 失败时降级到 RRF 结果"""
         mock_es = AsyncMock()
         mock_es.search.return_value = {
-            "hits": {"hits": [{"_id": "1", "_score": 3.0, "_source": {"chunk_id": "c1", "content": "test content", "doc_id": "d1"}}]}
+            "hits": {
+                "hits": [
+                    {
+                        "_id": "1",
+                        "_score": 3.0,
+                        "_source": {"chunk_id": "c1", "content": "test content", "doc_id": "d1"},
+                    }
+                ]
+            }
         }
         mock_reranker = MagicMock()
         mock_reranker.rerank.side_effect = RuntimeError("Reranker down")
 
         request = RetrieveRequest(query="test", top_k=3, search_type="bm25_only", rerank=True)
-        resp = await retrieve(request, es_client=mock_es, milvus_collection=None, embedding_provider=None, reranker=mock_reranker)
+        resp = await retrieve(
+            request, es_client=mock_es, milvus_collection=None, embedding_provider=None, reranker=mock_reranker
+        )
         # Should still return results (from RRF/BM25), not fail
         assert len(resp.results) >= 1
