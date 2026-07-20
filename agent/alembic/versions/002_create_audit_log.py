@@ -1,7 +1,7 @@
 """create audit log table
 
 Revision ID: 002
-Revises: 001_create_kb_tables
+Revises: 03a9cfea52ac（接在 hash 系迁移链头部，原假设的 001 初始迁移不存在）
 Create Date: 2026-07-14
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP
 
 revision = "002"
-down_revision = "001"
+down_revision = "03a9cfea52ac"
 branch_labels = None
 depends_on = None
 

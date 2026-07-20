@@ -10,7 +10,7 @@ Changes:
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP
 
 revision = "005"
 down_revision = "004"
@@ -21,7 +21,7 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "dialogue_log",
-        sa.Column("id", UUID(native_uuid=False), primary_key=True),
+        sa.Column("id", sa.Uuid(native_uuid=False), primary_key=True),
         sa.Column("session_id", sa.String(64), nullable=False),
         sa.Column("turn_id", sa.String(64), nullable=False),
         sa.Column("speaker", sa.String(16), nullable=False, comment="customer/agent/bot"),

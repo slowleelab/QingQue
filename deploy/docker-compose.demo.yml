@@ -42,10 +42,12 @@ services:
       - ../agent/scripts:/app/scripts:ro
       - ../agent/test_data:/app/test_data:ro
     # 迁移 + 种子；任何一步失败则非零退出，便于发现
+    # 覆盖 entrypoint，避免触发应用 lifespan
+    entrypoint: ["/bin/sh", "-c"]
     command: >
-      sh -c "echo '==> 数据库迁移' && alembic upgrade head &&
-             echo '==> 灌入种子知识库' && python scripts/seed_knowledge.py &&
-             echo '==> Demo 初始化完成'"
+      "echo '==> 数据库迁移' && alembic upgrade head &&
+       echo '==> 灌入种子知识库' && python scripts/seed_knowledge.py &&
+       echo '==> Demo 初始化完成'"
     networks:
       - smartcs-net
     restart: "no"

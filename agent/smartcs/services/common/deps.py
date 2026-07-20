@@ -603,13 +603,13 @@ async def init_dependency_breakers(app: FastAPI) -> None:
     from smartcs.services.common.circuit_breaker import CircuitBreaker
 
     app.state.es_breaker = CircuitBreaker(
-        failure_rate_threshold=0.5,
-        window_size=20,
+        failure_threshold=0.5,
+        sliding_window_size=20,
         recovery_timeout=30.0,
     )
     app.state.milvus_breaker = CircuitBreaker(
-        failure_rate_threshold=0.5,
-        window_size=20,
+        failure_threshold=0.5,
+        sliding_window_size=20,
         recovery_timeout=30.0,
     )
 

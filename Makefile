@@ -51,6 +51,31 @@ up: ## 启动所有中间件
 down: ## 停止所有中间件
 	cd deploy && docker compose down
 
+# ── 一键 Demo ──
+DEMO_COMPOSE := -f docker-compose.yml -f docker-compose.demo.yml
+
+demo: ## 一键启动完整 Demo（中间件 + 初始化 + Bot:8000 + Assist:8001）
+	cd deploy && docker compose $(DEMO_COMPOSE) up -d --build
+	@echo ""
+	@echo "✅ Demo 已启动："
+	@echo "   Bot 对话    → http://localhost:8000/api/health"
+	@echo "   Assist 辅助 → http://localhost:8001/api/health"
+	@echo "   Swagger     → http://localhost:8000/docs"
+	@echo "   Grafana     → http://localhost:3001"
+	@echo ""
+	@echo "   试用 Bot:  curl -X POST http://localhost:8000/api/chat/send \\"
+	@echo "                -H 'Content-Type: application/json' \\"
+	@echo "                -d '{\"message\":\"信用卡年费怎么减免\"}'"
+
+demo-down: ## 停止 Demo（含应用服务）
+	cd deploy && docker compose $(DEMO_COMPOSE) down
+
+demo-logs: ## 查看 Demo 应用服务日志
+	cd deploy && docker compose $(DEMO_COMPOSE) logs -f bot assist
+
+demo-ps: ## 查看 Demo 服务状态
+	cd deploy && docker compose $(DEMO_COMPOSE) ps
+
 ps: ## 查看中间件状态
 	cd deploy && docker compose ps
 

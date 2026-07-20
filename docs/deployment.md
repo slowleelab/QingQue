@@ -5,6 +5,7 @@
 ## 目录
 
 - [前置要求](#前置要求)
+- [一键 Demo](#一键-demo)
 - [快速启动](#快速启动)
 - [中间件清单与端口](#中间件清单与端口)
 - [初始化](#初始化)
@@ -24,6 +25,31 @@
 | Poetry | 1.7+ | Python 依赖管理 |
 | Node / pnpm | 20+ / 9+ | 前端（web/，可选） |
 | Ollama | 最新 | 本地 LLM（Qwen2.5-7B），可选 |
+
+## 一键 Demo
+
+最快体验方式：在 `docker-compose.yml` 之上叠加 `docker-compose.demo.yml`，额外拉起一个一次性的 **demo-init** 容器（执行 `alembic upgrade head` + 知识库种子数据脚本，幂等可重复执行），随后以容器内主机名启动 Bot/Assist 服务。全程无需本地 Python/Poetry 环境，仅需 Docker。
+
+```bash
+make demo        # 构建镜像并启动：中间件 + demo-init + bot:8000 + assist:8001
+make demo-ps     # 查看状态（bot/assist 变为 healthy 即就绪）
+make demo-logs   # 跟踪日志
+make demo-down   # 停止并清理
+```
+
+启动后体验：
+
+```bash
+curl -X POST http://localhost:8000/api/chat/send \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"信用卡年费怎么减免"}'
+```
+
+说明：
+
+- Demo 编排文件：`deploy/docker-compose.demo.yml`（override，不改动基础编排）。
+- LLM 默认指向宿主机 Ollama（`http://host.docker.internal:11434/v1`）；不可达时系统自动降级（检索摘要 → 模板回复），不影响流程演示。可通过环境变量覆盖：`LLM_BASE_URL=http://your-llm/v1 make demo`。
+- 镜像构建上下文为 `agent/`（见 `deploy/Dockerfile`），首次构建约需几分钟。
 
 ## 快速启动
 

@@ -33,6 +33,13 @@ COPY smartcs/ /app/smartcs/
 # 拷贝配置文件
 COPY config/ /app/config/
 
+# 多入口切换: 通过 SERVICE 环境变量选择启动目标
+#   SERVICE=bot     → Bot:8000 (默认)
+#   SERVICE=assist  → Assist:8001
+# 使用: docker run -e SERVICE=assist smartcs:latest
+ENV SERVICE=bot
+COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
+
 # 设置环境变量
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app:$PYTHONPATH" \
@@ -42,15 +49,8 @@ ENV PATH="/app/.venv/bin:$PATH" \
 # 切换到非 root 用户
 USER smartcs
 
-# 健康检查
+# 健康检查（Bot 默认 8000；Assist 部署时改为 8001）
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
+    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://localhost:%s/api/health' % ('8001' if os.environ.get('SERVICE')=='assist' else '8000'))" || exit 1
 
-# 多入口切换: 通过 SERVICE 环境变量选择启动目标
-#   SERVICE=bot     → Bot:8000 (默认)
-#   SERVICE=assist  → Assist:8001
-# 使用: docker run -e SERVICE=assist smartcs:latest
-ENV SERVICE=bot
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
 ENTRYPOINT ["/docker-entrypoint.sh"]
