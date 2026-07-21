@@ -129,6 +129,11 @@ class SmartCSAgent:
     ) -> dict[str, Any]:
         """知识问答: RAG 检索 + LLM 生成"""
         context = await self._retrieve(user_input)
+        # 知识图谱实体关系增强：查询命中实体时，在 RAG 上下文后追加 KG 关系补充
+        if context:
+            from smartcs.services.bot.knowledge_graph import enrich_retrieval_context
+
+            context = enrich_retrieval_context(user_input, [context])
         # 结构化会话记忆注入 system prompt（永不裁剪）
         session_memory = await self._build_session_memory(session_id)
         system_prompt = KNOWLEDGE_SYSTEM_PROMPT

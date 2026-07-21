@@ -1499,8 +1499,17 @@ async def list_documents(
 
 
 @router.delete("/kb/documents/{doc_id}")
-async def delete_document(doc_id: str, db: DbSession):
-    """软删除知识库文档"""
+async def delete_document(
+    doc_id: str,
+    db: DbSession,
+    es_client: ESClientDep,
+    milvus_collection: MilvusCollectionDep,
+):
+    """软删除知识库文档，并同步清理 ES 索引与 Milvus 向量
+
+    DB 软删提交后，尽力清理检索侧索引；单边失败不回滚 DB（文档已标记删除），
+    但记录 warning 便于补偿，避免"删除后仍被检索到"的数据不一致。
+    """
     from sqlalchemy import select
 
     result = await db.execute(select(KbDocument).where(KbDocument.id == doc_id))
@@ -1514,7 +1523,27 @@ async def delete_document(doc_id: str, db: DbSession):
     doc.deleted_at = datetime.now()
     await db.flush()
 
-    # TODO: 同步清理 ES 和 Milvus 中的索引
+    # ── 同步清理 ES 索引（按 doc_id 删除该文档的所有分块）──
+    if es_client is not None:
+        try:
+            from smartcs.shared.config import get_settings
+
+            index_name = f"{get_settings().elasticsearch.index_prefix}_kb_chunks"
+            await es_client.delete_by_query(
+                index=index_name,
+                body={"query": {"term": {"doc_id": str(doc_id)}}},
+            )
+            logger.info("ES 索引清理完成: doc_id=%s", doc_id)
+        except Exception as e:
+            logger.warning("ES 索引清理失败(doc_id=%s，需补偿): %s", doc_id, e)
+
+    # ── 同步清理 Milvus 向量（按 doc_id 表达式删除）──
+    if milvus_collection is not None:
+        try:
+            milvus_collection.delete(expr=f'doc_id == "{doc_id}"')
+            logger.info("Milvus 向量清理完成: doc_id=%s", doc_id)
+        except Exception as e:
+            logger.warning("Milvus 向量清理失败(doc_id=%s，需补偿): %s", doc_id, e)
 
     return {"status": "ok", "doc_id": doc_id}
 

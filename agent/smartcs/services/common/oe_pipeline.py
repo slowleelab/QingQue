@@ -432,7 +432,12 @@ async def run_oe_pipeline(
                 intent_label = IntentLabel(intent)
             except ValueError:
                 intent_label = IntentLabel.FAQ
-            cards = evaluate_marketing(intent=intent_label, sentiment=SentimentLabel.NEUTRAL)
+            # 传入真实情绪标签，使"负面情绪不营销"等规则生效（此前硬编码 NEUTRAL 导致规则不触发）
+            try:
+                sentiment_label = SentimentLabel(sentiment)
+            except ValueError:
+                sentiment_label = SentimentLabel.NEUTRAL
+            cards = evaluate_marketing(intent=intent_label, sentiment=sentiment_label)
             e2_result = ExecutorResult(
                 executor_id="marketing",
                 ui_schema={

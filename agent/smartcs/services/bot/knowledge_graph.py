@@ -60,7 +60,10 @@ def query_entity_relations(entity: str, query_text: str) -> list[dict]:
     relations: list[dict] = []
 
     for entity_name, entity_relations in _ENTITY_GRAPH.items():
-        if entity_name in query_text or entity in entity_name or entity_name in entity:
+        # 命中条件：实体名出现在查询文本中；或 entity 参数与该实体名互相包含。
+        # 注意需排除空 entity：空串会使 "entity in entity_name" 恒为 True，导致匹配所有实体。
+        entity_match = bool(entity) and (entity in entity_name or entity_name in entity)
+        if entity_name in query_text or entity_match:
             for rel_type, rel_value in entity_relations:
                 relations.append(
                     {
