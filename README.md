@@ -7,6 +7,8 @@
 
 AI 坐席辅助 + 机器人自助问答系统。基于 RAG + Agent 编排 + 私有化大模型，为银行信用卡中心提供智能客服能力。
 
+![SmartCS 一键 Demo](docs/assets/demo.gif)
+
 > **这是银行级私有化智能客服的参考实现**，包含完整的检索增强、Agent 编排、合规过滤、实时监控能力，适合作为私有化部署的技术基座，而非开箱即用的 SaaS。
 
 **[架构](docs/architecture.md) · [API 文档](docs/api-reference.md) · [部署指南](docs/deployment.md) · [快速开始](#快速开始)**
