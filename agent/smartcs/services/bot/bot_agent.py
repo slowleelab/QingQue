@@ -109,8 +109,21 @@ class SmartCSAgent:
     # ── 公共接口 ──
 
     @traced("Agent: bot_run")
-    async def run(self, session_id: str, user_input: str) -> dict[str, Any]:
+    async def run(self, session_id: str, user_input: str, customer_id: str | None = None) -> dict[str, Any]:
         """运行 Bot Agent，返回与旧版兼容的 dict"""
+        # ── 跨会话画像学习（异步，首次对话时从历史推断客户画像）──
+        if customer_id and self._session_manager:
+            try:
+                from smartcs.services.bot.customer_memory import apply_learned_profile
+
+                db_sf = getattr(self, "_db_session_factory", None)
+                if db_sf:
+                    asyncio.create_task(
+                        apply_learned_profile(customer_id, session_id, db_sf, self._session_manager)
+                    )
+            except Exception:
+                pass
+
         # 快速路径：问候/告别不调 LLM
         if _is_greeting(user_input):
             return self._build_result(session_id, user_input, GREETING_RESPONSE, "template", "chitchat")

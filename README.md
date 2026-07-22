@@ -81,6 +81,11 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 > 💡 无本地大模型也能跑：LLM 不可达时系统自动降级（检索摘要 → 模板回复）。有 [Ollama](https://ollama.com) 时回答质量更高。
 > 停止：`make demo-down` ｜ 日志：`make demo-logs`
+>
+> **或者直接拉取预构建镜像（免编译）**：
+> ```bash
+> docker run --name smartcs-demo -d slowleelab/qingque:demo
+> ```
 
 ---
 

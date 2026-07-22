@@ -1,8 +1,9 @@
 <template>
   <div class="assist-panel" data-testid="assist-panel">
-    <div class="panel-header">
-      <span class="panel-title">AI 辅助</span>
-    </div>
+  <div class="panel-header">
+    <span class="panel-title">AI 辅助</span>
+    <el-tag v-if="data" size="small" type="success" effect="dark">实时推送</el-tag>
+  </div>
 
     <div v-if="!assistStore.activeSessionId" class="empty-panel">
       <p>选择会话后显示辅助信息</p>
