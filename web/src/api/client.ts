@@ -2,10 +2,33 @@ import axios from "axios"
 import { ElMessage } from "element-plus"
 import type { ApiError } from "./types"
 
+const TOKEN_KEY = "smartcs_token"
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token: string) {
+  localStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
 const client = axios.create({
   baseURL: "/api",
-  timeout: 10000,
+  timeout: 30000,
   headers: { "Content-Type": "application/json" },
+})
+
+// 请求拦截器：自动附加 Bearer token
+client.interceptors.request.use((config) => {
+  const token = getToken()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
 })
 
 // 错误码 → 中文提示映射
@@ -19,6 +42,14 @@ const ERROR_CODE_MAP: Record<string, string> = {
 client.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    // 401 → 跳转登录页
+    if (error.response?.status === 401) {
+      clearToken()
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login"
+      }
+      return Promise.reject(error)
+    }
     const data = error.response?.data as ApiError | undefined
     if (data?.error) {
       const prefix = data.error.code.toString()[0]

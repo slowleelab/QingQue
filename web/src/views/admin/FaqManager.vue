@@ -1,8 +1,20 @@
 <template>
   <div class="faq-page">
     <div class="page-header">
-      <h2>FAQ 管理</h2>
+      <h2>
+        FAQ 管理
+        <el-badge v-if="pendingCount > 0" :value="pendingCount" class="item" style="margin-left: 8px" />
+      </h2>
       <div class="header-actions">
+        <el-button
+          v-if="pendingCount > 0"
+          type="warning"
+          plain
+          size="small"
+          @click="filterStatus = 'IN_REVIEW'; load()"
+        >
+          待审核 ({{ pendingCount }})
+        </el-button>
         <el-select v-model="filterStatus" placeholder="审批状态" clearable style="width: 140px" @change="load">
           <el-option label="草稿" value="DRAFT" />
           <el-option label="审核中" value="IN_REVIEW" />
@@ -181,6 +193,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const filterStatus = ref("")
 const filterCategory = ref("")
+const pendingCount = ref(0)
 
 async function load() {
   loading.value = true
@@ -318,6 +331,14 @@ function approvalText(s: string) {
 }
 
 load()
+loadPendingCount()
+
+async function loadPendingCount() {
+  try {
+    const res = await listFaqs({ approval_status: "IN_REVIEW", limit: 1 })
+    pendingCount.value = res.total
+  } catch { /* ignore */ }
+}
 </script>
 
 <style scoped>

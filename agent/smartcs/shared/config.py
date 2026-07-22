@@ -266,6 +266,15 @@ class OrchestrationSettings(BaseSettings):
     # 营销延迟（对应文档 §3.3 策略: marketing_deferred）
     marketing_defer_ms: int = 500
 
+    # PushTracker 基础推送间隔（秒）
+    base_interval_ai: float = 3.0
+    base_interval_marketing: float = 30.0
+
+    # 动态间隔调整系数（坐席反馈驱动）
+    adoption_shorten_ratio: float = 0.5  # 连续采纳3次→间隔×0.5
+    dismiss_extend_ratio: float = 2.0    # 坐席关闭→间隔×2.0
+    ignore_extend_ratio: float = 1.5     # 连续忽略3次→间隔×1.5
+
 
 class TemporalSettings(BaseSettings):
     """Temporal 配置"""

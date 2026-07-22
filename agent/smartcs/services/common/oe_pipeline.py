@@ -416,6 +416,12 @@ async def run_oe_pipeline(
         and not e3_blocked  # 风控拦截跳过营销
         and scene != Scene.URGENT  # 紧急场景跳过营销
     )
+    # 策略 1: D1 激活时压制 D2 持续 N 轮（文档 §3.3 service_suppresses_marketing）
+    if d2_should_run and d1.activated:
+        remaining = state_snapshot.get("d2_suppress_rounds", 0)
+        if remaining > 0:
+            d2_should_run = False
+            logger.debug("OE: D2 被 D1 压制，剩余 %d 轮", remaining)
 
     # 策略: D1+D2 都激活时，营销延迟 500ms 追加
     if d2_should_run:
@@ -561,6 +567,15 @@ async def run_oe_pipeline(
         # 紧急场景压制营销（单向门 false→true）
         if scene == Scene.URGENT and not state_snapshot.get("suppress_flag", False):
             state_patches["suppress_flag"] = True
+
+        # 策略 1: D1 激活 → 重置 D2 压制轮次计数器
+        if d1.activated:
+            state_patches["d2_suppress_rounds"] = settings.d1_cooldown_turns
+        else:
+            # 非 D1 激活轮次：递减剩余压制轮次
+            remaining = state_snapshot.get("d2_suppress_rounds", 0)
+            if remaining > 0:
+                state_patches["d2_suppress_rounds"] = remaining - 1
 
         # 情绪向量更新（时间窗口替换）
         if sentiment and sentiment != "neutral":

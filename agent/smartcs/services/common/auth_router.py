@@ -56,10 +56,20 @@ class LoginResponse(BaseModel):
 async def login(body: LoginRequest):
     """用户登录，返回 JWT token
 
-    生产环境应对接银行统一身份认证（LDAP/SSO），
-    此处提供简化版用于开发测试。
+    开发环境（未设置 SMARTCS_ADMIN_PASSWORD）接受任何密码；
+    生产环境需设置环境变量 SMARTCS_ADMIN_PASSWORD 作为管理员密码，
+    并接入银行统一身份认证（LDAP/SSO）替换此实现。
     """
-    # TODO: 生产环境对接 LDAP/SSO 验证密码
+    import os
+
+    required_password = os.getenv("SMARTCS_ADMIN_PASSWORD", "")
+    if required_password:
+        if body.password != required_password:
+            raise SmartCSError(code=3001, message="密码错误")
+    elif body.role in ("admin",):
+        # 管理员角色在未设置密码时记录警告
+        logger.warning("admin 登录未验证密码（未设置 SMARTCS_ADMIN_PASSWORD）")
+
     token = create_access_token(body.user_id, body.role)
     return LoginResponse(
         access_token=token,

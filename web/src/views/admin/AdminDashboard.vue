@@ -19,6 +19,10 @@
           <el-icon><Collection /></el-icon>
           <span>FAQ 管理</span>
         </el-menu-item>
+        <el-menu-item index="/admin/monitor">
+          <el-icon><Monitor /></el-icon>
+          <span>摄入监控</span>
+        </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
         <el-button text size="small" @click="$router.push('/')">← 返回前台</el-button>
@@ -33,7 +37,7 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import { useRoute } from "vue-router"
-import { Document, Collection } from "@element-plus/icons-vue"
+import { Document, Collection, Monitor } from "@element-plus/icons-vue"
 
 const route = useRoute()
 const activeMenu = computed(() => route.path)

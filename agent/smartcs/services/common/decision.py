@@ -139,12 +139,17 @@ class PushTracker:
     feedback_history: dict[str, list[tuple[str, float]]] = field(default_factory=dict)
 
     # 各类型当前最小展示间隔（秒），反馈动态调整
-    min_interval: dict[str, float] = field(
-        default_factory=lambda: {
-            "ai": 3.0,  # 服务建议最小间隔 3 秒
-            "marketing": 30.0,  # 营销最小间隔 30 秒
-        }
-    )
+    min_interval: dict[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        from smartcs.shared.config import get_settings
+
+        cfg = get_settings().orchestration
+        if not self.min_interval:
+            self.min_interval = {
+                "ai": cfg.base_interval_ai,
+                "marketing": cfg.base_interval_marketing,
+            }
 
     def record_push(self, card_type: str) -> None:
         """记录推送时间（使用 Unix 时间戳，跨实例一致）"""
@@ -152,6 +157,9 @@ class PushTracker:
 
     def record_feedback(self, card_type: str, action: FeedbackAction) -> None:
         """记录坐席反馈并动态调整间隔"""
+        from smartcs.shared.config import get_settings
+
+        cfg = get_settings().orchestration
         history = self.feedback_history.setdefault(card_type, [])
         history.append((action.value, time.time()))
         # 只保留最近 10 条
@@ -162,19 +170,19 @@ class PushTracker:
         base = self.min_interval.get(card_type, 3.0)
 
         if action == FeedbackAction.ADOPTED:
-            # 连续采纳 3 次 → 缩短间隔 50%
+            # 连续采纳 3 次 → 缩短间隔
             recent = [a for a, _ in history[-3:]]
             if len(recent) >= 3 and all(a == FeedbackAction.ADOPTED.value for a in recent):
-                self.min_interval[card_type] = max(1.0, base * 0.5)
+                self.min_interval[card_type] = max(1.0, base * cfg.adoption_shorten_ratio)
         elif action == FeedbackAction.DISMISSED:
-            # 坐席关闭 → 延长间隔 2x
-            self.min_interval[card_type] = min(120.0, base * 2.0)
+            # 坐席关闭 → 延长间隔
+            self.min_interval[card_type] = min(120.0, base * cfg.dismiss_extend_ratio)
         elif action == FeedbackAction.IGNORED:
-            # 坐席忽略（看了但没操作）→ 微调延长 1.5x
+            # 坐席忽略 → 微调延长
             recent = [a for a, _ in history[-5:]]
             ignored_count = sum(1 for a in recent if a == FeedbackAction.IGNORED.value)
             if ignored_count >= 3:
-                self.min_interval[card_type] = min(60.0, base * 1.5)
+                self.min_interval[card_type] = min(60.0, base * cfg.ignore_extend_ratio)
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为 Redis 可存储的字典"""

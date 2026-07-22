@@ -654,6 +654,7 @@ class FeedbackRequest(BaseModel):
     agent_id: str
     action: Literal["accept", "modify", "partial_accept", "reject"] = "reject"
     modify_fields: list[str] = Field(default_factory=list)
+    card_type: Literal["ai", "marketing", "risk"] | None = None  # 推送卡片类型，联动 PushTracker
 
 
 def _action_to_confidence(action: str) -> float:
@@ -752,6 +753,33 @@ async def record_feedback(body: FeedbackRequest, request: Request):
     )
     _feedback_tasks.add(feedback_task)
     feedback_task.add_done_callback(_feedback_tasks.discard)
+
+    # ── 联动 PushTracker：根据坐席反馈动态调整推送间隔 ──
+    if body.card_type and redis_client:
+        try:
+            from smartcs.services.common.decision import FeedbackAction, PushTracker
+
+            tracker_key = f"smartcs:oe:tracker:{body.session_id}"
+            raw = await redis_client.get(tracker_key)
+            tracker = PushTracker.from_dict(json.loads(raw) if raw else None)
+
+            action_map = {
+                "accept": FeedbackAction.ADOPTED,
+                "modify": FeedbackAction.MODIFIED,
+                "reject": FeedbackAction.DISMISSED,
+                "partial_accept": FeedbackAction.IGNORED,
+            }
+            fa = action_map.get(body.action, FeedbackAction.IGNORED)
+            tracker.record_feedback(body.card_type, fa)
+
+            await redis_client.setex(tracker_key, 3600, json.dumps(tracker.to_dict()))
+            logger.debug(
+                "PushTracker 已更新: session=%s card=%s action=%s interval=%.1fs",
+                body.session_id, body.card_type, body.action,
+                tracker.min_interval.get(body.card_type, 0),
+            )
+        except Exception as e:
+            logger.debug("PushTracker 更新失败: %s", e)
 
     logger.info(
         "反馈(缓冲) session=%s agent=%s action=%s confidence=%.1f",
