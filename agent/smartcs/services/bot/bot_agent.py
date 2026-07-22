@@ -48,6 +48,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ── Token 估算（字符类感知，替代 len*2+20） ──
+
+
+def _estimate_tokens(text: str) -> int:
+    """基于字符类的 token 数估算
+
+    CJK 字符: ~2 chars/token → 系数 0.55
+    拉丁字母: ~4 chars/token → 系数 0.3
+    其他(数字/标点/空格): ~1.2 chars/token → 系数 0.8
+    +4 为消息格式开销（role/content 包装）
+    """
+    import re
+
+    cjk = len(re.findall(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]", text))
+    latin = len(re.findall(r"[a-zA-Z]", text))
+    other = len(text) - cjk - latin
+    return int(cjk * 0.55 + latin * 0.3 + other * 0.8) + 4
+
+
+# ── 重要性标记 ──
+
+_IMPORTANT_KEYWORDS = [
+    "投诉", "举报", "银保监", "银监会", "人行", "央行",
+    "律师函", "法务", "法院", "起诉",
+    "盗刷", "挂失", "冻结", "风险",
+    "承诺", "保证", "一定解决",
+    "转人工", "人工客服",
+]
+
+
+def _is_important(content: str) -> bool:
+    return any(kw in content for kw in _IMPORTANT_KEYWORDS)
+
+
 class SmartCSAgent:
     """SmartCS 对话 Agent — 确定性路由
 
@@ -134,11 +168,17 @@ class SmartCSAgent:
             from smartcs.services.bot.knowledge_graph import enrich_retrieval_context
 
             context = enrich_retrieval_context(user_input, [context])
+
+        # 槽位追踪：加载/创建 + 实体填充 + 注入 prompt
+        slot_prompt = await self._load_slot_prompt(session_id, intent.primary_intent, entities or [])
+
         # 结构化会话记忆注入 system prompt（永不裁剪）
         session_memory = await self._build_session_memory(session_id)
         system_prompt = KNOWLEDGE_SYSTEM_PROMPT
         if session_memory:
             system_prompt = f"{KNOWLEDGE_SYSTEM_PROMPT}\n\n## 会话记忆\n{session_memory}"
+        if slot_prompt:
+            system_prompt = f"{system_prompt}\n\n{slot_prompt}"
         result = await self._degradation_mgr.generate_with_fallback(
             system_prompt=system_prompt,
             user_input=user_input,
@@ -319,13 +359,15 @@ class SmartCSAgent:
             budget = max(max_tokens - reserved, 1024)
 
             # 从最近向前累加，找出 token 预算内的轮次
+            # 关键轮次（投诉/承诺/转人工）不会被裁剪
             kept_turns: list = []
             used = 0
-            split_idx = len(turns)  # 被裁剪轮次的分界点
+            split_idx = len(turns)
             for i in range(len(turns) - 1, -1, -1):
                 t = turns[i]
-                est = len(t.content) * 2 + 20
-                if used + est > budget and kept_turns:
+                est = _estimate_tokens(t.content)
+                is_important = _is_important(t.content)
+                if used + est > budget and kept_turns and not is_important:
                     split_idx = i + 1
                     break
                 kept_turns.insert(0, t)
@@ -491,7 +533,49 @@ class SmartCSAgent:
             return "\n".join(parts)
         except Exception:
             logger.debug("构建会话记忆失败: session=%s", session_id)
-            return ""
+
+    async def _load_slot_prompt(self, session_id: str, intent: IntentLabel, entities: list[Entity]) -> str:
+        """加载/创建槽位追踪器，从实体池填充，返回槽位 prompt 段
+
+        槽位状态持久化在 Redis key smartcs:slot:{session_id}，跨轮次保留。
+        仅当意图有定义的必填槽位时才返回非空 prompt。
+        """
+        import json
+
+        from smartcs.services.bot.slot_tracker import SlotTracker
+
+        redis = self._session_manager._redis if self._session_manager else None
+
+        # 读取已有 tracker
+        tracker: SlotTracker | None = None
+        if redis:
+            try:
+                raw = await redis.get(f"smartcs:slot:{session_id}")
+                if raw:
+                    data = json.loads(raw)
+                    # 意图切换时重置 tracker
+                    if data.get("intent") == intent.value:
+                        tracker = SlotTracker.from_dict(data)
+            except Exception:
+                pass
+
+        # 创建新 tracker
+        if tracker is None:
+            tracker = SlotTracker.for_intent(intent)
+
+        # 从实体池填充槽位
+        if entities:
+            entity_dicts = [{"entity_type": e.entity_type, "value": e.value} for e in entities if e.entity_type and e.value]
+            tracker.fill_from_entities(entity_dicts)
+
+        # 持久化
+        if redis:
+            try:
+                await redis.setex(f"smartcs:slot:{session_id}", 3600, json.dumps(tracker.to_dict(), ensure_ascii=False))
+            except Exception:
+                pass
+
+        return tracker.build_prompt() if tracker.has_slots else ""
 
     def _build_result(
         self,
