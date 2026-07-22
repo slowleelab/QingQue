@@ -47,6 +47,7 @@ from smartcs.shared.models import (
     SessionSubPhase,
 )
 from smartcs.shared.orm_models import ChatMessageStatus, KbDocStatus, KbDocument, KbSourceType
+from smartcs.shared.auth import CurrentUser
 
 if TYPE_CHECKING:
     pass
@@ -1178,6 +1179,7 @@ async def upload_document(
     milvus_collection: MilvusCollectionDep,
     minio_client: MinioClientDep,
     embedding_breaker: EmbeddingBreakerDep,
+    user: CurrentUser,
     file: UploadFile = File(...),  # noqa: B008
     category: str = Form(...),
     doc_type: str = Form(...),
@@ -1244,7 +1246,7 @@ async def upload_document(
         effective_date=date_type.fromisoformat(effective_date) if effective_date else None,
         expiry_date=date_type.fromisoformat(expiry_date) if expiry_date else None,
         status=KbDocStatus.PENDING,
-        created_by="api_upload",
+        created_by=user.user_id,
     )
     db.add(kb_doc)
     await db.flush()
@@ -1459,6 +1461,7 @@ async def get_session_messages(session_id: str, req: Request, limit: int = 50):
 @router.get("/kb/documents")
 async def list_documents(
     db: DbSession,
+    user: CurrentUser,
     category: str | None = None,
     status: str | None = None,
     limit: int = 50,
@@ -1504,6 +1507,7 @@ async def delete_document(
     db: DbSession,
     es_client: ESClientDep,
     milvus_collection: MilvusCollectionDep,
+    user: CurrentUser,
 ):
     """软删除知识库文档，并同步清理 ES 索引与 Milvus 向量
 
@@ -1549,7 +1553,7 @@ async def delete_document(
 
 
 @router.get("/kb/documents/{doc_id}/status")
-async def get_document_status(doc_id: str, db: DbSession):
+async def get_document_status(doc_id: str, db: DbSession, user: CurrentUser):
     """查看文档摄入状态"""
     from sqlalchemy import select
 

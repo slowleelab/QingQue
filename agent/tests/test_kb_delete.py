@@ -32,6 +32,13 @@ def _make_doc(doc_id: str = "doc-1") -> MagicMock:
     return doc
 
 
+def _make_user() -> MagicMock:
+    user = MagicMock()
+    user.user_id = "test-user"
+    user.role = "admin"
+    return user
+
+
 class TestDeleteDocument:
     """KB 文档删除端点测试"""
 
@@ -40,7 +47,7 @@ class TestDeleteDocument:
         """软删除：DB 标记 is_deleted + deleted_at"""
         doc = _make_doc()
         db = _make_db(doc)
-        await delete_document(doc_id="doc-1", db=db, es_client=None, milvus_collection=None)
+        await delete_document(doc_id="doc-1", db=db, user=_make_user(), es_client=None, milvus_collection=None)
         assert doc.is_deleted is True
         assert doc.deleted_at is not None
         db.flush.assert_awaited_once()
@@ -53,7 +60,7 @@ class TestDeleteDocument:
         es = MagicMock()
         es.delete_by_query = AsyncMock()
 
-        await delete_document(doc_id="doc-1", db=db, es_client=es, milvus_collection=None)
+        await delete_document(doc_id="doc-1", db=db, user=_make_user(), es_client=es, milvus_collection=None)
 
         es.delete_by_query.assert_awaited_once()
         kwargs = es.delete_by_query.await_args.kwargs
@@ -67,7 +74,7 @@ class TestDeleteDocument:
         milvus = MagicMock()
         milvus.delete = MagicMock()
 
-        await delete_document(doc_id="doc-1", db=db, es_client=None, milvus_collection=milvus)
+        await delete_document(doc_id="doc-1", db=db, user=_make_user(), es_client=None, milvus_collection=milvus)
 
         milvus.delete.assert_called_once()
         expr = milvus.delete.call_args.kwargs["expr"]
@@ -81,7 +88,7 @@ class TestDeleteDocument:
         es = MagicMock()
         es.delete_by_query = AsyncMock(side_effect=ConnectionError("es down"))
 
-        result = await delete_document(doc_id="doc-1", db=db, es_client=es, milvus_collection=None)
+        result = await delete_document(doc_id="doc-1", db=db, user=_make_user(), es_client=es, milvus_collection=None)
 
         assert result["status"] == "ok"
         assert doc.is_deleted is True  # DB 软删仍然生效
@@ -94,7 +101,7 @@ class TestDeleteDocument:
         milvus = MagicMock()
         milvus.delete = MagicMock(side_effect=RuntimeError("milvus down"))
 
-        result = await delete_document(doc_id="doc-1", db=db, es_client=None, milvus_collection=milvus)
+        result = await delete_document(doc_id="doc-1", db=db, user=_make_user(), es_client=None, milvus_collection=milvus)
 
         assert result["status"] == "ok"
         assert doc.is_deleted is True
@@ -106,12 +113,12 @@ class TestDeleteDocument:
 
         db = _make_db(None)
         with pytest.raises(SmartCSError):
-            await delete_document(doc_id="missing", db=db, es_client=None, milvus_collection=None)
+            await delete_document(doc_id="missing", db=db, user=_make_user(), es_client=None, milvus_collection=None)
 
     @pytest.mark.asyncio
     async def test_no_clients_only_soft_deletes(self) -> None:
         """ES/Milvus 均不可用时仅软删 DB，不报错"""
         doc = _make_doc()
         db = _make_db(doc)
-        result = await delete_document(doc_id="doc-1", db=db, es_client=None, milvus_collection=None)
+        result = await delete_document(doc_id="doc-1", db=db, user=_make_user(), es_client=None, milvus_collection=None)
         assert result == {"status": "ok", "doc_id": "doc-1"}

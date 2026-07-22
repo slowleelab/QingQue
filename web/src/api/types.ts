@@ -148,3 +148,93 @@ export interface CustomerPollResponse {
   }>
   session_ended?: boolean
 }
+
+// ── KB 文档管理 ──
+
+export interface KbDocument {
+  doc_id: string
+  title: string
+  source_type: string
+  category: string
+  doc_type: string
+  status: string
+  chunk_count: number
+  created_at: string | null
+}
+
+export interface KbDocumentListResponse {
+  documents: KbDocument[]
+  total: number
+}
+
+export interface KbDocumentStatus {
+  doc_id: string
+  title: string
+  status: string
+  chunk_count: number
+  stages: Array<{ stage: string; status: string; duration_ms: number; error_message?: string }>
+}
+
+// ── FAQ 管理 ──
+
+export interface FaqItem {
+  id: string
+  question: string
+  category: string
+  approval_status: string
+  version: number
+  is_current_version: boolean
+  card_types: string[]
+  effective_date: string | null
+  expiry_date: string | null
+  created_at: string | null
+}
+
+export interface FaqDetail extends FaqItem {
+  answer: string
+  variant_questions: string[]
+  customer_tiers: string[]
+  keywords: string[]
+  sort_order: number
+  doc_group: string
+  allowed_roles: string[]
+  regulatory_tags: string[]
+  created_by: string
+  updated_by: string | null
+  updated_at: string | null
+}
+
+export interface FaqListResponse {
+  faqs: FaqItem[]
+  total: number
+}
+
+export interface FaqCreateRequest {
+  question: string
+  answer: string
+  variant_questions?: string[]
+  category: string
+  card_types?: string[]
+  customer_tiers?: string[]
+  keywords?: string[]
+  effective_date?: string | null
+  expiry_date?: string | null
+  allowed_roles?: string[]
+  regulatory_tags?: string[]
+}
+
+export interface FaqUpdateRequest {
+  question?: string | null
+  answer?: string | null
+  variant_questions?: string[] | null
+  category?: string | null
+  card_types?: string[] | null
+  keywords?: string[] | null
+  sort_order?: number | null
+}
+
+export interface FaqApprovalResult {
+  status: string
+  faq_id: string
+  approval_status: string
+}
