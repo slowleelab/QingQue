@@ -14,11 +14,15 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from smartcs.shared.orm_models import DialogueLog
+
+if TYPE_CHECKING:
+    from smartcs.services.common.session import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +133,7 @@ async def apply_learned_profile(
     customer_id: str,
     session_id: str,
     session_factory: async_sessionmaker[AsyncSession],
-    session_manager: object,
+    session_manager: SessionManager,
 ) -> bool:
     """学习并应用客户画像到当前会话状态
 

@@ -7,8 +7,12 @@
   - ClassificationService (:50051) — 意图分类 + 实体抽取 + 情感分析
   - RetrievalService    (:50052) — 混合检索 BM25+向量+RRF
   - SafetyFilterService (:50053) — 输入/输出过滤 + 合规校验
+
+注: 本模块依赖 protobuf 生成的 stub（generated/proto/*_pb2*.py），
+其类型定义由 protoc 自动生成，mypy 无法完全校验。
 """
 
+# mypy: ignore-errors
 from __future__ import annotations
 
 import asyncio

@@ -87,6 +87,42 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-      - name: Build Docker image
+      - name: Build Docker image (context: agent/)
+        run: docker build -f deploy/Dockerfile -t smartcs:${{ github.sha }} agent/
+      - name: Verify image
+        run: docker images smartcs
+
+  e2e-tests:
+    name: E2E Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
+    env:
+      SMARTCS_ENVIRONMENT: development
+      SMARTCS_RATE_LIMIT_ENABLED: "false"
+      LLM_BASE_URL: http://localhost:11434/v1
+      POSTGRES_PASSWORD_DOCKER: smartcs_pass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Start Demo stack
         working-directory: deploy
-        run: docker build -t smartcs:${{ github.sha }} .
+        run: docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+      - name: Wait for services
+        run: |
+          for i in $(seq 1 120); do
+            if curl -s http://localhost:8000/api/health | grep -q "ok\|healthy\|degraded"; then
+              echo "Bot ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+      - name: Smoke test — send message
+        run: |
+          RESP=$(curl -s -X POST http://localhost:8000/api/chat/send \
+            -H 'Content-Type: application/json' \
+            -d '{"message":"信用卡年费怎么减免"}')
+          echo "$RESP" | grep -q '"accepted":true'
+          echo "✅ Send OK"

@@ -104,7 +104,7 @@ class ProductCatalog:
                 description=row.description or "",
                 eligibility_keywords=row.eligibility_keywords or [],
             )
-            self.add_product(product)
+            self.products.append(product)
             loaded += 1
 
         logger.info("从数据库加载了 %d 个产品", loaded)

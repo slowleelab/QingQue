@@ -21,9 +21,16 @@ def create_assist_app(lifespan: Callable | None = None) -> FastAPI:
     """创建坐席辅助服务 FastAPI 实例"""
     app = FastAPI(
         title="SmartCS 坐席辅助服务",
-        description="银行信用卡智能客服 - 坐席辅助服务",
-        version="0.1.0",
+        description="银行信用卡智能客服 - 坐席辅助服务。提供 AI 辅助建议、OE 编排推送、会话管理、反馈收集。",
+        version="0.2.0",
         lifespan=lifespan,
+        contact={"name": "SmartCS", "url": "https://github.com/slowleelab/QingQue"},
+        license_info={"name": "Apache 2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0"},
+        openapi_tags=[
+            {"name": "assist", "description": "坐席辅助 — 消息分析、OE 推送、会话保持/恢复、事后复盘"},
+        ],
+        docs_url="/docs",
+        redoc_url="/redoc",
     )
 
     # 限流
