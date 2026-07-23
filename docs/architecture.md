@@ -26,44 +26,7 @@ SmartCS 提供两大核心能力：
 
 ## 三层架构
 
-<div style="width:1100px;box-sizing:border-box;position:relative;background:#0f172a;padding:18px;border-radius:12px">
-<style scoped>
-.arch-wrap{display:flex;gap:10px}.arch-side{width:150px;flex-shrink:0}.arch-main{flex:1;min-width:0}.arch-title{text-align:center;font-size:20px;font-weight:bold;color:#f1f5f9;margin-bottom:14px;letter-spacing:1px}
-.arch-l{margin:7px 0;padding:12px;border-radius:8px}.arch-l-t{font-size:12px;font-weight:bold;margin-bottom:8px;text-align:center;text-transform:uppercase;letter-spacing:0.5px}
-.arch-g{display:grid;gap:6px}.arch-g2{grid-template-columns:repeat(2,1fr)}.arch-g3{grid-template-columns:repeat(3,1fr)}.arch-g4{grid-template-columns:repeat(4,1fr)}.arch-g6{grid-template-columns:repeat(6,1fr)}
-.arch-b{border-radius:6px;padding:7px;text-align:center;font-size:10.5px;font-weight:600;line-height:1.3;color:#e2e8f0;background:rgba(30,41,59,.8);border:1px solid rgba(148,163,184,.2)}.arch-b small{font-size:9px;color:#94a3b8;font-weight:400;display:block;margin-top:2px}
-.arch-b.hl{background:rgba(250,204,21,.12);border:1px solid #facc15;color:#fef08a}.arch-b.ct{background:rgba(14,165,233,.12);border:1px solid #0ea5e9;color:#7dd3fc}.arch-b.gn{background:rgba(16,185,129,.12);border:1px solid #10b981;color:#6ee7b7}
-.arch-l.ac{background:rgba(14,165,233,.08);border:1px solid #0ea5e9;box-shadow:0 0 10px rgba(14,165,233,.1)}.arch-l.ac .arch-l-t{color:#7dd3fc}
-.arch-l.or{background:rgba(245,158,11,.08);border:1px solid #f59e0b;box-shadow:0 0 10px rgba(245,158,11,.1)}.arch-l.or .arch-l-t{color:#fcd34d}
-.arch-l.ai{background:rgba(16,185,129,.08);border:1px solid #10b981;box-shadow:0 0 10px rgba(16,185,129,.1)}.arch-l.ai .arch-l-t{color:#6ee7b7}
-.arch-l.dt{background:rgba(236,72,153,.08);border:1px solid #ec4899;box-shadow:0 0 10px rgba(236,72,153,.1)}.arch-l.dt .arch-l-t{color:#f9a8d4}
-.arch-sp{border-radius:8px;padding:9px;background:rgba(30,41,59,.6);border:1px solid #334155;margin-bottom:7px}.arch-sp-t{font-size:11px;font-weight:bold;text-align:center;color:#94a3b8;margin-bottom:5px}
-.arch-si{font-size:9.5px;text-align:center;color:#cbd5e1;background:rgba(15,23,42,.5);padding:4px;border-radius:4px;margin:2px 0;border:1px solid rgba(51,65,85,.5)}.arch-si.m{background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;font-weight:600}.arch-si.w{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);color:#fcd34d}
-</style>
-<div class="arch-title">SmartCS 系统架构</div>
-<div class="arch-wrap">
-<div class="arch-side">
-<div class="arch-sp"><div class="arch-sp-t">📊 可观测性</div><div class="arch-si m">Prometheus</div><div class="arch-si m">Grafana</div><div class="arch-si">Structured Logging</div><div class="arch-si">Distributed Tracing</div></div>
-<div class="arch-sp"><div class="arch-sp-t">⚙️ 运维</div><div class="arch-si">Docker Compose</div><div class="arch-si">K8s / Helm</div><div class="arch-si">GitHub Actions CI</div><div class="arch-si">Health Checks</div></div>
-<div class="arch-sp"><div class="arch-sp-t">🔑 认证</div><div class="arch-si">JWT (access token)</div><div class="arch-si">Role: admin/agent/customer</div><div class="arch-si">Dev bypass (localhost)</div></div>
-</div>
-<div class="arch-main">
-<div class="arch-l ac"><div class="arch-l-t">🎯 接入层 — Access Layer</div>
-<div class="arch-g arch-g4"><div class="arch-b ct">💬 客户对话<br><small>Vue 3 · Web Chat</small></div><div class="arch-b ct">🧑‍💼 坐席工作台<br><small>Vue 3 · Workbench</small></div><div class="arch-b ct">⚙️ 运营后台<br><small>Vue 3 · Admin</small></div><div class="arch-b ct">🔌 在线接入<br><small>Java · StarConn</small></div></div></div>
-<div class="arch-l or"><div class="arch-l-t">⚡ 编排层 — Orchestration (FastAPI + LangGraph)</div>
-<div class="arch-g arch-g2"><div class="arch-b hl">🤖 Bot Service :8000<small>Intent → Route → RAG → LLM · KG · Slot · Memory</small></div><div class="arch-b hl">🧠 Assist Service :8001 (WS)<small>OE Pipeline D1-3/E1-3 · Arbitrator · PushTracker · SM</small></div></div></div>
-<div class="arch-l ai"><div class="arch-l-t">🧬 AI 能力层 — gRPC Services</div>
-<div class="arch-g arch-g3"><div class="arch-b gn">🏷️ Classification :50051<small>Intent · Entity · Sentiment</small></div><div class="arch-b gn">🔍 Retrieval :50052<small>BM25 + Vector + RRF</small></div><div class="arch-b gn">🛡️ SafetyFilter :50053<small>I/O Filter · Compliance</small></div></div></div>
-<div class="arch-l dt"><div class="arch-l-t">🗄️ 数据层 — Data Layer</div>
-<div class="arch-g arch-g6"><div class="arch-b">PostgreSQL 16<small>Dialogue · KB · Audit</small></div><div class="arch-b">Redis 7.2<small>Session · Cache · Pub</small></div><div class="arch-b">ES 8.19+IK<small>BM25 Search</small></div><div class="arch-b">Milvus 2.4<small>Vector Embed</small></div><div class="arch-b">MinIO<small>Doc Storage</small></div><div class="arch-b">Kafka 3.7<small>MQ · EventBus</small></div></div></div>
-</div>
-<div class="arch-side">
-<div class="arch-sp"><div class="arch-sp-t">🛡️ 安全 & 合规</div><div class="arch-si w">PII 脱敏</div><div class="arch-si w">合规短语过滤</div><div class="arch-si w">敏感词热更新</div><div class="arch-si">审计日志 (全量)</div></div>
-<div class="arch-sp"><div class="arch-sp-t">🔀 弹性策略</div><div class="arch-si w">Circuit Breaker ×3</div><div class="arch-si w">四级降级链</div><div class="arch-si">LLM→检索→模板→兜底</div><div class="arch-si">Graceful Degradation</div></div>
-<div class="arch-sp"><div class="arch-sp-t">📐 设计模式</div><div class="arch-si">CAS 乐观锁</div><div class="arch-si">RRF 融合排序</div><div class="arch-si">Delay Commit</div><div class="arch-si">Idempotency Key</div></div>
-</div>
-</div>
-</div>
+![SmartCS Architecture](../docs/assets/architecture.svg)
 
 ### 编排层（`agent/smartcs/services/`）
 
