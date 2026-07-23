@@ -12,7 +12,7 @@ from smartcs.shared.models import (
     ExecutorResult,
     FeedbackSignal,
     IntentLabel,
-    OEState,
+    AssistEngineState,
     OrchestrationState,
     RiskActionEnum,
     SentimentLabel,
@@ -32,19 +32,19 @@ class TestRiskActionEnum:
         assert len(RiskActionEnum) == 3
 
 
-# ── OEState ──
+# ── AssistEngineState ──
 
 
-class TestOEState:
+class TestAssistEngineState:
     def test_values(self) -> None:
-        assert OEState.IDLE == "IDLE"
-        assert OEState.EVALUATING == "EVALUATING"
-        assert OEState.DISPATCHING == "DISPATCHING"
-        assert OEState.WAITING_RESULTS == "WAITING_RESULTS"
-        assert OEState.COMPLETED == "COMPLETED"
+        assert AssistEngineState.IDLE == "IDLE"
+        assert AssistEngineState.EVALUATING == "EVALUATING"
+        assert AssistEngineState.DISPATCHING == "DISPATCHING"
+        assert AssistEngineState.WAITING_RESULTS == "WAITING_RESULTS"
+        assert AssistEngineState.COMPLETED == "COMPLETED"
 
     def test_member_count(self) -> None:
-        assert len(OEState) == 5
+        assert len(AssistEngineState) == 5
 
 
 # ── EmotionVector ──
@@ -156,7 +156,7 @@ class TestOrchestrationState:
     def test_defaults(self) -> None:
         os = OrchestrationState(session_id="sess-1")
         assert os.session_id == "sess-1"
-        assert os.oe_state == OEState.IDLE
+        assert os.oe_state == AssistEngineState.IDLE
         assert os.d1_activated is False
         assert os.d2_activated is False
         assert os.d3_activated is True  # 风控始终激活
@@ -172,10 +172,10 @@ class TestOrchestrationState:
 
     def test_state_transitions(self) -> None:
         os = OrchestrationState(session_id="sess-3")
-        os.oe_state = OEState.EVALUATING
-        assert os.oe_state == OEState.EVALUATING
-        os.oe_state = OEState.DISPATCHING
-        assert os.oe_state == OEState.DISPATCHING
+        os.oe_state = AssistEngineState.EVALUATING
+        assert os.oe_state == AssistEngineState.EVALUATING
+        os.oe_state = AssistEngineState.DISPATCHING
+        assert os.oe_state == AssistEngineState.DISPATCHING
 
 
 # ── FeedbackSignal ──

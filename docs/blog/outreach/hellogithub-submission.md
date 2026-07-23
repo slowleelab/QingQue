@@ -40,7 +40,7 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 **后续更新计划**：
 
-- 坐席辅助并行 OE 编排（Temporal + LangGraph DAG 架构升级）
+- 坐席辅助并行 坐席辅助引擎（Temporal + LangGraph DAG 架构升级）
 - 知识库运营后台完善
 - 适配更多 LLM 后端（vLLM / OpenAI 兼容接口）
 

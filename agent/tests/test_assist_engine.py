@@ -1,4 +1,4 @@
-"""OE 编排管道测试"""
+"""坐席辅助引擎测试"""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from smartcs.services.common.decision import PushTracker
-from smartcs.services.common.oe_pipeline import (
+from smartcs.services.common.assist_engine import (
     evaluate_d1_service,
     evaluate_d2_marketing,
     evaluate_d3_risk,
-    run_oe_pipeline,
+    run_assist_engine,
 )
 
 
@@ -69,8 +69,8 @@ class TestEvaluators:
         assert result.activated is True
 
 
-class TestOEPipeline:
-    """OE 编排管道集成测试"""
+class TestAssistEngine:
+    """坐席辅助引擎集成测试"""
 
     @pytest.fixture
     def ai_executor(self) -> MagicMock:
@@ -96,7 +96,7 @@ class TestOEPipeline:
     @pytest.mark.asyncio
     async def test_pipeline_basic_flow(self, ai_executor: MagicMock, alert_engine: MagicMock) -> None:
         """基本编排流程：有 AI 建议，风控 PASS，无营销"""
-        result = await run_oe_pipeline(
+        result = await run_assist_engine(
             session_id="s1",
             message="查一下账单",
             intent="bill_query",
@@ -119,7 +119,7 @@ class TestOEPipeline:
         ai_exec = MagicMock()
         ai_exec.run = AsyncMock()
 
-        result = await run_oe_pipeline(
+        result = await run_assist_engine(
             session_id="s1",
             message="嗯",
             intent="faq",
@@ -146,7 +146,7 @@ class TestOEPipeline:
             ]
         )
 
-        result = await run_oe_pipeline(
+        result = await run_assist_engine(
             session_id="s1",
             message="保证收益零风险",
             intent="faq",
@@ -163,7 +163,7 @@ class TestOEPipeline:
     @pytest.mark.asyncio
     async def test_pipeline_no_ai_executor(self) -> None:
         """无 AI 执行器时返回 None"""
-        result = await run_oe_pipeline(
+        result = await run_assist_engine(
             session_id="s1",
             message="test",
             intent="faq",
@@ -180,7 +180,7 @@ class TestOEPipeline:
         ai_exec = MagicMock()
         ai_exec.run = AsyncMock(side_effect=TimeoutError("timeout"))
 
-        result = await run_oe_pipeline(
+        result = await run_assist_engine(
             session_id="s1",
             message="查询",
             intent="faq",
@@ -199,7 +199,7 @@ class TestOEPipeline:
         alert_engine: MagicMock,
     ) -> None:
         """紧急场景不展示营销"""
-        result = await run_oe_pipeline(
+        result = await run_assist_engine(
             session_id="s1",
             message="我卡丢了",
             intent="card_loss",
@@ -227,7 +227,7 @@ class TestOEPipeline:
         tracker = PushTracker()
         tracker.record_push("ai")
 
-        result = await run_oe_pipeline(
+        result = await run_assist_engine(
             session_id="s1",
             message="查询",
             intent="faq",
@@ -250,7 +250,7 @@ class TestOEPipeline:
         alert = MagicMock()
         alert.check_compliance = MagicMock(side_effect=TimeoutError("timeout"))
 
-        result = await run_oe_pipeline(
+        result = await run_assist_engine(
             session_id="s1",
             message="查询",
             intent="faq",

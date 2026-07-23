@@ -167,7 +167,7 @@ NEW_METRIC = Counter("smartcs_new_metric_total", "新指标说明", ["label1"])
     │     ├── LLM 调用       [HTTPX 探针]
     │     └── Redis 操作     [Redis 探针]
     └── Assist (:8001)       [FastAPI + Redis 探针]
-          └── OE 编排        [手动 Span]
+          └── 坐席辅助引擎        [手动 Span]
 
 所有 Span 上报到 Jaeger (:4318) → UI 查看 (:16686)
 ```

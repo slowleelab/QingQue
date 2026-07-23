@@ -313,7 +313,7 @@ make clean        # 清理缓存
 | Sprint 2 | RAG 核心 + 知识库 | ✅ 已完成 |
 | Sprint 3 | Agent 编排 + 机器人 MVP | ✅ 已完成 |
 | Sprint 4 | 大模型集成 + 降级策略 | ✅ 已完成 |
-| Sprint 5 | 坐席辅助服务 + OE 编排 | ⬜ 待开始 |
+| Sprint 5 | 坐席辅助服务 + 坐席辅助引擎 | ⬜ 待开始 |
 
 ## 文档
 

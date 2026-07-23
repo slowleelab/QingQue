@@ -1,4 +1,4 @@
-"""OE 编排管道 — PydanticAI 实现
+"""坐席辅助引擎 — PydanticAI 实现
 
 替代 Temporal OrchestrationWorkflow，使用 asyncio.gather + PydanticAI Agent 实现：
 - 三路评估 (D1/D2/D3) 并行
@@ -44,19 +44,19 @@ except ImportError:
     _PROMETHEUS_OK = False
 
 if _PROMETHEUS_OK:
-    OE_DECISIONS = Counter(
-        "smartcs_oe_decisions_total",
-        "OE 编排决策计数",
+    ASSIST_ENGINE_DECISIONS = Counter(
+        "smartcs_assist_engine_decisions_total",
+        "坐席辅助引擎决策计数",
         ["scene", "decision"],
     )
-    OE_LATENCY = Histogram(
-        "smartcs_oe_latency_seconds",
-        "OE 编排耗时",
+    ASSIST_ENGINE_LATENCY = Histogram(
+        "smartcs_assist_engine_latency_seconds",
+        "坐席辅助引擎耗时",
         ["phase"],
     )
-    OE_DEGRADATION = Counter(
-        "smartcs_oe_degradation_total",
-        "OE 降级次数",
+    ASSIST_ENGINE_DEGRADATION = Counter(
+        "smartcs_assist_engine_degradation_total",
+        "坐席辅助引擎降级次数",
         ["agent", "reason"],
     )
 else:
@@ -71,9 +71,9 @@ else:
         def observe(self, _v: float) -> None:
             pass
 
-    OE_DECISIONS = _MockMetric()  # type: ignore[assignment]
-    OE_LATENCY = _MockMetric()  # type: ignore[assignment]
-    OE_DEGRADATION = _MockMetric()  # type: ignore[assignment]
+    ASSIST_ENGINE_DECISIONS = _MockMetric()  # type: ignore[assignment]
+    ASSIST_ENGINE_LATENCY = _MockMetric()  # type: ignore[assignment]
+    ASSIST_ENGINE_DEGRADATION = _MockMetric()  # type: ignore[assignment]
 
 
 # ── 评估结果 ──
@@ -168,7 +168,7 @@ def evaluate_d3_risk(_state_snapshot: dict[str, Any]) -> EvaluatorResult:
 # ── 编排管道 ──
 
 
-async def run_oe_pipeline(
+async def run_assist_engine(
     session_id: str,
     message: str,
     intent: str,
@@ -185,7 +185,7 @@ async def run_oe_pipeline(
     sentiment: str = "neutral",
     sentiment_score: float = 0.5,
 ) -> dict[str, Any] | None:
-    """执行 OE 编排管道
+    """执行 坐席辅助引擎
 
     替代 Temporal OrchestrationWorkflow.run()，使用 asyncio.gather 并行。
 
@@ -212,14 +212,14 @@ async def run_oe_pipeline(
     push_tracker = push_tracker or PushTracker()
 
     # ── 幂等性检查 ──
-    dedup_key = f"smartcs:oe:dedup:{trace_id}"
+    dedup_key = f"smartcs:ae:dedup:{trace_id}"
     if redis_client:
         try:
             cached = await redis_client.get(dedup_key)
             if cached:
                 import json
 
-                logger.debug("OE 幂等命中: trace_id=%s", trace_id)
+                logger.debug("坐席辅助引擎幂等命中: trace_id=%s", trace_id)
                 return json.loads(cached)
         except Exception:
             pass
@@ -232,7 +232,7 @@ async def run_oe_pipeline(
     d3 = evaluate_d3_risk(state_snapshot)
 
     logger.debug(
-        "OE评估 session=%s scene=%s d1=%s d2=%s d3=%s",
+        "坐席辅助引擎评估 session=%s scene=%s d1=%s d2=%s d3=%s",
         session_id,
         scene.value,
         d1.activated,
@@ -249,7 +249,7 @@ async def run_oe_pipeline(
 
         ai_breaker = breakers.get("ai")
         if ai_breaker and ai_breaker.state == CircuitState.OPEN:
-            OE_DEGRADATION.labels(agent="ai", reason="breaker_open").inc()
+            ASSIST_ENGINE_DEGRADATION.labels(agent="ai", reason="breaker_open").inc()
             return ExecutorResult(
                 executor_id="ai_service",
                 degraded=True,
@@ -283,7 +283,7 @@ async def run_oe_pipeline(
         except TimeoutError:
             if ai_breaker:
                 ai_breaker.record_slow_call(settings.e1_sla_ms / 1000)
-            OE_DEGRADATION.labels(agent="ai", reason="timeout").inc()
+            ASSIST_ENGINE_DEGRADATION.labels(agent="ai", reason="timeout").inc()
             logger.warning("E1 超时 session=%s", session_id)
             return ExecutorResult(
                 executor_id="ai_service",
@@ -294,7 +294,7 @@ async def run_oe_pipeline(
         except Exception as e:
             if ai_breaker:
                 ai_breaker.record_failure()
-            OE_DEGRADATION.labels(agent="ai", reason=str(e)[:50]).inc()
+            ASSIST_ENGINE_DEGRADATION.labels(agent="ai", reason=str(e)[:50]).inc()
             logger.warning("E1 异常 session=%s: %s", session_id, e)
             return ExecutorResult(
                 executor_id="ai_service",
@@ -307,7 +307,7 @@ async def run_oe_pipeline(
         """E3 风控执行器"""
         risk_breaker = breakers.get("risk")
         if risk_breaker and risk_breaker.state == CircuitState.OPEN:
-            OE_DEGRADATION.labels(agent="risk", reason="breaker_open").inc()
+            ASSIST_ENGINE_DEGRADATION.labels(agent="risk", reason="breaker_open").inc()
             return ExecutorResult(
                 executor_id="risk",
                 degraded=True,
@@ -378,7 +378,7 @@ async def run_oe_pipeline(
         except TimeoutError:
             if risk_breaker:
                 risk_breaker.record_failure()
-            OE_DEGRADATION.labels(agent="risk", reason="timeout").inc()
+            ASSIST_ENGINE_DEGRADATION.labels(agent="risk", reason="timeout").inc()
             logger.warning("E3 超时 session=%s", session_id)
             return ExecutorResult(
                 executor_id="risk",
@@ -391,7 +391,7 @@ async def run_oe_pipeline(
         except Exception as e:
             if risk_breaker:
                 risk_breaker.record_failure()
-            OE_DEGRADATION.labels(agent="risk", reason=str(e)[:50]).inc()
+            ASSIST_ENGINE_DEGRADATION.labels(agent="risk", reason=str(e)[:50]).inc()
             return ExecutorResult(
                 executor_id="risk",
                 degraded=True,
@@ -479,7 +479,7 @@ async def run_oe_pipeline(
     risk_decision = should_show("risk", scene, push_tracker, risk_action=risk_action)
 
     logger.debug(
-        "OE展示决策 session=%s ai=%s(%s) mkt=%s(%s) risk=%s(%s)",
+        "坐席辅助引擎展示决策 session=%s ai=%s(%s) mkt=%s(%s) risk=%s(%s)",
         session_id,
         "show" if ai_decision.should_show else "skip",
         ai_decision.reason,
@@ -551,7 +551,7 @@ async def run_oe_pipeline(
 
     # ── Phase 5b: 编排状态回写到 session meta key ──
     # 将 intent_stack/entity_pool/emotion_vector/suppress_flag/risk_pending_audit
-    # 通过 CAS patch 写回，使后续 OE 周期能读取累积状态
+    # 通过 CAS patch 写回，使后续 坐席辅助引擎周期能读取累积状态
     if session_manager is not None:
         state_patches: dict[str, Any] = {}
 
@@ -592,15 +592,15 @@ async def run_oe_pipeline(
                     session_id=session_id,
                     expected_version=expected_version,
                     patches=state_patches,
-                    writer=f"oe_pipeline:{trace_id}",
+                    writer=f"assist_engine:{trace_id}",
                 )
                 logger.debug(
-                    "OE 状态回写成功: session=%s patches=%s",
+                    "坐席辅助引擎状态回写成功: session=%s patches=%s",
                     session_id,
                     list(state_patches.keys()),
                 )
             except Exception as e:
-                logger.warning("OE 状态回写失败: session=%s error=%s", session_id, e)
+                logger.warning("坐席辅助引擎状态回写失败: session=%s error=%s", session_id, e)
 
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
@@ -626,7 +626,7 @@ async def run_oe_pipeline(
             await redis_client.setex(dedup_key, 30, json.dumps(push_data, default=str))
             # 保存 push_tracker 状态
             await redis_client.setex(
-                f"smartcs:oe:tracker:{session_id}",
+                f"smartcs:ae:tracker:{session_id}",
                 3600,  # 1 小时 TTL
                 json.dumps(push_tracker.to_dict()),
             )
@@ -634,7 +634,7 @@ async def run_oe_pipeline(
             pass
 
     # ── 可观测性 ──
-    OE_DECISIONS.labels(
+    ASSIST_ENGINE_DECISIONS.labels(
         scene=scene.value,
         decision=(
             f"ai={'show' if ai_decision.should_show else 'skip'},"
@@ -642,10 +642,10 @@ async def run_oe_pipeline(
             f"risk={risk_action}"
         ),
     ).inc()
-    OE_LATENCY.labels(phase="total").observe(elapsed_ms / 1000)
+    ASSIST_ENGINE_LATENCY.labels(phase="total").observe(elapsed_ms / 1000)
 
     logger.info(
-        "OE编排完成 session=%s scene=%s ai=%s mkt=%s risk=%s " "ai_lat=%dms risk_lat=%dms total=%dms",
+        "坐席辅助引擎编排完成 session=%s scene=%s ai=%s mkt=%s risk=%s " "ai_lat=%dms risk_lat=%dms total=%dms",
         session_id,
         scene.value,
         "show" if ai_decision.should_show else "skip",
@@ -670,7 +670,7 @@ async def load_push_tracker(session_id: str, redis_client: Any) -> PushTracker:
     try:
         import json
 
-        data = await redis_client.get(f"smartcs:oe:tracker:{session_id}")
+        data = await redis_client.get(f"smartcs:ae:tracker:{session_id}")
         if data:
             return PushTracker.from_dict(json.loads(data))
     except Exception:

@@ -123,7 +123,7 @@ async def notify_message(body: NotifyRequest, request: Request):
 
 
 async def _process_notify_message(app, session_id: str, websocket: WebSocket, item: dict) -> None:
-    """处理单条 notify 消息: 分类 → OE 编排 → WS 推送
+    """处理单条 notify 消息: 分类 → 坐席辅助引擎 → WS 推送
 
     从 Redis Pub/Sub 收到消息后调用，替代旧的 _notify_session_worker 循环。
     串行性由 Pub/Sub 订阅的 async for 循环自然保证。
@@ -165,15 +165,15 @@ async def _process_notify_message(app, session_id: str, websocket: WebSocket, it
         except (TimeoutError, Exception):
             logger.debug("notify 分类失败: session=%s", session_id)
 
-    # 4. OE 编排 + WS 推送
-    push_data = await _run_oe_pipeline(app, session_id, message, intent, confidence, sentiment)
+    # 4. 坐席辅助引擎 + WS 推送
+    push_data = await _run_assist_engine(app, session_id, message, intent, confidence, sentiment)
     if push_data:
         with contextlib.suppress(Exception):
             await websocket.send_json(push_data)
 
 
-async def _run_oe_pipeline(app, session_id: str, message: str, intent, confidence, sentiment=None) -> dict | None:
-    """执行 OE 编排管道, 返回 assist_push payload 或 None
+async def _run_assist_engine(app, session_id: str, message: str, intent, confidence, sentiment=None) -> dict | None:
+    """执行 坐席辅助引擎, 返回 assist_push payload 或 None
 
     优先级: PydanticAI OE Pipeline > 同步编排器
     """
@@ -185,7 +185,7 @@ async def _run_oe_pipeline(app, session_id: str, message: str, intent, confidenc
         ai_executor = getattr(app.state, "ai_executor", None)
         if ai_executor is not None:
             try:
-                from smartcs.services.common.oe_pipeline import load_push_tracker, run_oe_pipeline
+                from smartcs.services.common.assist_engine import load_push_tracker, run_assist_engine
 
                 redis_client = getattr(app.state, "redis_client", None)
                 alert_engine = getattr(app.state, "alert_engine", None)
@@ -203,7 +203,7 @@ async def _run_oe_pipeline(app, session_id: str, message: str, intent, confidenc
 
                 intent_str = intent.value if hasattr(intent, "value") else str(intent)
                 push_data = await asyncio.wait_for(
-                    run_oe_pipeline(
+                    run_assist_engine(
                         session_id=session_id,
                         message=message,
                         intent=intent_str,
@@ -221,7 +221,7 @@ async def _run_oe_pipeline(app, session_id: str, message: str, intent, confidenc
                     ),
                     timeout=5.0,
                 )
-                logger.debug("OE 编排完成(PydanticAI): session=%s elapsed=%.1fs", session_id, time.monotonic() - t0)
+                logger.debug("坐席辅助引擎完成(PydanticAI): session=%s elapsed=%.1fs", session_id, time.monotonic() - t0)
                 return push_data
             except (TimeoutError, Exception) as e:
                 logger.debug("PydanticAI OE Pipeline 不可用, 降级: %s", e)
@@ -236,13 +236,13 @@ async def _run_oe_pipeline(app, session_id: str, message: str, intent, confidenc
                 )
                 if push_msg:
                     push_msg["session_id"] = session_id
-                    logger.debug("OE 编排完成(同步): session=%s elapsed=%.1fs", session_id, time.monotonic() - t0)
+                    logger.debug("坐席辅助引擎完成(同步): session=%s elapsed=%.1fs", session_id, time.monotonic() - t0)
                     return push_msg
             except (TimeoutError, Exception) as e:
                 logger.debug("同步编排失败: %s", e)
 
     except Exception:
-        logger.exception("OE 管道异常: session=%s", session_id)
+        logger.exception("坐席辅助引擎异常: session=%s", session_id)
 
     return None
 
@@ -357,7 +357,7 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
     ai_executor = getattr(app.state, "ai_executor", None)
     if ai_executor is not None:
         try:
-            from smartcs.services.common.oe_pipeline import load_push_tracker, run_oe_pipeline
+            from smartcs.services.common.assist_engine import load_push_tracker, run_assist_engine
 
             redis_client = getattr(app.state, "redis_client", None)
             alert_engine = getattr(app.state, "alert_engine", None)
@@ -367,7 +367,7 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
             trace_id = f"{body.session_id}-{int(t0 * 1000)}"
 
             push_data = await asyncio.wait_for(
-                run_oe_pipeline(
+                run_assist_engine(
                     session_id=body.session_id,
                     message=body.message,
                     intent=intent.value,
@@ -759,7 +759,7 @@ async def record_feedback(body: FeedbackRequest, request: Request):
         try:
             from smartcs.services.common.decision import FeedbackAction, PushTracker
 
-            tracker_key = f"smartcs:oe:tracker:{body.session_id}"
+            tracker_key = f"smartcs:ae:tracker:{body.session_id}"
             raw = await redis_client.get(tracker_key)
             tracker = PushTracker.from_dict(json.loads(raw) if raw else None)
 
@@ -928,7 +928,7 @@ async def session_websocket(websocket: WebSocket, session_id: str):
 
     并发运行两个任务:
     - 客户端消息处理 (ping/pong, customer_message)
-    - Redis Pub/Sub 监听 (star-conn notify → OE 编排 → WS 推送)
+    - Redis Pub/Sub 监听 (star-conn notify → 坐席辅助引擎 → WS 推送)
     """
     await websocket.accept()
     app = websocket.app

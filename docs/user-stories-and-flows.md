@@ -50,7 +50,7 @@
 | **BOT** | `bot:active` | 客户发起会话 | LangGraph Agent 处理消息，意图分类+路由分发 (knowledge→RAG / business→API / fallback→模板) |
 | **AGENT** | `agent:queued` | L1/L2/L3 转人工触发 | 调用 star-connection 创建人工会话，进入排队 |
 | **AGENT** | `agent:assigned` | star-connection 分配坐席 | 坐席振铃，超时守卫启动 (默认 30s) |
-| **AGENT** | `agent:active` | 坐席接听 | WS 消息激活会话，OE 编排启动辅助推送，超时守卫 (默认 1800s) |
+| **AGENT** | `agent:active` | 坐席接听 | WS 消息激活会话，坐席辅助引擎启动辅助推送，超时守卫 (默认 1800s) |
 | **AGENT** | `agent:on_hold` | 坐席点击保持 | 启动静音检测 (60s)，超时守卫继续计时 |
 | **AGENT** | `agent:reviewing` | 坐席点击生成小结 | LLM 生成话后小结，超时守卫 (默认 120s) |
 | **ENDED** | — | 坐席提交小结 / 超时 / 客户断开 | WS 会话数据清理，反馈归档，审计日志写入 |
@@ -381,7 +381,7 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
    │                   │                      │ │ 3. SessionMgr.get_session│ │
    │                   │                      │ │    加载上下文 (Redis)    │ │
    │                   │                      │ │ 4. 意图分类 (Rule+LLM)  │ │
-   │                   │                      │ │ 5. OE 编排              │ │
+   │                   │                      │ │ 5. 坐席辅助引擎              │ │
    │                   │                      │ │    D1/D2/D3→E1∥E3→仲裁  │ │
    │                   │                      │ │    ~2-5s                │ │
    │                   │                      │ │ 6. WS 推送 (持久连接)   │ │
@@ -399,7 +399,7 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
    │                   │                      │         └──────────────┘    │
 ```
 
-**OE 编排内部 (消费协程第5步展开)**:
+**坐席辅助引擎内部 (消费协程第5步展开)**:
 
 ```
                      notify 进入消费协程
@@ -444,8 +444,8 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
 | 顺序保证 | per-session Queue + 独享 Worker | 每会话一个协程，无锁无竞态，可跳过过期消息 |
 | 幂等处理 | 处理前检查 response key | 防重复消费 |
 | 上下文加载 | SessionManager.get_session() | 一次 Redis GET 拿到完整状态 |
-| OE 编排 | D评估→策略矩阵→E并行→仲裁融合 | 服务+风控+营销三路协同 |
-| 降级 | Temporal 不可用 → 同步编排器 | 失 OE 策略矩阵，仍有辅助推送 |
+| 坐席辅助引擎 | D评估→策略矩阵→E并行→仲裁融合 | 服务+风控+营销三路协同 |
+| 降级 | Temporal 不可用 → 同步编排器 | 失 坐席辅助引擎策略矩阵，仍有辅助推送 |
 | WS 推送 | 复用坐席持久 WS，带 session_id | 推送直达，不新建连接 |
 | 隐式反馈 | 监听坐席 WS 回复，推断采纳/修改 | 无感收集训练信号 |
 | 合规检测 | 坐席消息实时检测 → 违规告警 WS 推送 | 双向（客户+坐席） |
@@ -1079,7 +1079,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | LLM 熔断 (5 次连续失败) | 分类降级为 Rule only; 生成降级为检索摘要 | 回答质量下降但可交互 |
 | LLM + 检索都不可用 | 生成降级为意图模板 (10 种意图模板) | 建议客户"输入转人工" |
 | Embedding 熔断 | 检索降级为 BM25 Only | 检索精度下降但仍有结果 |
-| Temporal 不可用 | Assist 降级为同步编排器 (4 路并行) | 无 OE 策略矩阵但仍有辅助推送 |
+| Temporal 不可用 | Assist 降级为同步编排器 (4 路并行) | 无 坐席辅助引擎策略矩阵但仍有辅助推送 |
 | E3 风控熔断 | 降级为 pass_with_audit_flag | 放行但标记待审, 事后审计 |
 | E1 AI 熔断 | 降级为 fast_path 或 safe_fallback | 坐席看到兜底话术 |
 | E2 营销熔断 | 降级为 skip_card | 营销卡片不展示 |
@@ -1105,7 +1105,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | 3 | SYS | — | StarClient.create_session() → star-connection 排队 |
 | 4 | SYS | — | star-connection 分配坐席 → agent:assigned (振铃) |
 | 5 | AG | 坐席接听 | AgentUI 发送 session_activated → Assist 激活 → assist_ready |
-| 6 | SYS | — | OE 编排启动: 话术+知识+告警+产品 推送到坐席 |
+| 6 | SYS | — | 坐席辅助引擎启动: 话术+知识+告警+产品 推送到坐席 |
 | 7 | AG/CU | 对话结束 | → agent:reviewing → ENDED |
 | 8 | SYS | — | WS 会话数据清理, 反馈归档, 话后小结提交 |
 
@@ -1281,7 +1281,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 │  │    2. Queue: 追加入队, 独享 Worker 串行消费     │  │
 │  │    3. SessionMgr.get_session(sid) → 完整上下文    │  │
 │  │    4. 意图分类 (Rule+LLM) ~200ms                 │  │
-│  │    5. OE 编排 (优先 Temporal, 降级同步) ~2-5s     │  │
+│  │    5. 坐席辅助引擎 (优先 Temporal, 降级同步) ~2-5s     │  │
 │  │       D1(服务) D2(营销) D3(风控) → 策略矩阵       │  │
 │  │       E1∥E3 并行 → 仲裁 → PII脱敏                │  │
 │  │    6. WS 推送 → ws_pool[agent_id].send_json()    │  │
@@ -1307,7 +1307,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | Web 框架 | FastAPI + uvicorn | HTTP + WebSocket |
 | 消息入口 | HTTP POST /notify → asyncio.Queue | star-conn 异步通知 |
 | 异步编排 | asyncio (create_task / Queue / per-session Worker) | 并发消费, Worker 保序 |
-| OE 编排 | Temporal Workflow (主) / AssistOrchestrator (降级) | D评估→策略矩阵→E执行→仲裁 |
+| 坐席辅助引擎 | Temporal Workflow (主) / AssistOrchestrator (降级) | D评估→策略矩阵→E执行→仲裁 |
 | 会话状态 | SessionManager → Redis | 与 Bot 共享同一 Redis |
 | WS 管理 | ws_pool: dict[agent_id, WebSocket] | 按坐席索引, 一条持久 WS |
 | 合规检测 | AlertEngine (正则+LLM) | 10 条银行合规规则, <100ms |
@@ -1325,7 +1325,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | 2 | Bot 消息通道 | Redis Streams + Consumer Group + PEL | 持久化保证 at-least-once，XACK 确认，宕机消息留 PEL 可重试 | per-session Queue 内存占用 |
 | 3 | 双通道分类 | Rule 快路 + LLM 慢路 | 平衡速度与精度, 规则覆盖高频场景 | 规则覆盖率是否足够 |
 | 4 | 转人工三级触发 | L1 > L2 > L3 | 优先级明确，高级别直接触发避免延迟 | L3 阈值 3 轮是否合理 |
-| 5 | OE 状态机 | Temporal Workflow | 可观测+可恢复+策略矩阵; 不可用同步降级 | Temporal 运维复杂度 |
+| 5 | 坐席辅助引擎状态机 | Temporal Workflow | 可观测+可恢复+策略矩阵; 不可用同步降级 | Temporal 运维复杂度 |
 | 6 | 营销压制 | D1 激活 → D2 suppress 2 轮 | 避免服务场景过度营销 | 2 轮阈值是否合理 |
 | 7 | 反馈缓冲 | 3 秒延迟提交 + Undo | 坐席误操作可撤销, 减少脏数据 | 3s 是否太短 |
 | 8 | CAS 乐观锁 | Redis Lua 脚本 | 多执行器并发写回状态, 避免丢失更新 | 高并发下冲突率 |

@@ -193,7 +193,7 @@ class SessionManager:
             conversation_summary=meta.get("conversation_summary", ""),
             summary_turn_count=meta.get("summary_turn_count", 0),
             last_summarized_turn_id=meta.get("last_summarized_turn_id", ""),
-            # OE 编排层字段（从 Redis 原始 JSON 读取，patch_state 写入的值不会丢失）
+            # 坐席辅助引擎层字段（从 Redis 原始 JSON 读取，patch_state 写入的值不会丢失）
             intent_stack=[IntentLabel(i) if isinstance(i, str) else i for i in meta.get("intent_stack", [])],
             entity_pool=[Entity(**e) for e in meta.get("entity_pool", [])],
             emotion_vector=meta.get("emotion_vector"),
@@ -518,7 +518,7 @@ class SessionManager:
             "conversation_summary": state.conversation_summary,
             "summary_turn_count": state.summary_turn_count,
             "last_summarized_turn_id": state.last_summarized_turn_id,
-            # OE 编排层字段（全量序列化，防止 CAS SET 覆写时擦除 patch_state 写入的值）
+            # 坐席辅助引擎层字段（全量序列化，防止 CAS SET 覆写时擦除 patch_state 写入的值）
             "intent_stack": [i.value if hasattr(i, "value") else i for i in state.intent_stack],
             "entity_pool": [e.model_dump() if hasattr(e, "model_dump") else e for e in state.entity_pool],
             "emotion_vector": state.emotion_vector,
@@ -615,7 +615,7 @@ class SessionManager:
         return self._script_sha
 
     async def read_state(self, session_id: str) -> dict[str, Any] | None:
-        """读取会话原始状态字典（含 version + OE 管道扩展字段）
+        """读取会话原始状态字典（含 version + 坐席辅助引擎扩展字段）
 
         替代 StateManager.read_state()，数据源为同一个 meta key。
         """

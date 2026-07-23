@@ -1,6 +1,6 @@
 """AI 辅助功能集成测试
 
-跨模块协作验证：路由 → OE 编排 → 仲裁 → 反馈全链路集成。
+跨模块协作验证：路由 → 坐席辅助引擎 → 仲裁 → 反馈全链路集成。
 不依赖真实中间件（Redis/ES/Milvus），使用 mock 注入替换外部依赖。
 """
 
@@ -17,11 +17,11 @@ from httpx import ASGITransport, AsyncClient
 
 from smartcs.main import create_assist_app
 from smartcs.services.assist.arbitrator import ExecutorOutput, GlobalArbitrator
-from smartcs.services.common.oe_pipeline import (
+from smartcs.services.common.assist_engine import (
     evaluate_d1_service,
     evaluate_d2_marketing,
     evaluate_d3_risk,
-    run_oe_pipeline,
+    run_assist_engine,
 )
 from smartcs.shared.middleware import register_exception_handlers
 from smartcs.shared.models import IntentLabel
@@ -357,7 +357,7 @@ class TestEvaluatorToArbitratorIntegration:
         assert "[NAME]" in str(result.marketing_slot)
 
 
-class TestOEPipelineIntegration:
+class TestAssistEngineIntegration:
     """OE Pipeline 端到端集成"""
 
     @pytest.mark.asyncio
@@ -373,7 +373,7 @@ class TestOEPipelineIntegration:
             }
         )
 
-        push_data = await run_oe_pipeline(
+        push_data = await run_assist_engine(
             session_id="s1",
             message="查询",
             intent="faq",
@@ -392,7 +392,7 @@ class TestOEPipelineIntegration:
         mock_ai = MagicMock()
         mock_ai.run = AsyncMock()
 
-        push_data = await run_oe_pipeline(
+        push_data = await run_assist_engine(
             session_id="s1",
             message="复杂问题",
             intent="faq",
@@ -422,7 +422,7 @@ class TestOEPipelineIntegration:
             ]
         )
 
-        push_data = await run_oe_pipeline(
+        push_data = await run_assist_engine(
             session_id="s1",
             message="违规内容",
             intent="faq",

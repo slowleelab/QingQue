@@ -1,6 +1,6 @@
 """营销执行器情绪规则测试
 
-覆盖 B3 修复：oe_pipeline 曾硬编码 sentiment=NEUTRAL，导致情绪感知规则
+覆盖 B3 修复：assist_engine 曾硬编码 sentiment=NEUTRAL，导致情绪感知规则
 （如"负面情绪谨慎推荐"/"积极情绪优先推荐"）永远不触发。这里直接验证
 evaluate_marketing 对不同情绪标签返回不同推荐结果。
 """
@@ -41,7 +41,7 @@ class TestMarketingSentimentRules:
             assert evaluate_marketing(intent=IntentLabel.COMPLAINT, sentiment=s) == []
 
     def test_sentiment_accepts_string(self) -> None:
-        """sentiment 接受字符串（oe_pipeline 传入 sentiment.value 的场景）"""
+        """sentiment 接受字符串（assist_engine 传入 sentiment.value 的场景）"""
         cards = evaluate_marketing(intent="limit_query", sentiment="positive")
         assert cards
         assert cards[0].priority == 4

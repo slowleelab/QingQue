@@ -100,7 +100,7 @@ class RiskActionEnum(StrEnum):
     BLOCK = "BLOCK"
 
 
-class OEState(StrEnum):
+class AssistEngineState(StrEnum):
     """编排引擎状态"""
 
     IDLE = "IDLE"
@@ -428,7 +428,7 @@ class OrchestrationState(BaseModel):
     """编排引擎状态（每次 OE 调度周期的快照）"""
 
     session_id: str
-    oe_state: OEState = OEState.IDLE
+    oe_state: AssistEngineState = AssistEngineState.IDLE
     d1_activated: bool = False
     d2_activated: bool = False
     d3_activated: bool = True  # 风控始终激活

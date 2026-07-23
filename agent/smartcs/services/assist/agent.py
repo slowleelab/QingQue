@@ -228,7 +228,7 @@ class AssistOrchestrator:
         """节流检查已统一到 PushTracker（Redis 持久化，跨实例一致）
 
         此方法保留向后兼容，始终返回 False（不节流）。
-        实际节流由 OE pipeline 中的 should_show() + PushTracker 负责。
+        实际节流由 Assist Engine 中的 should_show() + PushTracker 负责。
         """
         return False
 
