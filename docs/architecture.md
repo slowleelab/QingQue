@@ -26,7 +26,51 @@ SmartCS 提供两大核心能力：
 
 ## 三层架构
 
-![SmartCS Architecture](../docs/assets/architecture.svg)
+```mermaid
+graph TB
+    subgraph ACCESS["Access Layer 接入层"]
+        direction LR
+        A1["Web Chat · Vue 3"]
+        A2["Workbench · Vue 3"]
+        A3["Admin · Vue 3"]
+        A4["StarConn · Java"]
+    end
+    subgraph ORCH["Orchestration Layer 编排层 · FastAPI"]
+        direction LR
+        B1["Bot Service :8000"]
+        B2["Assist Service :8001 · WebSocket"]
+    end
+    subgraph AI["AI Capability Layer · gRPC"]
+        direction LR
+        C1["Classification :50051"]
+        C2["Retrieval :50052 · BM25+Vector+RRF"]
+        C3["SafetyFilter :50053"]
+    end
+    subgraph DATA["Data Layer 数据层"]
+        direction LR
+        D1[("PostgreSQL 16")]
+        D2[("Redis 7.2")]
+        D3[("ES 8.19+IK")]
+        D4[("Milvus 2.4")]
+        D5[("MinIO")]
+        D6[("Kafka 3.7")]
+    end
+    subgraph CROSS["Cross-cutting"]
+        direction LR
+        X1["Prometheus+Grafana"]
+        X2["CircuitBreaker · 4-Level"]
+        X3["PII Masking · Compliance"]
+        X4["Audit · Rate Limiting"]
+    end
+    ACCESS --> ORCH --> AI --> DATA
+    CROSS -.-> ORCH
+    CROSS -.-> AI
+    style ACCESS fill:#0ea5e920,stroke:#0ea5e9,color:#7dd3fc
+    style ORCH fill:#f59e0b20,stroke:#f59e0b,color:#fcd34d
+    style AI fill:#10b98120,stroke:#10b981,color:#6ee7b7
+    style DATA fill:#ec489920,stroke:#ec4899,color:#f9a8d4
+    style CROSS fill:#8b5cf620,stroke:#8b5cf6,color:#c4b5fd
+```
 
 ### 编排层（`agent/smartcs/services/`）
 

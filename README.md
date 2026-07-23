@@ -15,7 +15,89 @@ AI 坐席辅助 + 机器人自助问答系统。基于 RAG + Agent 编排 + 私�
 
 ## 项目架构
 
-![SmartCS Architecture](docs/assets/architecture.svg)
+```mermaid
+graph TB
+    subgraph ACCESS["Access Layer 接入层"]
+        direction LR
+        A1["Web Chat<br/>Vue 3"]
+        A2["Workbench<br/>Vue 3"]
+        A3["Admin<br/>Vue 3"]
+        A4["StarConn<br/>Java"]
+    end
+
+    subgraph ORCH["Orchestration Layer 编排层 · FastAPI + LangGraph"]
+        direction LR
+        B1["Bot Service :8000"]
+        B2["Assist Service :8001<br/>WebSocket"]
+    end
+
+    subgraph BOT["Bot Service Detail"]
+        direction LR
+        B1a["Intent Classifier"]
+        B1b["Rule Router"]
+        B1c["RAG Retrieval"]
+        B1d["LLM Generation"]
+        B1e["KG + Slot + Memory"]
+        B1a --> B1b --> B1c --> B1d
+        B1e -.-> B1d
+    end
+
+    subgraph ASSIST["Assist Service Detail"]
+        direction LR
+        B2a["D1 Service Eval"]
+        B2b["D2 Marketing Eval"]
+        B2c["D3 Risk Eval"]
+        B2d["E1 AI Executor"]
+        B2e["E2 MKT Executor"]
+        B2f["E3 Risk Executor"]
+        B2g["Arbitrator<br/>PII + Fusion"]
+        B2a --> B2d
+        B2b --> B2e
+        B2c --> B2f
+        B2d & B2e & B2f --> B2g
+    end
+
+    subgraph AI["AI Capability Layer · gRPC"]
+        direction LR
+        C1["Classification<br/>:50051"]
+        C2["Retrieval :50052<br/>BM25+Vector+RRF"]
+        C3["SafetyFilter<br/>:50053"]
+    end
+
+    subgraph DATA["Data Layer 数据层"]
+        direction LR
+        D1[("PostgreSQL 16<br/>Dialogue·KB·Audit")]
+        D2[("Redis 7.2<br/>Session·Cache")]
+        D3[("Elasticsearch<br/>8.19+IK")]
+        D4[("Milvus 2.4<br/>Vector")]
+        D5[("MinIO<br/>Storage")]
+        D6[("Kafka 3.7<br/>Event Bus")]
+    end
+
+    subgraph CROSS["Cross-cutting 横切关注点"]
+        direction LR
+        X1["Prometheus<br/>+ Grafana"]
+        X2["CircuitBreaker<br/>4-Level Degradation"]
+        X3["PII Masking<br/>+ Compliance"]
+        X4["Audit Middleware<br/>Rate Limiting"]
+    end
+
+    ACCESS --> ORCH
+    ORCH --> AI
+    AI --> DATA
+    B1 -.-> BOT
+    B2 -.-> ASSIST
+    CROSS -.-> ORCH
+    CROSS -.-> AI
+
+    style ACCESS fill:#0ea5e920,stroke:#0ea5e9,color:#7dd3fc
+    style ORCH fill:#f59e0b20,stroke:#f59e0b,color:#fcd34d
+    style AI fill:#10b98120,stroke:#10b981,color:#6ee7b7
+    style DATA fill:#ec489920,stroke:#ec4899,color:#f9a8d4
+    style CROSS fill:#8b5cf620,stroke:#8b5cf6,color:#c4b5fd
+    style BOT fill:#f59e0b15,stroke:#f59e0b55,color:#e2e8f0
+    style ASSIST fill:#f59e0b15,stroke:#f59e0b55,color:#e2e8f0
+```
 
 ## 技术栈
 
