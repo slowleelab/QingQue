@@ -1,7 +1,7 @@
 # SmartCS Makefile — 标准化开发命令
 # 使用: make <target>
 
-.PHONY: help install dev test test-cov lint format type-check build up down init init-minio init-temporal seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama
+.PHONY: help install dev mcp-ref mcp-server-build mcp-server-test mcp-server-run gateway-up gateway-down test test-cov lint format type-check build up down init init-minio init-temporal seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama
 
 # ── 默认 ──
 help: ## 显示帮助信息
@@ -19,6 +19,18 @@ dev: ## 启动开发模式（bot :8000 + assist :8001）
 	@cd agent && poetry run uvicorn smartcs.main:bot_app --host 0.0.0.0 --port 8000 --reload &
 	@cd agent && poetry run uvicorn smartcs.main:assist_app --host 0.0.0.0 --port 8001 --reload
 
+mcp-ref: ## 启动参考 MCP Server（本地联调工具层，返回 mock 数据 :8080/mcp）
+	cd agent && poetry run python -m smartcs.services.tools.reference_server
+
+mcp-server-build: ## 构建 Java MCP Server（mcp-server/，Spring AI，10 个信用卡工具）
+	cd mcp-server && mvn -B clean package -DskipTests
+
+mcp-server-test: ## 运行 Java MCP Server 单元测试
+	cd mcp-server && mvn -B test
+
+mcp-server-run: ## 启动 Java MCP Server（SSE :8090，返回 mock 数据，不接真实银行系统）
+	cd mcp-server && mvn -B spring-boot:run
+
 test: ## 运行测试
 	cd agent && poetry run pytest -v
 
@@ -27,6 +39,15 @@ test-cov: ## 运行测试并生成覆盖率报告
 
 lint: ## 代码检查（ruff）
 	cd agent && poetry run ruff check . --fix
+
+bench: ## 性能压测（需先启动服务: make dev）
+	@echo "=== 微基准（无需外部服务）==="
+	cd agent && poetry run python -m pytest tests/test_bench.py -v --tb=short -k "bench" 2>/dev/null || echo "微基准测试未找到，跳过"
+	@echo "=== 负载测试（需服务运行）==="
+	@echo "运行: locust -f scripts/locustfile.py --host=http://localhost:8000 --headless -u 50 -r 5 -t 60s"
+
+bench-micro: ## 纯微基准（不依赖外部服务）
+	cd agent && poetry run python -c "import sys; sys.path.insert(0, '.'); exec(open('../scripts/bench_micro.py').read())"
 
 format: ## 代码格式化（ruff）
 	cd agent && poetry run ruff format .
@@ -50,6 +71,20 @@ up: ## 启动所有中间件
 
 down: ## 停止所有中间件
 	cd deploy && docker compose down
+
+# ── AI 网关（Higress + Nacos，opt-in profile，默认不启动） ──
+gateway-up: ## 启动 Higress AI 网关 + Nacos MCP Registry（docker compose --profile gateway）
+	cd deploy && docker compose --profile gateway up -d nacos higress
+	@echo ""
+	@echo "✅ 网关已启动："
+	@echo "   Nacos 控制台    → http://localhost:8848/nacos （nacos/nacos）"
+	@echo "   Higress 控制台  → http://localhost:18080"
+	@echo "   MCP 统一入口     → http://localhost:10000/mcp/credit-card"
+	@echo ""
+	@echo "   下一步：make mcp-server-run（Java MCP Server 注册到 Nacos）"
+
+gateway-down: ## 停止 Higress + Nacos
+	cd deploy && docker compose --profile gateway down
 
 # ── 一键 Demo ──
 DEMO_COMPOSE := -f docker-compose.yml -f docker-compose.demo.yml
@@ -100,6 +135,9 @@ verify: ## 验证所有中间件连通性
 
 verify-ollama: ## 验证 Ollama + Qwen2.5-7B
 	cd agent && poetry run python scripts/verify_ollama.py
+
+verify-mcp-e2e: ## MCP 工具层端到端联调（Java 22 工具 SSE + 渐进式暴露；缺 live 依赖自动跳过）
+	cd agent && poetry run python scripts/verify_mcp_e2e.py
 
 # ── gRPC ──
 proto: ## 编译 gRPC Proto 文件

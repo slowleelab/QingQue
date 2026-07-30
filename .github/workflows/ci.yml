@@ -80,6 +80,21 @@ jobs:
         working-directory: agent
         run: poetry run pytest --ignore=tests/test_bot_api.py --ignore=tests/test_assist_api.py --ignore=tests/test_session_lifecycle_e2e.py --ignore=tests/test_integration.py -v --tb=short
 
+  mcp-server:
+    name: Java MCP Server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Build & verify (tests + coverage gate)
+        working-directory: mcp-server
+        run: mvn -B verify
+
   build:
     name: Docker Build
     runs-on: ubuntu-latest

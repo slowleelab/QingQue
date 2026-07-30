@@ -31,6 +31,7 @@ from smartcs.services.common.deps import (
     close_embedding,
     close_health_monitor,
     close_llm,
+    close_mcp_client,
     close_milvus,
     close_minio,
     close_reranker,
@@ -46,6 +47,7 @@ from smartcs.services.common.deps import (
     init_embedding,
     init_health_monitor,
     init_llm,
+    init_mcp_client,
     init_milvus,
     init_minio,
     init_reranker,
@@ -116,6 +118,7 @@ _BOT_INIT_STEPS = [
     init_classifier,
     init_transfer_checker,
     init_star_client,
+    init_mcp_client,
     init_agent,
     start_bot_worker,
 ]
@@ -124,6 +127,7 @@ _BOT_CLOSE_STEPS = [
     stop_bot_worker,
     close_star_client,
     close_agent,
+    close_mcp_client,
     *_COMMON_CLOSE_STEPS[:2],  # close_classifier, close_session_manager
     close_degradation_manager,
     close_health_monitor,

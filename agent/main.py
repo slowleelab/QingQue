@@ -8,4 +8,4 @@
 
 from smartcs.main import assist_app, bot_app
 
-__all__ = ["bot_app", "assist_app"]
+__all__ = ["assist_app", "bot_app"]

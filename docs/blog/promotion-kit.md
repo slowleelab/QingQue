@@ -4,22 +4,22 @@
 
 ## 一句话简介（中文）
 
-SmartCS（青雀）— 银行级私有化智能客服参考实现：FastAPI + LangGraph，RAG 检索增强 + AI 坐席辅助 + 合规过滤 + 熔断降级，全链路可私有化部署，`make demo` 一键体验。
+SmartCS（青雀）— 银行级私有化智能客服参考实现：FastAPI + asyncio，RAG 检索增强 + AI 坐席辅助 + 合规过滤 + 熔断降级，全链路可私有化部署，`make demo` 一键体验。
 
 ## 一句话简介（English）
 
-SmartCS (QingQue) — A production-grade, self-hostable intelligent customer-service platform for banking: RAG-augmented chatbot + real-time agent-assist, with compliance filtering, circuit-breaker degradation chains and full observability. FastAPI + LangGraph, one-command demo via `make demo`.
+SmartCS (QingQue) — A production-grade, self-hostable intelligent customer-service platform for banking: RAG-augmented chatbot + real-time agent-assist, with compliance filtering, circuit-breaker degradation chains and full observability. FastAPI + asyncio, one-command demo via `make demo`.
 
 ## GitHub 短描述（用于 repo About / 列表条目）
 
 ```
-银行级私有化智能客服参考实现 · RAG + Agent 编排 + AI 坐席辅助 · 合规过滤/熔断降级/全链路监控 · FastAPI + LangGraph · make demo 一键体验
+银行级私有化智能客服参考实现 · RAG + Agent 编排 + AI 坐席辅助 · 合规过滤/熔断降级/全链路监控 · FastAPI + asyncio · make demo 一键体验
 ```
 
 ## 英文短描述
 
 ```
-Self-hostable banking-grade intelligent customer service — RAG chatbot + real-time agent assist, compliance filter, degradation chains, full observability. FastAPI + LangGraph.
+Self-hostable banking-grade intelligent customer service — RAG chatbot + real-time agent assist, compliance filter, degradation chains, full observability. FastAPI + asyncio.
 ```
 
 ## 投稿目标清单
@@ -28,7 +28,6 @@ Self-hostable banking-grade intelligent customer service — RAG chatbot + real-
 |------|------|----------|------|
 | [awesome-chatgpt](https://github.com/snicco/awesome-chatgpt) / 相关 awesome-llm | GitHub 列表 | 提 PR，按格式加一行 | ⬜ |
 | [awesome-fastapi](https://github.com/mjhea0/awesome-fastapi) | GitHub 列表 | 提 PR | ⬜ |
-| [LangChain 生态/社区 showcase](https://github.com/langchain-ai/langchain) | 生态展示 | Discussions / issue | ⬜ |
 | HelloGitHub 月刊 | 中文开源推荐 | 仓库 issue 自荐 | ⬜ |
 | 掘金 / InfoQ / 思否 | 中文技术社区 | 发博客（用 `introducing-smartcs.md`） | ⬜ |
 | Reddit r/LocalLLaMA / r/selfhosted | 英文社区 | 发帖（用英文简介） | ⬜ |
@@ -37,13 +36,13 @@ Self-hostable banking-grade intelligent customer service — RAG chatbot + real-
 ## 标准 awesome 条目格式（Markdown）
 
 ```markdown
-- [SmartCS (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service: RAG chatbot + real-time agent assist with compliance filtering and degradation chains. FastAPI + LangGraph.
+- [SmartCS (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service: RAG chatbot + real-time agent assist with compliance filtering and degradation chains. FastAPI + asyncio.
 ```
 
 中文版：
 
 ```markdown
-- [SmartCS（青雀）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现：RAG 机器人问答 + 实时坐席辅助，含合规过滤与熔断降级链。FastAPI + LangGraph，`make demo` 一键体验。
+- [SmartCS（青雀）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现：RAG 机器人问答 + 实时坐席辅助，含合规过滤与熔断降级链。FastAPI + asyncio，`make demo` 一键体验。
 ```
 
 ## 标签 / Topics（已在仓库设置，供投稿引用）

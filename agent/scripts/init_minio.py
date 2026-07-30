@@ -34,7 +34,7 @@ def init_minio():
         client.make_bucket(bucket_name)
         print(f"✅ Bucket '{bucket_name}' 创建成功!")
 
-    print(f"✅ MinIO 初始化完成!")
+    print("✅ MinIO 初始化完成!")
 
 
 if __name__ == "__main__":

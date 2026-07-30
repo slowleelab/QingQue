@@ -12,10 +12,10 @@
     3. 验证运行:    ollama run qwen2.5:7b "你好"
 """
 
-import sys
 import json
-import urllib.request
+import sys
 import urllib.error
+import urllib.request
 
 
 def check_ollama_running() -> bool:

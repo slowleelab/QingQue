@@ -36,11 +36,15 @@ async function doLogin() {
     ElMessage.warning("请输入用户名")
     return
   }
+  if (!form.password) {
+    ElMessage.warning("请输入密码")
+    return
+  }
   loading.value = true
   try {
-    const res = await login({ user_id: form.username, password: form.password })
+    const res = await login({ username: form.username, password: form.password })
     setToken(res.access_token)
-    ElMessage.success(`欢迎，${res.user_id}`)
+    ElMessage.success(`欢迎，${res.display_name || res.username}`)
     router.push("/admin")
   } catch {
     // handled by interceptor

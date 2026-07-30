@@ -32,11 +32,10 @@
 
 规划文档见 [`docs/superpowers/plans/`](./superpowers/plans/)。
 
-## 📊 交互式文档
+## 📊 文档
 
-- [会话状态机](./session-state-machine.html) — 3 阶段 × 7 子状态可视化
-- [用户故事与流程](./user-stories-and-flows.md)（[HTML 版](./user-stories-and-flows.html)）
-- [架构总览（HTML）](../agent/docs/architecture.html)
+- [架构设计](./architecture.md) — 三层架构、会话状态机（3 阶段 × 7 子状态）
+- [用户故事与流程](./user-stories-and-flows.md)
 
 ## 🤝 贡献
 

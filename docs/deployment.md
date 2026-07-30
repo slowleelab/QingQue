@@ -89,8 +89,86 @@ make dev
 | prometheus | prom/prometheus:v2.50.0 | 9090:9090 | 指标聚合 |
 | grafana | grafana/grafana:10.4.0 | **3001**:3000 | 监控看板 |
 | nginx | nginx:1.25-alpine | 8080:80 | 接入层 |
+| nacos | nacos/nacos-server:v2.4.3 | 8848:8848, 9848:9848 | 服务发现 + MCP Registry（`gateway` profile，默认不启动） |
+| higress | higress/all-in-one:2.1.5 | 10000:80, 8443:443, 18080:8080 | AI 网关统一 MCP 数据面 + 控制台（`gateway` profile，默认不启动） |
+| mcp-server | smartcs-mcp-server:1.0.0（本地构建） | 8090:8090 | Java 信用卡 MCP 工具服务（mock 数据，`gateway` profile，默认不启动） |
 
 > **Grafana 宿主机端口为 3001**（避免与常见 3000 冲突），容器内仍是 3000。
+
+## AI 网关（Higress + Nacos，可选）
+
+`nacos`、`higress` 与 `mcp-server` 归入 Docker Compose 的 `gateway` profile，**默认 `make up` 不启动**，对现有部署零回归。仅当启用 MCP 工具层（`MCP_ENABLED=true`）、需要经统一治理平面调用信用卡工具时才拉起：
+
+```bash
+# 1. 启动 Higress + Nacos + Java MCP Server（opt-in profile，mcp-server 随之构建并注册到 Nacos）
+make gateway-up
+
+# 2.（可选）若需本地直连联调而非容器化：以 nacos profile 手动运行
+cd mcp-server && mvn spring-boot:run -Dspring-boot.run.profiles=nacos
+#   或直接：make mcp-server-run（不注册，仅本地 SSE 直连联调）
+
+# 3. 校验网关连通性（MCP_ENABLED=true 时才实测，否则自动跳过保持全绿）
+make verify
+```
+
+> `gateway` profile 下的 `mcp-server` 服务以 `prod,nacos` profile 启动：优雅停机 + actuator 暴露面收敛 + 注册到 Nacos（实例 IP = 容器服务名 `mcp-server`），由 Higress 经服务发现路由。镜像来自 `mcp-server/Dockerfile`（多阶段、非 root、健康探针），首次 `make gateway-up` 会自动构建。
+
+架构（单平面·单治理）：
+
+```
+Python 编排大脑（bot_agent → ToolCallingExecutor → MCPToolClient）
+        │ streamable-http  MCP_ENDPOINT=http://localhost:10000/mcp/credit-card
+        ▼
+   Higress AI 网关（限流 / 鉴权 / 工具审计；SSE ↔ streamable-http 桥接）
+        │ 经 Nacos 服务发现
+        ▼
+   Java MCP Server（:8090 /sse，Spring AI，22 个信用卡工具，mock 数据）
+```
+
+| 组件 | 宿主机端口 | 说明 |
+|------|-----------|------|
+| Nacos 控制台 | 8848 | `http://localhost:8848/nacos`（默认 nacos/nacos） |
+| Nacos gRPC | 9848 | 客户端长连接 |
+| Higress MCP 入口 | 10000 | Python 客户端统一 MCP 数据面（streamable-http） |
+| Higress 控制台 | 18080 | 路由 / 治理策略管理 |
+
+> 传输差异：Spring AI 1.0.x 的 WebMVC MCP Server 走 **SSE**（`/sse` + `/mcp/message`），Python `MCPToolClient` 走 **streamable-http**，两者由 Higress 桥接。路由参考配置见 `deploy/higress/mcp-credit-card.yaml`，治理与红线说明见 `deploy/higress/README.md`。
+
+### 端到端联调验证（不依赖 Higress / Docker）
+
+`make verify-mcp-e2e`（脚本 `agent/scripts/verify_mcp_e2e.py`）用两条互补链路验证 MCP 工具工程可用性：
+
+1. **阶段 1 — Java 直连**：Python `mcp` SSE 客户端直连 `http://localhost:8090/sse`，断言 **22 个工具**并跑只读 / 写 / 幂等 / 业务错误代表性用例。
+2. **阶段 2 — 渐进式暴露**：参考 MCP Server（进程内内存传输）↔ `MCPToolClient` ↔ `ToolCallingExecutor`，开启渐进式暴露后按意图裁剪工具子集，交真实 LLM 自主调用。
+3. **阶段 0 — 静态一致性**：校验 `intent_tool_map` 引用的工具名都存在于工具目录。
+
+harness **友好降级**：缺 live Java（:8090）或本地 LLM（Ollama :11434）时相关阶段判定为 SKIP 并给出启动指引，仅硬性契约（工具数、幂等、错误、渐进式裁剪）失败才以非零码退出；全程仅连接 mock / 参考工具，绝不触达真实银行系统。
+
+```bash
+make mcp-server-build && make mcp-server-run   # 另开终端启动 Java :8090
+make verify-ollama                             # 可选：本地 LLM 就绪
+make verify-mcp-e2e                            # 运行联调 harness
+```
+
+### 渐进式工具暴露（Progressive Disclosure）
+
+工具规模扩到 22 个后，一次性把全部工具塞给 LLM 会增加选择噪声与 token 成本。`MCP_PROGRESSIVE_DISCLOSURE_ENABLED=true` 开启后，bot_agent 在命中「查询类工具意图」（账单 / 交易 / 额度 / 分期 / 积分）且意图置信度 ≥ `MCP_PD_CONFIDENCE_THRESHOLD`（默认 0.7）时，只向 LLM 暴露该意图对应的工具子集（`MCP_INTENT_TOOL_MAP`），其余情况回落全量或知识问答（RAG）。
+
+**零回归**：默认关闭；关闭时 bot 路由与工具暴露与现状逐字一致。该能力是 host 层策略，与网关模式、多后端拓扑正交。
+
+### 路由模式：多 MCP 后端
+
+`MCPToolClient` 支持连接多个 MCP 后端并在 host 侧合并工具目录：每个后端按 `prefix` 生成域命名空间工具名（如 `card.query_card_bill`）防撞名，并建立 `name→(server, raw_name)` 分发索引，调用时去前缀后派发到对应后端。经 `MCP_BACKENDS`（JSON 数组）配置：
+
+```
+                       ┌─ 后端 A（prefix "card."）→ 账单/额度/分期…
+MCPToolClient ─合并目录─┤
+   (name→server 分发)   └─ 后端 B（prefix "pts.")  → 积分/权益…
+```
+
+- **优雅降级**：某后端连接或列举失败时仅其工具缺席，其余后端与主链路不受影响；对应意图自然回落知识问答或转人工。
+- **零回归**：`MCP_BACKENDS` 留空 → 退回单后端（用 `MCP_ENDPOINT`、空前缀、工具名与 schema 契约不变）。
+
 
 ## 初始化
 

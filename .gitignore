@@ -75,5 +75,12 @@ star-connection/.idea/
 star-connection/logs/
 star-connection/*.log
 
+# mcp-server (Java / Spring AI MCP Server)
+mcp-server/target/
+mcp-server/**/*.iml
+mcp-server/.idea/
+mcp-server/logs/
+mcp-server/*.log
+
 # gRPC 生成代码
 generated/

@@ -12,7 +12,7 @@
 
 **项目描述（100 字内）**：
 
-> 可私有化部署的银行信用卡智能客服：RAG 检索增强机器人自助问答 + 通话中实时 AI 坐席辅助。内置混合检索（BM25+向量+RRF）、意图识别、合规过滤、熔断降级链与全链路监控，数据不出域、本地大模型可跑。FastAPI + LangGraph，`make demo` 一条命令即可体验完整系统。
+> 可私有化部署的银行信用卡智能客服：RAG 检索增强机器人自助问答 + 通话中实时 AI 坐席辅助。内置混合检索（BM25+向量+RRF）、意图识别、合规过滤、熔断降级链与全链路监控，数据不出域、本地大模型可跑。FastAPI + asyncio，`make demo` 一条命令即可体验完整系统。
 
 **亮点（让人眼前一亮的点）**：
 
@@ -40,7 +40,7 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 **后续更新计划**：
 
-- 坐席辅助并行 坐席辅助引擎（Temporal + LangGraph DAG 架构升级）
+- 坐席辅助并行 坐席辅助引擎（asyncio.gather + PydanticAI DAG 架构升级）
 - 知识库运营后台完善
 - 适配更多 LLM 后端（vLLM / OpenAI 兼容接口）
 
@@ -52,4 +52,4 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 ## 备用：一段话速推版（社群/朋友圈/即刻）
 
-> 开源了一个银行级私有化智能客服【SmartCS·青雀】：RAG 机器人问答 + 实时 AI 坐席辅助，混合检索(BM25+向量+RRF)、意图识别、合规过滤、四级熔断降级、全链路监控全配齐，数据不出域、本地大模型可跑。FastAPI + LangGraph，`make demo` 一条命令体验。Apache 2.0，欢迎 Star ⭐ https://github.com/slowleelab/QingQue
+> 开源了一个银行级私有化智能客服【SmartCS·青雀】：RAG 机器人问答 + 实时 AI 坐席辅助，混合检索(BM25+向量+RRF)、意图识别、合规过滤、四级熔断降级、全链路监控全配齐，数据不出域、本地大模型可跑。FastAPI + asyncio，`make demo` 一条命令体验。Apache 2.0，欢迎 Star ⭐ https://github.com/slowleelab/QingQue

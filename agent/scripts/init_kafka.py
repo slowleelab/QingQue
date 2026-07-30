@@ -73,7 +73,7 @@ def init_kafka():
         capture_output=True, text=True, timeout=15,
     )
     smartcs_topics = [t for t in result.stdout.strip().split("\n") if t.startswith("smartcs.")]
-    print(f"\n📋 当前 smartcs Topic 列表:")
+    print("\n📋 当前 smartcs Topic 列表:")
     for t in smartcs_topics:
         print(f"   - {t}")
 

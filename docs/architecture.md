@@ -117,7 +117,7 @@ graph TB
 客户消息
   → POST /api/chat/send
   → L1 规则快速意图匹配（RuleLoader，<5ms）
-  → LangGraph Agent 编排
+  → Bot Agent 编排（asyncio 并行 + 规则路由）
        ├─ 意图分类（CLS gRPC）
        ├─ 混合检索（BM25 ⊕ 向量，RRF 融合 → Reranker）
        ├─ LLM 生成（Qwen2.5，含降级）
@@ -141,7 +141,7 @@ graph TB
 
 ### 会话状态机
 
-会话采用 **3 阶段 × 7 子状态**模型（`BOT → HANDOFF → ASSIST → ENDED`），完整状态存于 Redis（`SessionState`），支持 bot → 转人工 → 坐席辅助 → 结束的全生命周期。详见 [`docs/session-state-machine.html`](./session-state-machine.html)。
+会话采用 **3 阶段 × 7 子状态**模型（`BOT → HANDOFF → ASSIST → ENDED`），完整状态存于 Redis（`SessionState`），支持 bot → 转人工 → 坐席辅助 → 结束的全生命周期。
 
 ## 关键设计决策
 

@@ -1,4 +1,4 @@
-# 我用 FastAPI + LangGraph 写了一个银行级智能客服，全链路私有化开源了
+# 我用 FastAPI + asyncio 写了一个银行级智能客服，全链路私有化开源了
 
 > 一句话：**SmartCS（青雀）** 是一个可私有化部署的银行信用卡智能客服参考实现 —— Bot 自助问答 + AI 坐席辅助双引擎，RAG 检索增强、意图识别、合规过滤、熔断降级、实时监控全配齐，`make demo` 一条命令即可体验。
 >
@@ -92,7 +92,7 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 ## 接下来
 
-- [ ] 坐席辅助的并行 坐席辅助引擎（Temporal + LangGraph DAG 升级）
+- [ ] 坐席辅助的并行 坐席辅助引擎（asyncio.gather + PydanticAI DAG 升级）
 - [ ] 更完整的知识库运营后台
 - [ ] 更多 LLM 后端适配（vLLM / OpenAI 兼容）
 

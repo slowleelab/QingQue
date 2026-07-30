@@ -1,0 +1,59 @@
+# Higress 网关配置 — 服务来源与 MCP Server 路由参考
+#
+# 用途：将 SmartCS Java MCP Server（22 个信用卡工具，SSE 后端）经 Higress 以
+#       streamable-http 统一暴露给上游 Python 编排大脑，并借 Nacos 完成后端服务发现。
+#
+# 应用方式（开发环境 all-in-one）：
+#   1) make gateway-up            # 拉起 Nacos + Higress
+#   2) make mcp-server-run        # 启动 Java MCP Server(:8090)，可选 --spring.profiles.active=nacos 注册到 Nacos
+#   3) 打开 Higress 控制台 http://localhost:18080 ，或用其 OpenAPI 导入下述配置
+#
+# 说明：Higress all-in-one 的路由通常经控制台/OpenAPI 下发。以下 YAML 为「等价配置」参考，
+#       字段命名与 Higress 控制台「服务来源 / MCP 管理」一一对应，便于照填。
+
+# ── 1. 服务来源：Nacos（后端 MCP Server 经 Nacos 发现）──
+serviceSource:
+  name: smartcs-nacos
+  type: nacos
+  nacosServerUrl: http://nacos:8848
+  nacosNamespaceId: public
+  nacosGroups:
+    - DEFAULT_GROUP
+
+# ── 2. 后端服务：Java MCP Server ──
+# 方式 A（推荐，经 Nacos 发现）：Java 侧以 profile=nacos 启动，注册服务名 smartcs-mcp-server
+# 方式 B（无 Nacos 注册时）：直接指向宿主机运行的 Java 进程
+upstream:
+  # 方式 A
+  nacosService: smartcs-mcp-server
+  # 方式 B（二选一）：static / DNS 后端
+  staticAddress: host.docker.internal:8090
+
+# ── 3. MCP Server 路由：对外 streamable-http 入口 ──
+# 上游 Python 客户端连接：http://<higress-host>:10000/mcp/credit-card
+mcpServer:
+  name: credit-card
+  # 网关对外的 MCP 传输协议（面向 Python streamablehttp_client）
+  frontendProtocol: streamable-http
+  frontendPath: /mcp/credit-card
+  # 后端 Java MCP Server 的传输协议（Spring AI 1.0.x WebMVC = SSE）
+  backendProtocol: sse
+  backendSsePath: /sse
+  backendMessagePath: /mcp/message
+  upstreamRef: smartcs-mcp-server
+
+# ── 4. 统一治理（在网关层收敛，与 Python 侧 ToolGuard 纵深互补）──
+governance:
+  # 限流：每客户端 100 次/分钟
+  rateLimit:
+    enabled: true
+    limit: 100
+    window: 60s
+  # 鉴权：要求上游携带网关下发的 API Key（示例，占位）
+  auth:
+    enabled: true
+    mode: api-key
+    headerName: X-MCP-Api-Key
+  # 敏感工具可在网关侧再加白名单/审计（与 Python 确认状态机双保险）
+  toolAudit:
+    enabled: true

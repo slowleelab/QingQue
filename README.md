@@ -25,7 +25,7 @@ graph TB
         A4["StarConn<br/>Java"]
     end
 
-    subgraph ORCH["Orchestration Layer 编排层 · FastAPI + LangGraph"]
+    subgraph ORCH["Orchestration Layer 编排层 · FastAPI + asyncio"]
         direction LR
         B1["Bot Service :8000"]
         B2["Assist Service :8001<br/>WebSocket"]
@@ -104,7 +104,7 @@ graph TB
 | 分类 | 技术 | 版本 |
 |------|------|------|
 | Web 框架 | FastAPI | 0.115+ |
-| Agent 编排 | LangGraph | 0.2+ |
+| Agent 编排 | asyncio + 规则路由 | — |
 | 大模型 | Qwen2.5-7B (Ollama) | — |
 | Embedding | bge-large-zh-v1.5 | — |
 | 数据库 | PostgreSQL | 16 |
@@ -295,6 +295,10 @@ make clean        # 清理缓存
 | Bot API | 8000 | 机器人服务 |
 | Assist API | 8001 | 坐席辅助服务 |
 | Nginx Gateway | 80 | 开发网关 |
+| MCP Server (Java) | 8090 | 信用卡工具 MCP 服务（SSE，mock 数据） |
+| Higress MCP 入口 | 10000 | AI 网关统一 MCP 数据面（streamable-http，opt-in） |
+| Higress 控制台 | 18080 | AI 网关控制台（opt-in） |
+| Nacos | 8848 | 服务发现 + MCP Registry（opt-in） |
 | Grafana | 3000 | 监控面板 |
 | Prometheus | 9090 | 指标采集 |
 | PostgreSQL | 5432 | 数据库 |
@@ -304,6 +308,7 @@ make clean        # 清理缓存
 | MinIO API | 9000 | 对象存储 |
 | MinIO Console | 9001 | 对象存储控制台 |
 | Kafka | 9092 | 消息队列 |
+| MCP Server (Java) | 8090 | 信用卡工具服务（Spring AI MCP，SSE，mock 数据） |
 
 ## Sprint 规划
 
@@ -323,12 +328,14 @@ make clean        # 清理缓存
 - [部署指南](docs/deployment.md) — Docker Compose、初始化、监控
 - [配置参考](docs/configuration.md) — 环境变量全览
 - [开发指南](docs/development.md) — 本地开发、代码规范、测试
+- [性能基准](docs/benchmark.md) — 微基准数据、压测方法、优化方向
 
 ## 子项目
 
 | 目录 | 说明 | 文档 |
 |------|------|------|
 | `agent/` | SmartCS 核心（Bot + Assist 编排服务） | 见上方文档 |
+| `mcp-server/` | 信用卡工具服务（Java / Spring AI MCP Server，22 个工具，mock 数据） | [README](mcp-server/README.md) |
 | `knowledge-platform/` | 知识数据微服务（ES 原生 RRF） | [README](knowledge-platform/README.md) |
 | `star-connection/` | 在线客服接入系统（Java） | [README](star-connection/README.md) · [DESIGN](star-connection/DESIGN.md) |
 | `web/` | 坐席工作台 / 客户对话前端（Vue 3） | [README](web/README.md) |

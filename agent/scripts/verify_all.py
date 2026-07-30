@@ -8,7 +8,6 @@
 
 import os
 import sys
-import time
 
 
 def _get_env(key: str, default: str = "") -> str:
@@ -20,6 +19,7 @@ def check_postgresql() -> tuple[bool, str]:
     """检查 PostgreSQL"""
     try:
         import asyncio
+
         from sqlalchemy.ext.asyncio import create_async_engine
 
         user = _get_env("POSTGRES_USER", "smartcs")
@@ -101,6 +101,7 @@ def check_kafka() -> tuple[bool, str]:
     """检查 Kafka"""
     try:
         import asyncio
+
         from aiokafka import AIOKafkaConsumer
 
         async def _check():
@@ -122,13 +123,53 @@ def check_kafka() -> tuple[bool, str]:
 def check_ollama() -> tuple[bool, str]:
     """检查 Ollama"""
     try:
-        import urllib.request
         import json
+        import urllib.request
         req = urllib.request.Request("http://localhost:11434/api/tags")
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
             models = [m["name"] for m in data.get("models", [])]
             return True, f"models: {models}" if models else "无模型"
+    except Exception as e:
+        return False, str(e)[:80]
+
+
+def _mcp_enabled() -> bool:
+    """MCP 工具层是否启用（决定是否校验 Nacos / Higress 网关）"""
+    return _get_env("MCP_ENABLED", "false").lower() == "true"
+
+
+def check_nacos() -> tuple[bool, str]:
+    """检查 Nacos（MCP Registry）。MCP 关闭时跳过（视为通过，保证默认 make verify 全绿）"""
+    if not _mcp_enabled():
+        return True, "已跳过（MCP_ENABLED=false）"
+    try:
+        import urllib.request
+
+        addr = _get_env("NACOS_SERVER_ADDR", "localhost:8848")
+        url = f"http://{addr}/nacos/v1/console/health/readiness"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            ok = resp.status == 200
+            return ok, "就绪" if ok else f"HTTP {resp.status}"
+    except Exception as e:
+        return False, str(e)[:80]
+
+
+def check_higress() -> tuple[bool, str]:
+    """检查 Higress AI 网关。MCP 关闭时跳过（视为通过，保证默认 make verify 全绿）"""
+    if not _mcp_enabled():
+        return True, "已跳过（MCP_ENABLED=false）"
+    try:
+        import urllib.error
+        import urllib.request
+
+        endpoint = _get_env("MCP_ENDPOINT", "http://localhost:10000/mcp/credit-card")
+        try:
+            with urllib.request.urlopen(endpoint, timeout=5) as resp:
+                return resp.status < 500, f"HTTP {resp.status}"
+        except urllib.error.HTTPError as he:
+            # 4xx（如未带鉴权头/方法不符）也说明网关在线并可路由
+            return he.code < 500, f"HTTP {he.code}（网关在线）"
     except Exception as e:
         return False, str(e)[:80]
 
@@ -142,6 +183,8 @@ def main():
         ("MinIO", check_minio),
         ("Kafka 3.7", check_kafka),
         ("Ollama", check_ollama),
+        ("Nacos (MCP Registry)", check_nacos),
+        ("Higress AI 网关", check_higress),
     ]
 
     print("=" * 60)

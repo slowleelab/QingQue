@@ -9,12 +9,12 @@
 
 英文（投国际列表）：
 ```markdown
-- [SmartCS (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot and real-time agent assist, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and LangGraph.
+- [SmartCS (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot and real-time agent assist, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
 ```
 
 中文（投中文列表）：
 ```markdown
-- [SmartCS（青雀）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现，含 RAG 机器人问答与实时坐席辅助，支持合规过滤与熔断降级链。基于 FastAPI + LangGraph，`make demo` 一键体验。
+- [SmartCS（青雀）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现，含 RAG 机器人问答与实时坐席辅助，支持合规过滤与熔断降级链。基于 FastAPI + asyncio，`make demo` 一键体验。
 ```
 
 ---
@@ -27,7 +27,7 @@
 --- a/README.md
 +++ b/README.md
 @@ 在该列表 Projects / Open Source 小节末尾追加（或按字母序插入）
-+- [SmartCS (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot and real-time agent assist, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and LangGraph.
++- [SmartCS (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot and real-time agent assist, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
 ```
 
 **PR 标题**：`Add SmartCS (QingQue)`
@@ -50,7 +50,7 @@ Repo: https://github.com/slowleelab/QingQue
 **小节定位**：`### Applications` / `### Chatbots` / `### RAG`。
 
 ```diff
-+- [SmartCS (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot and real-time agent assist, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and LangGraph.
++- [SmartCS (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot and real-time agent assist, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
 ```
 
 **PR 标题**：`Add SmartCS (QingQue) — self-hosted RAG customer service`
@@ -60,7 +60,7 @@ Repo: https://github.com/slowleelab/QingQue
 ## 3. 中文列表（如 chinese-independent-developer / 中文 awesome）
 
 ```diff
-+- [SmartCS（青雀）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现，含 RAG 机器人问答与实时坐席辅助，支持合规过滤与熔断降级链。基于 FastAPI + LangGraph，`make demo` 一键体验。
++- [SmartCS（青雀）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现，含 RAG 机器人问答与实时坐席辅助，支持合规过滤与熔断降级链。基于 FastAPI + asyncio，`make demo` 一键体验。
 ```
 
 ---

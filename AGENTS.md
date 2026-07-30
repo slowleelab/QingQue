@@ -33,6 +33,11 @@ make verify         # Verify middleware connectivity
 make proto          # Compile gRPC proto files
 make migrate        # Run Alembic migrations
 make migrate-create # Create new migration (msg="description")
+make mcp-server-build # Build Java MCP Server (mcp-server/)
+make mcp-server-test  # Run Java MCP Server unit tests
+make mcp-server-run   # Run Java MCP Server (SSE :8090, mock data)
+make gateway-up       # Start Higress AI gateway + Nacos (opt-in 'gateway' profile)
+make gateway-down     # Stop Higress + Nacos
 ```
 
 ## Code Style & Conventions
@@ -72,17 +77,21 @@ agent/smartcs/            # Main package
   services/
     bot/                  # Bot self-service
       app.py, router.py   # POST /api/chat, GET /api/health
-      agent.py            # LangGraph agent graph
+      bot_agent.py        # Bot agent (asyncio + rule routing)
     assist/               # Agent assist
       app.py, router.py   # WS /api/ws/{session_id}, GET /api/health
-      agent.py            # AssistOrchestrator
+      ai_executor.py      # AI executor (PydanticAI)
     common/               # Shared infrastructure
       database.py         # SQLAlchemy async engine
       deps.py             # FastAPI Depends injection
+      assist_engine.py    # 坐席辅助引擎 (asyncio.gather + PydanticAI)
       grpc_clients.py     # gRPC channel pool + stubs
       redis_client.py     # Redis async connection pool
+      mcp_client.py       # MCP tool client (MCPToolClient) — connects Higress MCP gateway
+    tools/                # Reference MCP server (FastMCP) — mock credit-card tools for local trial/tests
 agent/proto/              # gRPC Protobuf definitions
 agent/scripts/            # Init/verify utilities
+mcp-server/               # Java MCP Server (Spring AI, standalone) — 22 credit-card tools, mock data only
 deploy/                   # Docker, nginx, K8s configs
 config/                   # Prometheus, Grafana, sensitive words
 agent/alembic/            # DB migrations
@@ -100,9 +109,9 @@ agent/tests/              # pytest with httpx AsyncClient fixtures
 
 - Sprint 1 (completed): Infrastructure + skeleton
 - Sprint 2 (completed): RAG core + knowledge base (retrieval, embedding, reranker, ingestion, chunker, dual-write)
-- Sprint 3 (completed): Agent orchestration + bot MVP (LangGraph agent, chat queue, long-poll, session lifecycle)
-- Sprint 4 (completed): LLM integration + degradation strategy (circuit breaker, health monitor, content degrader, OE pipeline)
-- Sprint 5 (pending): Assist agent with parallel OE execution (Temporal + LangGraph DAG architecture upgrade)
+- Sprint 3 (completed): Agent orchestration + bot MVP (asyncio agent + rule routing, chat queue, long-poll, session lifecycle)
+- Sprint 4 (completed): LLM integration + degradation strategy (circuit breaker, health monitor, content degrader, assist engine)
+- Sprint 5 (completed): Assist engine with parallel D/E execution (asyncio.gather + PydanticAI; Temporal removed)
 
 ## Environment Variables
 

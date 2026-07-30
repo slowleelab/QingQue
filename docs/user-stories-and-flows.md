@@ -47,7 +47,7 @@
 
 | 阶段 | 子阶段 | 触发条件 | 系统行为 |
 |------|--------|---------|---------|
-| **BOT** | `bot:active` | 客户发起会话 | LangGraph Agent 处理消息，意图分类+路由分发 (knowledge→RAG / business→API / fallback→模板) |
+| **BOT** | `bot:active` | 客户发起会话 | Bot Agent (asyncio+规则路由) 处理消息，意图分类+路由分发 (knowledge→RAG / business→API / fallback→模板) |
 | **AGENT** | `agent:queued` | L1/L2/L3 转人工触发 | 调用 star-connection 创建人工会话，进入排队 |
 | **AGENT** | `agent:assigned` | star-connection 分配坐席 | 坐席振铃，超时守卫启动 (默认 30s) |
 | **AGENT** | `agent:active` | 坐席接听 | WS 消息激活会话，坐席辅助引擎启动辅助推送，超时守卫 (默认 1800s) |
@@ -417,7 +417,7 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
               │         E 执行阶段              │
               │                               │
               │  E1 AI 服务 (SLA 3s)            │
-              │    LangGraph DAG → 话术+知识    │
+              │    asyncio DAG → 话术+知识    │
               │  E3 风控 (SLA 100ms)           │
               │    AlertEngine → BLOCK/WARN/PASS│
               │  E2 营销 (延后 500ms)           │
@@ -565,7 +565,7 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
    │──POST /chat/send─────────▶│               │               │
    │              │              │               │               │
    │              │─ Redis Streams 消费 ────     │               │
-   │              │─ LangGraph Agent 处理       │               │
+   │              │─ Bot Agent (asyncio+规则路由) 处理       │               │
    │              │─ Pub/Sub 通知结果就绪       │               │
    │              │              │               │               │
    │◀──PollResponse (Bot回复)──│               │               │
@@ -946,7 +946,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | 4 | SYS | — | 意图分类 → limit_query (conf=0.82) |
 | 5 | SYS | — | OE EVALUATING: D1 激活, D2 被 suppress (D1 激活→压制营销), D3 始终激活 |
 | 6 | SYS | — | OE DISPATCHING: E1∥E3 并行 |
-| 7 | SYS | — | E1: LangGraph DAG → 服务卡片 (话术+知识) |
+| 7 | SYS | — | E1: asyncio DAG → 服务卡片 (话术+知识) |
 | 8 | SYS | — | E3: AlertEngine → PASS |
 | 9 | SYS | — | 仲裁: PASS → 服务卡片, 营销隐藏 (D2 被压制) |
 | 10 | SYS | — | PII 脱敏 → WS 推送 assist_push |
@@ -1238,7 +1238,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | 宕机恢复 | XAUTOCLAIM | 超时未确认消息自动认领 |
 | 异步编排 | asyncio (create_task / Semaphore / per-session Queue + Worker) | 并发消费, Queue 保序, 过载保护 |
 | 通知机制 | Redis Pub/Sub (PUBLISH/SUBSCRIBE) | 轮询即时唤醒 |
-| AI 编排 | LangGraph StateGraph | Supervisor 路由 (knowledge/business/fallback) |
+| AI 编排 | asyncio + 规则路由 | Supervisor 路由 (knowledge/business/fallback) |
 | 意图分类 | Rule (regex) + LLM (Qwen2.5) | 双通道, 快路<10ms, 慢路~200ms |
 | 熔断降级 | CircuitBreaker (5次失败开, 60s 半开) | LLM/Embedding 不可用自动降级 |
 | 会话状态 | SessionManager → Redis | meta + history 分离存储 |

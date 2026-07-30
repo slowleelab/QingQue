@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from smartcs.shared.config import get_settings
 from smartcs.shared.orm_models import (
     AlertRule,
     AlertRuleCategory,
@@ -13,7 +15,6 @@ from smartcs.shared.orm_models import (
     ScriptStatus,
     ScriptTemplate,
 )
-from smartcs.shared.config import get_settings
 
 
 async def seed_scripts(db: AsyncSession) -> None:
