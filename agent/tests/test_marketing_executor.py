@@ -7,8 +7,8 @@ evaluate_marketing 对不同情绪标签返回不同推荐结果。
 
 from __future__ import annotations
 
-from smartcs.services.assist.marketing_executor import evaluate_marketing
-from smartcs.shared.models import IntentLabel, SentimentLabel
+from lumio.services.assist.marketing_executor import evaluate_marketing
+from lumio.shared.models import IntentLabel, SentimentLabel
 
 
 class TestMarketingSentimentRules:

@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from smartcs.services.common.session_timeout import SessionTimeoutManager
-from smartcs.shared.exceptions import InvalidTransitionError
-from smartcs.shared.models import SessionPhase, SessionSubPhase
+from lumio.services.common.session_timeout import SessionTimeoutManager
+from lumio.shared.exceptions import InvalidTransitionError
+from lumio.shared.models import SessionPhase, SessionSubPhase
 
 
 def _make_session_manager() -> AsyncMock:

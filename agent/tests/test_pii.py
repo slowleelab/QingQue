@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from smartcs.shared.pii import (
+from lumio.shared.pii import (
     mask_bank_card,
     mask_email,
     mask_id_card,

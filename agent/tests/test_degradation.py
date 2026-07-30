@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.common.degradation import (
+from lumio.services.common.degradation import (
     ContentDegrader,
     DegradationManager,
     HealthMonitor,
 )
-from smartcs.shared.models import DegradationLevel, IntentLabel
+from lumio.shared.models import DegradationLevel, IntentLabel
 
 # ── DegradationLevel ──
 

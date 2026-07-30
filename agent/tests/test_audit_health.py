@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from smartcs.shared.audit_middleware import _infer_action
-from smartcs.shared.health import aggregate_health
+from lumio.shared.audit_middleware import _infer_action
+from lumio.shared.health import aggregate_health
 
 # ── 审计中间件 ──
 

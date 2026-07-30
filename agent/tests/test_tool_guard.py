@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from smartcs.services.bot.tool_executor import ToolCallingExecutor
-from smartcs.services.bot.tool_guard import GuardDecision, ToolGuard
-from smartcs.services.common.llm import ToolCall, ToolCallResult
-from smartcs.shared.config import MCPSettings
-from smartcs.shared.models import PendingAction
+from lumio.services.bot.tool_executor import ToolCallingExecutor
+from lumio.services.bot.tool_guard import GuardDecision, ToolGuard
+from lumio.services.common.llm import ToolCall, ToolCallResult
+from lumio.shared.config import MCPSettings
+from lumio.shared.models import PendingAction
 
 # ── ToolGuard 纯逻辑 ──
 

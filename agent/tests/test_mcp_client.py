@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.common.mcp_client import MCPToolClient, ToolSpec
-from smartcs.shared.config import MCPSettings
+from lumio.services.common.mcp_client import MCPToolClient, ToolSpec
+from lumio.shared.config import MCPSettings
 
 
 def _make_tool(name: str, description: str = "", *, destructive: bool | None = None, schema: dict | None = None):
@@ -39,7 +39,7 @@ class TestDisabled:
 
         client = MCPToolClient(settings=MCPSettings(enabled=True, endpoint="http://gw/mcp"))
         with patch(
-            "smartcs.services.common.mcp_client.streamablehttp_client",
+            "lumio.services.common.mcp_client.streamablehttp_client",
             side_effect=ConnectionError("connection refused"),
         ):
             await client.connect()

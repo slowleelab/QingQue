@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from smartcs.services.bot.router import router
+from lumio.services.bot.router import router
 
 
 def _make_app() -> FastAPI:

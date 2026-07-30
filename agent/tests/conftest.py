@@ -63,7 +63,7 @@ def _start_server(service: str, port: int) -> subprocess.Popen:
     env["SMARTCS_ENVIRONMENT"] = "development"
     env.setdefault("SMARTCS_TRACING_ENABLED", "false")
 
-    target = "smartcs.main:bot_app" if service == "bot" else "smartcs.main:assist_app"
+    target = "lumio.main:bot_app" if service == "bot" else "lumio.main:assist_app"
 
     cmd = [
         sys.executable,

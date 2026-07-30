@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from smartcs.shared.auth import (
+from lumio.shared.auth import (
     AuthenticationError,
     AuthorizationError,
     AuthUser,

@@ -16,8 +16,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-import smartcs.shared.orm_models  # noqa: E402, F401 — 确保所有模型注册到 Base.metadata
-from smartcs.shared.orm_models import Base  # noqa: E402
+import lumio.shared.orm_models  # noqa: E402, F401 — 确保所有模型注册到 Base.metadata
+from lumio.shared.orm_models import Base  # noqa: E402
 
 target_metadata = Base.metadata
 
@@ -50,7 +50,7 @@ def do_run_migrations(connection):
 async def run_async_migrations() -> None:
     """在线模式：异步执行迁移"""
     # 从 DatabaseSettings 动态获取 URL，覆盖 alembic.ini 硬编码值
-    from smartcs.shared.config import get_settings
+    from lumio.shared.config import get_settings
 
     settings = get_settings()
     config.set_main_option("sqlalchemy.url", settings.database.dsn)

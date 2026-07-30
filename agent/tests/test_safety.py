@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from smartcs.shared.safety import SafetyFilter, _normalize
+from lumio.shared.safety import SafetyFilter, _normalize
 
 # ── 归一化 ──
 

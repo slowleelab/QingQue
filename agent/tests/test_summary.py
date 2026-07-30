@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from smartcs.services.assist.summary import (
+from lumio.services.assist.summary import (
     _format_conversation,
     generate_call_summary,
 )
-from smartcs.shared.models import DialogueTurn, SentimentLabel, SessionPhase, SessionSubPhase
+from lumio.shared.models import DialogueTurn, SentimentLabel, SessionPhase, SessionSubPhase
 
 
 def _make_turn(session_id: str, speaker: str, content: str) -> DialogueTurn:
@@ -122,7 +122,7 @@ async def test_hold_transition() -> None:
     """AG_ACTIVE → AG_ON_HOLD 状态转换"""
     from unittest.mock import AsyncMock
 
-    from smartcs.services.common.session import SessionManager
+    from lumio.services.common.session import SessionManager
 
     redis = AsyncMock()
     redis.set = AsyncMock()
@@ -175,7 +175,7 @@ async def test_resume_transition() -> None:
     """AG_ON_HOLD → AG_ACTIVE 状态转换"""
     from unittest.mock import AsyncMock
 
-    from smartcs.services.common.session import SessionManager
+    from lumio.services.common.session import SessionManager
 
     redis = AsyncMock()
     redis.set = AsyncMock()

@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.bot.bot_agent import SmartCSAgent, _is_farewell, _is_greeting
-from smartcs.shared.models import IntentLabel, IntentResult
+from lumio.services.bot.bot_agent import SmartCSAgent, _is_farewell, _is_greeting
+from lumio.shared.models import IntentLabel, IntentResult
 
 
 class TestGreetingDetection:
@@ -208,7 +208,7 @@ class TestProgressiveDisclosureRouting:
         }
 
     def _tool_executor(self) -> MagicMock:
-        from smartcs.services.bot.tool_executor import ToolExecutionResult
+        from lumio.services.bot.tool_executor import ToolExecutionResult
 
         te = MagicMock()
         te.has_tools = MagicMock(return_value=True)
@@ -218,11 +218,11 @@ class TestProgressiveDisclosureRouting:
         return te
 
     def _patch_flag(self, monkeypatch: pytest.MonkeyPatch, enabled: bool) -> None:
-        from smartcs.shared.config import Settings
+        from lumio.shared.config import Settings
 
         settings = Settings()
         settings.mcp.progressive_disclosure_enabled = enabled
-        monkeypatch.setattr("smartcs.services.bot.bot_agent.get_settings", lambda: settings)
+        monkeypatch.setattr("lumio.services.bot.bot_agent.get_settings", lambda: settings)
 
     @pytest.mark.asyncio
     async def test_flag_on_routes_to_tool_with_expected_names(

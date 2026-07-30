@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.bot.router import delete_document
+from lumio.services.bot.router import delete_document
 
 
 def _make_db(doc: object) -> MagicMock:
@@ -109,10 +109,10 @@ class TestDeleteDocument:
     @pytest.mark.asyncio
     async def test_doc_not_found_raises(self) -> None:
         """文档不存在时抛出 2001 业务错误"""
-        from smartcs.shared.exceptions import SmartCSError
+        from lumio.shared.exceptions import LumioError
 
         db = _make_db(None)
-        with pytest.raises(SmartCSError):
+        with pytest.raises(LumioError):
             await delete_document(doc_id="missing", db=db, user=_make_user(), es_client=None, milvus_collection=None)
 
     @pytest.mark.asyncio

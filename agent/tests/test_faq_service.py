@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.common.faq_service import (
+from lumio.services.common.faq_service import (
     _FAQ_TRANSITIONS,
     _cache_key,
     _normalize_query,
@@ -48,7 +48,7 @@ class TestCacheKey:
         assert _cache_key("年费") != _cache_key("额度")
 
     def test_key_has_prefix(self) -> None:
-        assert _cache_key("test").startswith("smartcs:faq:exact:")
+        assert _cache_key("test").startswith("lumio:faq:exact:")
 
 
 class TestApprovalTransitions:

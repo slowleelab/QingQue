@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from smartcs.services.common.session import SessionManager
-from smartcs.shared.exceptions import InvalidTransitionError
-from smartcs.shared.models import (
+from lumio.services.common.session import SessionManager
+from lumio.shared.exceptions import InvalidTransitionError
+from lumio.shared.models import (
     ChannelType,
     DialogueTurn,
     IntentLabel,
@@ -347,7 +347,7 @@ async def test_delete_session() -> None:
 
 def test_validate_transition_legal() -> None:
     """合法转换应通过校验"""
-    from smartcs.shared.models import validate_transition
+    from lumio.shared.models import validate_transition
 
     assert validate_transition(SessionPhase.BOT, SessionSubPhase.BOT_ACTIVE, SessionSubPhase.AG_QUEUED) is True
     assert validate_transition(SessionPhase.AGENT, SessionSubPhase.AG_QUEUED, SessionSubPhase.AG_ASSIGNED) is True
@@ -356,7 +356,7 @@ def test_validate_transition_legal() -> None:
 
 def test_validate_transition_illegal() -> None:
     """非法转换应被拒绝"""
-    from smartcs.shared.models import validate_transition
+    from lumio.shared.models import validate_transition
 
     # 不能从 BOT 直接跳到 AG_ACTIVE
     assert validate_transition(SessionPhase.BOT, SessionSubPhase.BOT_ACTIVE, SessionSubPhase.AG_ACTIVE) is False

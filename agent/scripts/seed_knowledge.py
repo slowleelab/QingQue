@@ -186,7 +186,7 @@ def upload_to_minio(docs: list[dict]) -> None:
         print("   请确保 MinIO 已启动: docker-compose up -d minio")
         sys.exit(1)
 
-    bucket_name = "smartcs-docs"
+    bucket_name = "lumio-docs"
     if not client.bucket_exists(bucket_name):
         print(f"🔧 Bucket '{bucket_name}' 不存在，自动创建...")
         client.make_bucket(bucket_name)
@@ -210,8 +210,8 @@ def insert_to_database(docs: list[dict]) -> None:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
 
-    from smartcs.shared.config import get_settings
-    from smartcs.shared.orm_models import KbDocStatus, KbDocument, KbSourceType
+    from lumio.shared.config import get_settings
+    from lumio.shared.orm_models import KbDocStatus, KbDocument, KbSourceType
 
     settings = get_settings()
     sync_dsn = settings.database.sync_dsn

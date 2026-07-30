@@ -1,4 +1,4 @@
-# SmartCS Makefile — 标准化开发命令
+# Lumio / 灵智 Makefile — 标准化开发命令
 # 使用: make <target>
 
 .PHONY: help install dev mcp-ref mcp-server-build mcp-server-test mcp-server-run gateway-up gateway-down test test-cov lint format type-check build up down init init-minio init-temporal seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama
@@ -16,11 +16,11 @@ install: ## 安装项目依赖（Poetry）
 
 dev: ## 启动开发模式（bot :8000 + assist :8001）
 	@echo "Starting bot service on :8000 and assist service on :8001..."
-	@cd agent && poetry run uvicorn smartcs.main:bot_app --host 0.0.0.0 --port 8000 --reload &
-	@cd agent && poetry run uvicorn smartcs.main:assist_app --host 0.0.0.0 --port 8001 --reload
+	@cd agent && poetry run uvicorn lumio.main:bot_app --host 0.0.0.0 --port 8000 --reload &
+	@cd agent && poetry run uvicorn lumio.main:assist_app --host 0.0.0.0 --port 8001 --reload
 
 mcp-ref: ## 启动参考 MCP Server（本地联调工具层，返回 mock 数据 :8080/mcp）
-	cd agent && poetry run python -m smartcs.services.tools.reference_server
+	cd agent && poetry run python -m lumio.services.tools.reference_server
 
 mcp-server-build: ## 构建 Java MCP Server（mcp-server/，Spring AI，10 个信用卡工具）
 	cd mcp-server && mvn -B clean package -DskipTests
@@ -35,7 +35,7 @@ test: ## 运行测试
 	cd agent && poetry run pytest -v
 
 test-cov: ## 运行测试并生成覆盖率报告
-	cd agent && poetry run pytest --cov=smartcs --cov-report=term-missing --cov-report=html
+	cd agent && poetry run pytest --cov=lumio --cov-report=term-missing --cov-report=html
 
 lint: ## 代码检查（ruff）
 	cd agent && poetry run ruff check . --fix
@@ -53,7 +53,7 @@ format: ## 代码格式化（ruff）
 	cd agent && poetry run ruff format .
 
 type-check: ## 类型检查（mypy）
-	cd agent && poetry run mypy smartcs/ tests/
+	cd agent && poetry run mypy lumio/ tests/
 
 pre-commit: ## 安装并运行 pre-commit
 	cd agent && poetry run pre-commit install
@@ -64,7 +64,7 @@ build: ## 构建 Docker 镜像（ES+IK）
 	cd deploy && docker compose build elasticsearch
 
 build-app: ## 构建应用 Docker 镜像（构建上下文为 agent/）
-	docker build -f deploy/Dockerfile -t smartcs:latest agent/
+	docker build -f deploy/Dockerfile -t lumio:latest agent/
 
 up: ## 启动所有中间件
 	cd deploy && docker compose up -d

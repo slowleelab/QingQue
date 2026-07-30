@@ -1,0 +1,211 @@
+"""统一异常定义
+
+对应概要设计 §5.1 错误分级：
+- 5xxx 系统错误
+- 4xxx 外部依赖错误
+- 3xxx 业务错误
+- 2xxx 输入错误
+"""
+
+
+class LumioError(Exception):
+    """基础异常"""
+
+    code: int = 5000
+    message: str = "系统内部错误"
+
+    def __init__(self, message: str | None = None, code: int | None = None):
+        if message is not None:
+            self.message = message
+        if code is not None:
+            self.code = code
+        super().__init__(self.message)
+
+
+# ── 输入错误 2xxx ──
+
+
+class IntentUnrecognizedError(LumioError):
+    """2001: 意图无法识别"""
+
+    code = 2001
+    message = "意图无法识别"
+
+
+class EntityIncompleteError(LumioError):
+    """2002: 实体抽取不完整"""
+
+    code = 2002
+    message = "实体抽取不完整"
+
+
+class QueryOutOfRangeError(LumioError):
+    """2003: 查询超出范围"""
+
+    code = 2003
+    message = "查询超出范围"
+
+
+class DocumentFormatError(LumioError):
+    """2010: 不支持的文档格式"""
+
+    code = 2010
+    message = "不支持的文档格式"
+
+
+# ── 业务错误 3xxx ──
+
+
+class KnowledgeMissError(LumioError):
+    """3001: 知识库未命中"""
+
+    code = 3001
+    message = "知识库未命中"
+
+
+class CustomerNotAuthenticatedError(LumioError):
+    """3002: 客户身份未认证"""
+
+    code = 3002
+    message = "客户身份未认证"
+
+
+class HighRiskBlockedError(LumioError):
+    """3003: 高风险业务拦截"""
+
+    code = 3003
+    message = "高风险业务拦截"
+
+
+class IngestionConflictError(LumioError):
+    """3010: 文档正在被处理，拒绝并发写入"""
+
+    code = 3010
+    message = "文档正在被处理，拒绝并发写入"
+
+
+class SessionNotFoundError(LumioError):
+    """3004: 会话不存在"""
+
+    code = 3004
+    message = "会话不存在"
+
+    def __init__(self, session_id: str = "") -> None:
+        msg = f"会话不存在: {session_id}" if session_id else "会话不存在"
+        super().__init__(message=msg)
+
+
+class InvalidTransitionError(LumioError):
+    """3005: 非法状态转换"""
+
+    code = 3005
+    message = "非法状态转换"
+
+    def __init__(self, detail: str = "") -> None:
+        msg = f"非法状态转换: {detail}" if detail else "非法状态转换"
+        super().__init__(message=msg)
+
+
+# ── 外部依赖错误 4xxx ──
+
+
+class LLMTimeoutError(LumioError):
+    """4001: 大模型推理超时"""
+
+    code = 4001
+    message = "大模型推理超时"
+
+
+class LLMInferenceError(LumioError):
+    """4002: 大模型推理异常"""
+
+    code = 4002
+    message = "大模型推理异常"
+
+
+class BankAPIError(LumioError):
+    """4003: 银行 API 调用失败"""
+
+    code = 4003
+    message = "银行 API 调用失败"
+
+
+class VectorSearchError(LumioError):
+    """4004: 向量检索异常"""
+
+    code = 4004
+    message = "向量检索异常"
+
+
+class EmbeddingServiceError(LumioError):
+    """4005: 嵌入服务调用失败"""
+
+    code = 4005
+    message = "嵌入服务调用失败"
+
+
+class EmbeddingTimeoutError(LumioError):
+    """4006: 嵌入服务调用超时"""
+
+    code = 4006
+    message = "嵌入服务调用超时"
+
+
+class BM25SearchError(LumioError):
+    """4007: BM25 检索异常"""
+
+    code = 4007
+    message = "BM25 检索异常"
+
+
+class MinIOError(LumioError):
+    """4010: 对象存储读写异常"""
+
+    code = 4010
+    message = "对象存储读写异常"
+
+
+class DualWriteError(LumioError):
+    """4012: 双写部分失败"""
+
+    code = 4012
+    message = "双写部分失败"
+
+
+class CircuitBreakerOpenError(LumioError):
+    """4020: 熔断器打开，执行器不可用"""
+
+    def __init__(self, executor_name: str = "") -> None:
+        msg = f"熔断器打开: {executor_name}" if executor_name else "熔断器打开"
+        super().__init__(code=4020, message=msg)
+
+
+# ── 系统错误 5xxx ──
+
+
+class SessionCorruptedError(LumioError):
+    """5001: 会话状态损坏"""
+
+    code = 5001
+    message = "会话状态损坏"
+
+
+class ServiceOverloadedError(LumioError):
+    """5002: 服务过载"""
+
+    code = 5002
+    message = "服务过载"
+
+
+class StateConflictError(LumioError):
+    """CAS 状态版本冲突"""
+
+    def __init__(self, current_version: int = 0, expected_version: int = 0) -> None:
+        super().__init__(code=5003, message=f"状态版本冲突: 期望={expected_version}, 当前={current_version}")
+
+
+class OrchestrationTimeoutError(LumioError):
+    """编排全局超时"""
+
+    def __init__(self, session_id: str = "", timeout_ms: int = 5000) -> None:
+        super().__init__(code=5004, message=f"编排超时: session={session_id}, timeout={timeout_ms}ms")

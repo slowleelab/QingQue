@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 from mcp.shared.memory import create_connected_server_and_client_session as connect_in_memory
 
-from smartcs.services.common.mcp_client import MCPToolClient
-from smartcs.services.tools.reference_server import build_reference_server
-from smartcs.shared.config import MCPBackend, MCPSettings
+from lumio.services.common.mcp_client import MCPToolClient
+from lumio.services.tools.reference_server import build_reference_server
+from lumio.shared.config import MCPBackend, MCPSettings
 
 
 def _make_tool(name: str, description: str = "", *, destructive: bool | None = None, schema: dict | None = None):

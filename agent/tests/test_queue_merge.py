@@ -173,7 +173,7 @@ class TestQueueMerge:
         mock_session_factory = MagicMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
-        from smartcs.services.common.audit import write_chat_message
+        from lumio.services.common.audit import write_chat_message
 
         drained_messages = [
             (
@@ -219,8 +219,8 @@ class TestQueueMerge:
         mock_session_factory = MagicMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
-        from smartcs.services.common.audit import update_chat_message
-        from smartcs.shared.orm_models import ChatMessageStatus
+        from lumio.services.common.audit import update_chat_message
+        from lumio.shared.orm_models import ChatMessageStatus
 
         merged_ids = ["client-002", "client-003"]
         for merged_id in merged_ids:

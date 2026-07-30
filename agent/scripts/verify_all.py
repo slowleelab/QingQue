@@ -22,11 +22,11 @@ def check_postgresql() -> tuple[bool, str]:
 
         from sqlalchemy.ext.asyncio import create_async_engine
 
-        user = _get_env("POSTGRES_USER", "smartcs")
-        password = _get_env("POSTGRES_PASSWORD", "smartcs_pass")
+        user = _get_env("POSTGRES_USER", "lumio")
+        password = _get_env("POSTGRES_PASSWORD", "lumio_pass")
         host = _get_env("POSTGRES_HOST", "localhost")
         port = _get_env("POSTGRES_PORT", "5432")
-        database = _get_env("POSTGRES_DATABASE", "smartcs")
+        database = _get_env("POSTGRES_DATABASE", "lumio")
 
         async def _check():
             engine = create_async_engine(

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Request
 
-from smartcs.services.common.faq_router import (
+from lumio.services.common.faq_router import (
     FaqCreateRequest,
     FaqSearchRequest,
     FaqUpdateRequest,
@@ -22,7 +22,7 @@ from smartcs.services.common.faq_router import (
     search_faq_endpoint,
     update_faq_endpoint,
 )
-from smartcs.shared.exceptions import SmartCSError
+from lumio.shared.exceptions import LumioError
 
 
 def _make_request(app_state: dict | None = None) -> Request:
@@ -53,7 +53,7 @@ class TestFaqEndpoints:
         from unittest.mock import patch
 
         req = _make_request({"db_session_factory": MagicMock()})
-        with patch("smartcs.services.common.faq_router.list_faqs", new=AsyncMock(return_value=([], 0))):
+        with patch("lumio.services.common.faq_router.list_faqs", new=AsyncMock(return_value=([], 0))):
             resp = await list_faqs_endpoint(req, category="billing", limit=10, offset=0)
             assert resp["faqs"] == []
             assert resp["total"] == 0
@@ -62,8 +62,8 @@ class TestFaqEndpoints:
     async def test_get_not_found_raises(self) -> None:
         """FAQ 不存在 → 2001"""
         req = _make_request({"db_session_factory": MagicMock()})
-        with patch("smartcs.services.common.faq_router.get_faq", new=AsyncMock(return_value=None)):
-            with pytest.raises(SmartCSError) as exc:
+        with patch("lumio.services.common.faq_router.get_faq", new=AsyncMock(return_value=None)):
+            with pytest.raises(LumioError) as exc:
                 await get_faq_endpoint("missing-faq", req)
             assert exc.value.code == 2001
 
@@ -72,8 +72,8 @@ class TestFaqEndpoints:
         """更新不存在的 FAQ → 2001"""
         req = _make_request({"db_session_factory": MagicMock()})
         user = _make_user()
-        with patch("smartcs.services.common.faq_router.update_faq", new=AsyncMock(return_value=False)):
-            with pytest.raises(SmartCSError) as exc:
+        with patch("lumio.services.common.faq_router.update_faq", new=AsyncMock(return_value=False)):
+            with pytest.raises(LumioError) as exc:
                 await update_faq_endpoint("missing", FaqUpdateRequest(question="x"), req, user)
             assert exc.value.code == 2001
 
@@ -82,8 +82,8 @@ class TestFaqEndpoints:
         """删除不存在的 FAQ → 2001"""
         req = _make_request({"db_session_factory": MagicMock()})
         user = _make_user()
-        with patch("smartcs.services.common.faq_router.delete_faq", new=AsyncMock(return_value=False)):
-            with pytest.raises(SmartCSError) as exc:
+        with patch("lumio.services.common.faq_router.delete_faq", new=AsyncMock(return_value=False)):
+            with pytest.raises(LumioError) as exc:
                 await delete_faq_endpoint("missing", req, user)
             assert exc.value.code == 2001
 
@@ -91,7 +91,7 @@ class TestFaqEndpoints:
     async def test_no_db_raises_5001(self) -> None:
         """DB 未就绪→5001"""
         req = _make_request({"db_session_factory": None})
-        with pytest.raises(SmartCSError) as exc:
+        with pytest.raises(LumioError) as exc:
             await list_faqs_endpoint(req)
         assert exc.value.code == 5001
 
@@ -113,7 +113,7 @@ class TestFaqEndpoints:
         user = _make_user()
 
         with patch(
-            "smartcs.services.common.faq_router.check_faq_duplicate",
+            "lumio.services.common.faq_router.check_faq_duplicate",
             new=AsyncMock(return_value=[{"faq_id": "dup", "similarity": 0.95}]),
         ):
             resp = await create_faq_endpoint(
@@ -140,8 +140,8 @@ class TestFaqEndpoints:
         mock_faq.approval_status = "DRAFT"
 
         with (
-            patch("smartcs.services.common.faq_router.check_faq_duplicate", new=AsyncMock(return_value=[])),
-            patch("smartcs.services.common.faq_router.create_faq", new=AsyncMock(return_value=mock_faq)),
+            patch("lumio.services.common.faq_router.check_faq_duplicate", new=AsyncMock(return_value=[])),
+            patch("lumio.services.common.faq_router.create_faq", new=AsyncMock(return_value=mock_faq)),
         ):
             resp = await create_faq_endpoint(
                 FaqCreateRequest(question="test", answer="ans", category="billing"), req, user
@@ -158,7 +158,7 @@ class TestFaqEndpoints:
         user = _make_user()
 
         with patch(
-            "smartcs.services.common.faq_router.search_faq",
+            "lumio.services.common.faq_router.search_faq",
             new=AsyncMock(return_value={"match_type": "semantic", "results": []}),
         ) as mock_search:
             resp = await search_faq_endpoint(FaqSearchRequest(query="test"), req, user)

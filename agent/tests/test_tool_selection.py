@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from smartcs.services.bot.tool_selection import TOOL_INTENTS, select_tools_for_intent
-from smartcs.shared.config import MCPSettings
-from smartcs.shared.models import IntentLabel
+from lumio.services.bot.tool_selection import TOOL_INTENTS, select_tools_for_intent
+from lumio.shared.config import MCPSettings
+from lumio.shared.models import IntentLabel
 
 
 class TestConfigDefaults:

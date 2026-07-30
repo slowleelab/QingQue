@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from smartcs.services.assist.arbitrator import ExecutorOutput, GlobalArbitrator, OrchestrationResult
+from lumio.services.assist.arbitrator import ExecutorOutput, GlobalArbitrator, OrchestrationResult
 
 # ── Fixtures ──
 

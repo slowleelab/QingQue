@@ -1,8 +1,8 @@
-# AGENTS.md — SmartCS Project Guide
+# AGENTS.md — Lumio / 灵智 Project Guide
 
 ## Project Overview
 
-SmartCS (Smart Customer Service) is a bank credit-card intelligent customer service platform providing two core capabilities:
+Lumio (灵智) is a bank credit-card intelligent customer service platform providing two core capabilities:
 - **AI Agent Assist** — real-time suggestions/knowledge/compliance alerts pushed to human agents via WebSocket during live calls
 - **Bot Self-Service** — automated conversational bot handling customer inquiries via RAG, intent classification, and Agent orchestration
 

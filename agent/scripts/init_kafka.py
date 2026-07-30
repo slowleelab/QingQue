@@ -1,9 +1,9 @@
 """初始化 Kafka Topic
 
 创建以下 Topic:
-- smartcs.knowledge.update  知识库更新事件
-- smartcs.audit.log         审计日志
-- smartcs.call.summary      话后小结
+- lumio.knowledge.update  知识库更新事件
+- lumio.audit.log         审计日志
+- lumio.call.summary      话后小结
 
 使用方式:
     poetry run python scripts/init_kafka.py
@@ -15,9 +15,9 @@ import sys
 
 def init_kafka():
     topics = [
-        ("smartcs.knowledge.update", "3"),
-        ("smartcs.audit.log", "3"),
-        ("smartcs.call.summary", "3"),
+        ("lumio.knowledge.update", "3"),
+        ("lumio.audit.log", "3"),
+        ("lumio.call.summary", "3"),
     ]
 
     print("🔧 连接 Kafka...")
@@ -26,7 +26,7 @@ def init_kafka():
     try:
         result = subprocess.run(
             [
-                "docker", "exec", "smartcs-kafka",
+                "docker", "exec", "lumio-kafka",
                 "/opt/kafka/bin/kafka-topics.sh",
                 "--bootstrap-server", "localhost:9092",
                 "--list",
@@ -47,7 +47,7 @@ def init_kafka():
         else:
             result = subprocess.run(
                 [
-                    "docker", "exec", "smartcs-kafka",
+                    "docker", "exec", "lumio-kafka",
                     "/opt/kafka/bin/kafka-topics.sh",
                     "--bootstrap-server", "localhost:9092",
                     "--create", "--topic", topic_name,
@@ -62,19 +62,19 @@ def init_kafka():
             else:
                 print(f"   ❌ 创建 {topic_name} 失败: {result.stderr.strip()}")
 
-    # 列出所有 smartcs Topic
+    # 列出所有 lumio topic
     result = subprocess.run(
         [
-            "docker", "exec", "smartcs-kafka",
+            "docker", "exec", "lumio-kafka",
             "/opt/kafka/bin/kafka-topics.sh",
             "--bootstrap-server", "localhost:9092",
             "--list",
         ],
         capture_output=True, text=True, timeout=15,
     )
-    smartcs_topics = [t for t in result.stdout.strip().split("\n") if t.startswith("smartcs.")]
-    print("\n📋 当前 smartcs Topic 列表:")
-    for t in smartcs_topics:
+    lumio_topics = [t for t in result.stdout.strip().split("\n") if t.startswith("lumio.")]
+    print("\n📋 当前 lumio topic 列表:")
+    for t in lumio_topics:
         print(f"   - {t}")
 
     print(f"\n✅ Kafka Topic 初始化完成! (新建 {created} 个)")

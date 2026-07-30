@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from smartcs.services.common.transfer import TransferChecker
-from smartcs.shared.models import (
+from lumio.services.common.transfer import TransferChecker
+from lumio.shared.models import (
     IntentLabel,
     IntentResult,
     SentimentLabel,

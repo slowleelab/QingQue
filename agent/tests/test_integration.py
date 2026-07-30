@@ -13,16 +13,16 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from smartcs.main import create_assist_app
-from smartcs.services.assist.arbitrator import ExecutorOutput, GlobalArbitrator
-from smartcs.services.common.assist_engine import (
+from lumio.main import create_assist_app
+from lumio.services.assist.arbitrator import ExecutorOutput, GlobalArbitrator
+from lumio.services.common.assist_engine import (
     evaluate_d1_service,
     evaluate_d2_marketing,
     evaluate_d3_risk,
     run_assist_engine,
 )
-from smartcs.shared.middleware import register_exception_handlers
-from smartcs.shared.models import IntentLabel
+from lumio.shared.middleware import register_exception_handlers
+from lumio.shared.models import IntentLabel
 
 
 def _make_mock_redis() -> AsyncMock:
@@ -93,7 +93,7 @@ async def client_without_ai_executor(assist_app):
 
     验证关键场景: ai_executor 缺失时 E3 风控仍独立运行（合规底线不可绕过）。
     """
-    from smartcs.services.assist.alert_engine import AlertEngine
+    from lumio.services.assist.alert_engine import AlertEngine
 
     alert_engine = AlertEngine()
     alert_engine.load_from_memory()
@@ -230,7 +230,7 @@ class TestFeedbackIntegration:
             )
         assert resp.status_code == 200
         redis_client = assist_app.state.redis_client
-        buffered = await redis_client.get("smartcs:assist:feedback:sess-fb-2:agent-001")
+        buffered = await redis_client.get("lumio:assist:feedback:sess-fb-2:agent-001")
         assert buffered is not None
         assert json.loads(buffered)["modify_fields"] == ["script_content", "knowledge_summary"]
 

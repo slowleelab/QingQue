@@ -1,4 +1,4 @@
-# SmartCS - 银行信用卡智能客服平台
+# 灵智（Lumio）— 银行信用卡智能客服平台
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](agent/pyproject.toml)
@@ -7,7 +7,7 @@
 
 AI 坐席辅助 + 机器人自助问答系统。基于 RAG + Agent 编排 + 私有化大模型，为银行信用卡中心提供智能客服能力。
 
-![SmartCS 一键 Demo](docs/assets/demo.gif)
+![Lumio 一键 Demo](docs/assets/demo.gif)
 
 > **这是银行级私有化智能客服的参考实现**，包含完整的检索增强、Agent 编排、合规过滤、实时监控能力，适合作为私有化部署的技术基座，而非开箱即用的 SaaS。
 

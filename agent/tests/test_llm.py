@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from smartcs.services.common.llm import LLMCircuitBreaker, LLMClient
-from smartcs.shared.config import LLMSettings
-from smartcs.shared.exceptions import LLMInferenceError
+from lumio.services.common.llm import LLMCircuitBreaker, LLMClient
+from lumio.shared.config import LLMSettings
+from lumio.shared.exceptions import LLMInferenceError
 
 # ── LLMCircuitBreaker ──
 

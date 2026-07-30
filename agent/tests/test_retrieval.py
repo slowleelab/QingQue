@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from smartcs.services.common.retrieval import (
+from lumio.services.common.retrieval import (
     build_es_filters,
     build_milvus_expr,
     retrieve,
@@ -14,7 +14,7 @@ from smartcs.services.common.retrieval import (
     search_bm25,
     search_vector,
 )
-from smartcs.shared.models import RetrievedChunk, RetrieveRequest, RetrieveResponse
+from lumio.shared.models import RetrievedChunk, RetrieveRequest, RetrieveResponse
 
 
 class TestBuildEsFilters:
@@ -177,11 +177,11 @@ class TestRetrieve:
             }
         }
         request = RetrieveRequest(query="test", top_k=3, search_type="bm25_only", rerank=False)
-        with patch("smartcs.services.common.retrieval.get_settings") as mock_settings:
+        with patch("lumio.services.common.retrieval.get_settings") as mock_settings:
             mock_settings.return_value.rag.confidence_threshold = 0.5
             mock_settings.return_value.rag.rrf_confidence_threshold = 0.0
             mock_settings.return_value.rag.rrf_k = 60
-            mock_settings.return_value.elasticsearch.index_prefix = "smartcs"
+            mock_settings.return_value.elasticsearch.index_prefix = "lumio"
             resp = await retrieve(
                 request, es_client=mock_es, milvus_collection=None, embedding_provider=None, reranker=None
             )

@@ -7,8 +7,8 @@ import asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from smartcs.shared.config import get_settings
-from smartcs.shared.orm_models import (
+from lumio.shared.config import get_settings
+from lumio.shared.orm_models import (
     AlertRule,
     AlertRuleCategory,
     AlertRuleLevel,
@@ -19,7 +19,7 @@ from smartcs.shared.orm_models import (
 
 async def seed_scripts(db: AsyncSession) -> None:
     """导入话术种子数据"""
-    from smartcs.services.assist.script_service import _SEED_SCRIPTS
+    from lumio.services.assist.script_service import _SEED_SCRIPTS
 
     count = 0
     for s in _SEED_SCRIPTS:
@@ -47,7 +47,7 @@ async def seed_scripts(db: AsyncSession) -> None:
 
 async def seed_rules(db: AsyncSession) -> None:
     """导入告警规则种子数据"""
-    from smartcs.services.assist.alert_engine import _SEED_RULES
+    from lumio.services.assist.alert_engine import _SEED_RULES
 
     count = 0
     for r in _SEED_RULES:

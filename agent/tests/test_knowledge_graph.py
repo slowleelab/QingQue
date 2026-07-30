@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from smartcs.services.bot.knowledge_graph import (
+from lumio.services.bot.knowledge_graph import (
     enrich_retrieval_context,
     query_entity_relations,
 )

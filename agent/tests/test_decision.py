@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from smartcs.services.common.decision import (
+from lumio.services.common.decision import (
     FeedbackAction,
     PushTracker,
     Scene,

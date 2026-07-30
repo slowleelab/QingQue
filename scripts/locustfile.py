@@ -1,4 +1,4 @@
-"""SmartCS 性能压测脚本（Locust）
+"""Lumio 性能压测脚本（Locust）
 
 压测 Bot 对话管道：send → poll（模拟客户咨询完整流程）
 
@@ -32,7 +32,7 @@ _QUESTIONS = [
 ]
 
 
-class SmartCSBotUser(HttpUser):
+class LumioBotUser(HttpUser):
     """模拟客户使用 Bot 对话服务"""
 
     wait_time = between(1, 5)

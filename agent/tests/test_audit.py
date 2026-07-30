@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.common.audit import update_chat_message, write_audit_log, write_chat_message
-from smartcs.shared.orm_models import AuditLog, ChatMessage, ChatMessageStatus
+from lumio.services.common.audit import update_chat_message, write_audit_log, write_chat_message
+from lumio.shared.orm_models import AuditLog, ChatMessage, ChatMessageStatus
 
 
 class TestWriteAuditLog:

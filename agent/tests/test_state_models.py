@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from smartcs.shared.models import (
+from lumio.shared.models import (
     ArbitrationResult,
     AssistEngineState,
     EmotionVector,

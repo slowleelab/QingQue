@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.assist.ai_executor import AIExecutor
+from lumio.services.assist.ai_executor import AIExecutor
 
 
 class TestAIExecutorRun:

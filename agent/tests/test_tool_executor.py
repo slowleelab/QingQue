@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.bot.tool_executor import ToolCallingExecutor, ToolExecutionResult, detect_confirmation
-from smartcs.services.common.llm import ToolCall, ToolCallResult
-from smartcs.shared.config import MCPSettings
+from lumio.services.bot.tool_executor import ToolCallingExecutor, ToolExecutionResult, detect_confirmation
+from lumio.services.common.llm import ToolCall, ToolCallResult
+from lumio.shared.config import MCPSettings
 
 # ── detect_confirmation ──
 
@@ -175,7 +175,7 @@ class TestRunConversation:
 class TestExecuteConfirmedAction:
     async def test_executes_pending_then_answers(self):
         """确认后执行暂存工具并生成最终答复"""
-        from smartcs.shared.models import PendingAction
+        from lumio.shared.models import PendingAction
 
         mcp = MagicMock()
         mcp.to_openai_tools.return_value = []

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from smartcs.services.assist.script_service import ScriptService
-from smartcs.shared.models import IntentLabel
+from lumio.services.assist.script_service import ScriptService
+from lumio.shared.models import IntentLabel
 
 
 @pytest.fixture

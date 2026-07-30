@@ -14,8 +14,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from smartcs.shared import metrics as _metrics  # noqa: F401  确保指标注册进默认 REGISTRY
-from smartcs.shared import tracing
+from lumio.shared import metrics as _metrics  # noqa: F401  确保指标注册进默认 REGISTRY
+from lumio.shared import tracing
 
 # ── 指标定义与 /metrics 暴露 ──
 
@@ -42,7 +42,7 @@ def test_metric_names_registered() -> None:
 
 async def test_prometheus_middleware_counts() -> None:
     """PrometheusMiddleware 对普通请求计数，且排除 /metrics 自身"""
-    from smartcs.shared.metrics import REQUEST_COUNT, PrometheusMiddleware, metrics_endpoint
+    from lumio.shared.metrics import REQUEST_COUNT, PrometheusMiddleware, metrics_endpoint
 
     async def app(scope, receive, send):
         await send({"type": "http.response.start", "status": 200, "headers": []})
@@ -118,7 +118,7 @@ def test_trace_filter_omits_without_span(monkeypatch: pytest.MonkeyPatch) -> Non
     """无活跃 span 时日志不含 trace 字段"""
     import logging
 
-    from smartcs.shared.logger import JSONFormatter, TraceContextFilter
+    from lumio.shared.logger import JSONFormatter, TraceContextFilter
 
     monkeypatch.setattr(tracing, "_TRACING_ENABLED", False)
     rec = logging.LogRecord("t", logging.INFO, "x.py", 1, "hi", None, None)
@@ -132,7 +132,7 @@ def test_trace_filter_injects_with_span(monkeypatch: pytest.MonkeyPatch) -> None
     import json
     import logging
 
-    from smartcs.shared.logger import JSONFormatter, TraceContextFilter
+    from lumio.shared.logger import JSONFormatter, TraceContextFilter
 
     monkeypatch.setattr(tracing, "_TRACING_ENABLED", True)
     provider = TracerProvider()

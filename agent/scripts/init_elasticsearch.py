@@ -1,6 +1,6 @@
 """初始化 Elasticsearch 索引
 
-创建 smartcs_knowledge 索引:
+创建 lumio_knowledge 索引:
 - IK 分词器 (ik_max_word 索引, ik_smart 搜索)
 - BM25 检索字段
 - 元数据过滤字段
@@ -43,11 +43,11 @@ def init_elasticsearch():
         print(f"   ik_max_word 分词结果: {tokens}")
     except Exception as e:
         print(f"⚠️  IK 分词器未安装: {e}")
-        print("   安装方法: docker exec -it smartcs-elasticsearch elasticsearch-plugin install https://get.infini.cloud/elasticsearch/analysis-ik/8.19.9")
+        print("   安装方法: docker exec -it lumio-elasticsearch elasticsearch-plugin install https://get.infini.cloud/elasticsearch/analysis-ik/8.19.9")
         print("   安装后需重启 ES 容器: docker-compose restart elasticsearch")
 
     # 创建索引
-    index_name = "smartcs_kb_chunks"
+    index_name = "lumio_kb_chunks"
 
     if es.indices.exists(index=index_name):
         print(f"\n⚠️  索引 '{index_name}' 已存在，跳过创建")

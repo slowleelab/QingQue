@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from smartcs.services.assist.alert_engine import AlertEngine
-from smartcs.shared.models import AlertLevel, SentimentLabel
+from lumio.services.assist.alert_engine import AlertEngine
+from lumio.shared.models import AlertLevel, SentimentLabel
 
 
 @pytest.fixture

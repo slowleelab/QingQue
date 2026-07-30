@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from smartcs.services.common.embedding import (
+from lumio.services.common.embedding import (
     BGE_QUERY_INSTRUCTION,
     EmbeddingCircuitBreaker,
     EmbeddingProvider,
@@ -15,7 +15,7 @@ from smartcs.services.common.embedding import (
     TEIEmbedding,
     create_embedding_provider,
 )
-from smartcs.shared.exceptions import EmbeddingServiceError, EmbeddingTimeoutError
+from lumio.shared.exceptions import EmbeddingServiceError, EmbeddingTimeoutError
 
 # ── 常量 ──
 
@@ -47,7 +47,7 @@ async def test_ollama_embed() -> None:
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
+    with patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
         result = await provider.embed(["hello", "world"])
 
     assert len(result) == 2
@@ -82,7 +82,7 @@ async def test_ollama_embed_query_adds_instruction() -> None:
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
+    with patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
         result = await provider.embed_query("信用卡年费")
 
     assert len(result) == 1024
@@ -107,7 +107,7 @@ async def test_ollama_embed_timeout_raises() -> None:
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with (
-        patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client),
+        patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client),
         pytest.raises(EmbeddingTimeoutError),
     ):
         await provider.embed(["test"])
@@ -135,7 +135,7 @@ async def test_ollama_embed_http_error_raises() -> None:
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with (
-        patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client),
+        patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client),
         pytest.raises(EmbeddingServiceError),
     ):
         await provider.embed(["test"])
@@ -161,7 +161,7 @@ async def test_ollama_embed_empty_response_raises() -> None:
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with (
-        patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client),
+        patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client),
         pytest.raises(EmbeddingServiceError),
     ):
         await provider.embed(["test"])
@@ -185,7 +185,7 @@ async def test_ollama_health_check() -> None:
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
+    with patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
         result = await provider.health_check()
 
     assert result is True
@@ -214,7 +214,7 @@ async def test_tei_embed() -> None:
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
+    with patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
         result = await provider.embed(["hello", "world"])
 
     assert len(result) == 2
@@ -250,7 +250,7 @@ async def test_tei_embed_batching() -> None:
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
+    with patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
         result = await provider.embed(["a", "b", "c", "d", "e"])
 
     # 5 items with batch_size=2 => ceil(5/2) = 3 calls
@@ -285,7 +285,7 @@ async def test_tei_embed_query_adds_instruction() -> None:
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("smartcs.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
+    with patch("lumio.services.common.embedding.httpx.AsyncClient", return_value=mock_client):
         await provider.embed_query("信用卡年费")
 
     assert len(captured_input) == 1

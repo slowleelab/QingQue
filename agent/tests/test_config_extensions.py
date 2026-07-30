@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from smartcs.shared.config import (
+from lumio.shared.config import (
     CircuitBreakerConfigSettings,
     OrchestrationSettings,
     Settings,
@@ -44,7 +44,7 @@ class TestTemporalSettings:
         assert s.host == "localhost"
         assert s.port == 7233
         assert s.namespace == "default"
-        assert s.task_queue == "smartcs-assist"
+        assert s.task_queue == "lumio-assist"
         assert s.workflow_timeout_seconds == 10
 
     def test_env_prefix(self) -> None:

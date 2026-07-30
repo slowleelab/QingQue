@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from smartcs.services.common.ingestion import (
+from lumio.services.common.ingestion import (
     chunk_text,
     clean_text,
     parse_markdown,

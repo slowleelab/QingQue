@@ -22,12 +22,12 @@ import httpx
 import pytest
 import redis.asyncio as aioredis
 
-_SESSION_META_PREFIX = "smartcs:session"
+_SESSION_META_PREFIX = "lumio:session"
 
 
 async def _create_session_in_redis(session_id: str, phase: str = "bot", sub_phase: str = "bot:active"):
     """在 Redis 中创建会话状态"""
-    from smartcs.shared.models import ChannelType, SessionPhase, SessionState, SessionSubPhase
+    from lumio.shared.models import ChannelType, SessionPhase, SessionState, SessionSubPhase
 
     state = SessionState(
         session_id=session_id,

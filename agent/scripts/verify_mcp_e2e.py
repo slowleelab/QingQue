@@ -44,12 +44,12 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.shared.memory import create_connected_server_and_client_session as connect_in_memory
 
-from smartcs.services.bot.tool_executor import ToolCallingExecutor
-from smartcs.services.bot.tool_selection import select_tools_for_intent
-from smartcs.services.common.llm import LLMClient
-from smartcs.services.common.mcp_client import MCPToolClient
-from smartcs.services.tools.reference_server import build_reference_server
-from smartcs.shared.config import MCPSettings, get_settings
+from lumio.services.bot.tool_executor import ToolCallingExecutor
+from lumio.services.bot.tool_selection import select_tools_for_intent
+from lumio.services.common.llm import LLMClient
+from lumio.services.common.mcp_client import MCPToolClient
+from lumio.services.tools.reference_server import build_reference_server
+from lumio.shared.config import MCPSettings, get_settings
 
 # ── 联调常量 ──
 SSE_URL = "http://localhost:8090/sse"
@@ -299,7 +299,7 @@ async def phase2_progressive_disclosure(reporter: Reporter) -> None:
 
 async def _run() -> None:
     print("=" * 60)
-    print("SmartCS MCP 工具层端到端联调 harness")
+    print("Lumio MCP 工具层端到端联调 harness")
     print("（仅连接 mock / 参考工具，绝不触达真实银行系统）")
     print("=" * 60)
     reporter = Reporter()

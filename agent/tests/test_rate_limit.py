@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from smartcs.shared.rate_limit import (
+from lumio.shared.rate_limit import (
     _EXEMPT_PATHS,
     _user_or_ip_key,
     create_limiter,
@@ -23,7 +23,7 @@ class TestUserOrIpKey:
         request.headers = {}
         request.client.host = "10.0.0.1"
 
-        with patch("smartcs.shared.rate_limit.get_remote_address", return_value="10.0.0.1"):
+        with patch("lumio.shared.rate_limit.get_remote_address", return_value="10.0.0.1"):
             key = _user_or_ip_key(request)
             assert key == "ip:10.0.0.1"
 
@@ -31,7 +31,7 @@ class TestUserOrIpKey:
         request = MagicMock()
         request.headers = {"Authorization": "Bearer valid.jwt.token"}
 
-        with patch("smartcs.shared.auth.decode_token", return_value={"sub": "user-42"}):
+        with patch("lumio.shared.auth.decode_token", return_value={"sub": "user-42"}):
             key = _user_or_ip_key(request)
             assert key == "user:user-42"
 
@@ -41,8 +41,8 @@ class TestUserOrIpKey:
         request.headers = {"Authorization": "Bearer no-sub.token"}
 
         with (
-            patch("smartcs.shared.auth.decode_token", return_value={"exp": 123}),
-            patch("smartcs.shared.rate_limit.get_remote_address", return_value="10.0.0.2"),
+            patch("lumio.shared.auth.decode_token", return_value={"exp": 123}),
+            patch("lumio.shared.rate_limit.get_remote_address", return_value="10.0.0.2"),
         ):
             key = _user_or_ip_key(request)
             assert key == "ip:10.0.0.2"
@@ -53,8 +53,8 @@ class TestUserOrIpKey:
         request.headers = {"Authorization": "Bearer bad-token"}
 
         with (
-            patch("smartcs.shared.auth.decode_token", side_effect=ValueError("bad")),
-            patch("smartcs.shared.rate_limit.get_remote_address", return_value="10.0.0.3"),
+            patch("lumio.shared.auth.decode_token", side_effect=ValueError("bad")),
+            patch("lumio.shared.rate_limit.get_remote_address", return_value="10.0.0.3"),
         ):
             key = _user_or_ip_key(request)
             assert key == "ip:10.0.0.3"
@@ -64,7 +64,7 @@ class TestUserOrIpKey:
         request = MagicMock()
         request.headers = {"Authorization": "Basic abc123"}
 
-        with patch("smartcs.shared.rate_limit.get_remote_address", return_value="10.0.0.4"):
+        with patch("lumio.shared.rate_limit.get_remote_address", return_value="10.0.0.4"):
             key = _user_or_ip_key(request)
             assert key == "ip:10.0.0.4"
 
@@ -97,7 +97,7 @@ class TestExemptPaths:
 class TestCreateLimiter:
     """限流器工厂测试"""
 
-    @patch("smartcs.shared.rate_limit.get_settings")
+    @patch("lumio.shared.rate_limit.get_settings")
     def test_disabled_returns_disabled_limiter(self, mock_settings: MagicMock) -> None:
         """rate_limit_enabled=False → limiter.enabled=False"""
         settings = MagicMock()
@@ -107,7 +107,7 @@ class TestCreateLimiter:
         limiter = create_limiter()
         assert limiter.enabled is False
 
-    @patch("smartcs.shared.rate_limit.get_settings")
+    @patch("lumio.shared.rate_limit.get_settings")
     def test_enabled_returns_configured_limiter(self, mock_settings: MagicMock) -> None:
         """rate_limit_enabled=True → 使用 Redis URI 限流器"""
         settings = MagicMock()
@@ -122,7 +122,7 @@ class TestCreateLimiter:
         limiter = create_limiter()
         assert limiter.enabled is True
 
-    @patch("smartcs.shared.rate_limit.get_settings")
+    @patch("lumio.shared.rate_limit.get_settings")
     def test_with_password_includes_auth(self, mock_settings: MagicMock) -> None:
         """有密码时 Redis URI 包含认证信息"""
         settings = MagicMock()

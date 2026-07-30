@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from smartcs.services.assist.product_catalog import Product, ProductCatalog
-from smartcs.shared.models import IntentLabel
+from lumio.services.assist.product_catalog import Product, ProductCatalog
+from lumio.shared.models import IntentLabel
 
 
 @pytest.fixture

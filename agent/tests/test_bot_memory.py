@@ -8,9 +8,9 @@
 
 from __future__ import annotations
 
-from smartcs.services.bot.bot_agent import _estimate_tokens, _is_important
-from smartcs.services.bot.slot_tracker import SlotTracker
-from smartcs.shared.models import IntentLabel
+from lumio.services.bot.bot_agent import _estimate_tokens, _is_important
+from lumio.services.bot.slot_tracker import SlotTracker
+from lumio.shared.models import IntentLabel
 
 
 class TestEstimateTokens:

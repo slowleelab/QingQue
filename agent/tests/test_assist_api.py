@@ -20,12 +20,12 @@ import websockets
 # ── Helpers ──
 
 
-_SESSION_META_PREFIX = "smartcs:session"
+_SESSION_META_PREFIX = "lumio:session"
 
 
 async def _create_session_in_redis(session_id: str, phase: str = "bot"):
     """直接在 Redis 中创建会话状态（绕过 bot worker 的缺失 get_or_create 调用）"""
-    from smartcs.shared.models import ChannelType, SessionPhase, SessionState
+    from lumio.shared.models import ChannelType, SessionPhase, SessionState
 
     state = SessionState(
         session_id=session_id,

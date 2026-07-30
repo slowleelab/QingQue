@@ -6,16 +6,16 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from smartcs.shared.exceptions import (
+from lumio.shared.exceptions import (
     IntentUnrecognizedError,
     InvalidTransitionError,
     KnowledgeMissError,
     LLMTimeoutError,
     SessionCorruptedError,
     SessionNotFoundError,
-    SmartCSError,
+    LumioError,
 )
-from smartcs.shared.middleware import register_exception_handlers
+from lumio.shared.middleware import register_exception_handlers
 
 
 def _create_test_app() -> FastAPI:
@@ -23,8 +23,8 @@ def _create_test_app() -> FastAPI:
     app = FastAPI()
     register_exception_handlers(app)
 
-    @app.get("/raise-smartcs/{error_code}")
-    async def raise_smartcs(error_code: int):
+    @app.get("/raise-lumio/{error_code}")
+    async def raise_lumio(error_code: int):
         error_classes = {
             2001: IntentUnrecognizedError,
             3001: KnowledgeMissError,
@@ -33,7 +33,7 @@ def _create_test_app() -> FastAPI:
             4001: LLMTimeoutError,
             5001: SessionCorruptedError,
         }
-        cls = error_classes.get(error_code, SmartCSError)
+        cls = error_classes.get(error_code, LumioError)
         raise cls()
 
     @app.get("/raise-generic")
@@ -56,9 +56,9 @@ async def client(test_app):
         yield c
 
 
-async def test_smartcs_error_2xxx_returns_400(client: AsyncClient):
+async def test_lumio_error_2xxx_returns_400(client: AsyncClient):
     """输入错误 (2xxx) 映射为 HTTP 400"""
-    resp = await client.get("/raise-smartcs/2001")
+    resp = await client.get("/raise-lumio/2001")
     assert resp.status_code == 400, f"Expected 400, got {resp.status_code}: {resp.text}"
     data = resp.json()
     assert "error" in data
@@ -66,9 +66,9 @@ async def test_smartcs_error_2xxx_returns_400(client: AsyncClient):
     assert data["error"]["type"] == "IntentUnrecognizedError"
 
 
-async def test_smartcs_error_3xxx_returns_422(client: AsyncClient):
+async def test_lumio_error_3xxx_returns_422(client: AsyncClient):
     """业务错误 (3xxx) 映射为 HTTP 422"""
-    resp = await client.get("/raise-smartcs/3001")
+    resp = await client.get("/raise-lumio/3001")
     assert resp.status_code == 422
     data = resp.json()
     assert data["error"]["code"] == 3001
@@ -76,7 +76,7 @@ async def test_smartcs_error_3xxx_returns_422(client: AsyncClient):
 
 async def test_session_not_found_returns_404(client: AsyncClient):
     """会话不存在 (3004) 映射为 HTTP 404"""
-    resp = await client.get("/raise-smartcs/3004")
+    resp = await client.get("/raise-lumio/3004")
     assert resp.status_code == 404
     data = resp.json()
     assert data["error"]["code"] == 3004
@@ -85,24 +85,24 @@ async def test_session_not_found_returns_404(client: AsyncClient):
 
 async def test_invalid_transition_returns_409(client: AsyncClient):
     """非法状态转换 (3005) 映射为 HTTP 409"""
-    resp = await client.get("/raise-smartcs/3005")
+    resp = await client.get("/raise-lumio/3005")
     assert resp.status_code == 409
     data = resp.json()
     assert data["error"]["code"] == 3005
     assert data["error"]["type"] == "InvalidTransitionError"
 
 
-async def test_smartcs_error_4xxx_returns_502(client: AsyncClient):
+async def test_lumio_error_4xxx_returns_502(client: AsyncClient):
     """外部依赖错误 (4xxx) 映射为 HTTP 502"""
-    resp = await client.get("/raise-smartcs/4001")
+    resp = await client.get("/raise-lumio/4001")
     assert resp.status_code == 502
     data = resp.json()
     assert data["error"]["code"] == 4001
 
 
-async def test_smartcs_error_5xxx_returns_500(client: AsyncClient):
+async def test_lumio_error_5xxx_returns_500(client: AsyncClient):
     """系统错误 (5xxx) 映射为 HTTP 500"""
-    resp = await client.get("/raise-smartcs/5001")
+    resp = await client.get("/raise-lumio/5001")
     assert resp.status_code == 500
     data = resp.json()
     assert data["error"]["code"] == 5001
@@ -120,7 +120,7 @@ async def test_generic_error_returns_500(client: AsyncClient):
 
 async def test_error_response_format(client: AsyncClient):
     """所有错误响应遵循统一格式 {"error": {"code", "message", "type"}}"""
-    resp = await client.get("/raise-smartcs/2001")
+    resp = await client.get("/raise-lumio/2001")
     data = resp.json()
     assert set(data["error"].keys()) >= {"code", "message", "type"}
 
@@ -133,7 +133,7 @@ async def test_generic_error_production_hides_type():
     os.environ["SMARTCS_JWT_SECRET"] = "x" * 32  # 生产环境必须设置安全密钥
     try:
         # 清除 lru_cache 以读取新的环境变量
-        from smartcs.shared.config import get_settings
+        from lumio.shared.config import get_settings
 
         get_settings.cache_clear()
 
@@ -147,6 +147,6 @@ async def test_generic_error_production_hides_type():
         os.environ.pop("SMARTCS_ENVIRONMENT", None)
         os.environ.pop("SMARTCS_JWT_SECRET", None)
         # 恢复 lru_cache
-        from smartcs.shared.config import get_settings
+        from lumio.shared.config import get_settings
 
         get_settings.cache_clear()

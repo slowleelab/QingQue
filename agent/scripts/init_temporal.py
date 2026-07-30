@@ -28,7 +28,7 @@ async def init_temporal():
         return False
 
     host = os.getenv("TEMPORAL_HOST", "localhost:7233")
-    namespace = os.getenv("TEMPORAL_NAMESPACE", "smartcs")
+    namespace = os.getenv("TEMPORAL_NAMESPACE", "lumio")
 
     print(f"🔧 连接 Temporal Server: {host} (namespace={namespace})")
 

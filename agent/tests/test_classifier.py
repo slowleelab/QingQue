@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.common.classifier import (
+from lumio.services.common.classifier import (
     IntentClassifier,
     LLMClassifier,
     RuleClassifier,
     get_domain,
 )
-from smartcs.shared.models import IntentLabel, IntentResult, SentimentLabel
+from lumio.shared.models import IntentLabel, IntentResult, SentimentLabel
 
 # ── RuleClassifier ──
 

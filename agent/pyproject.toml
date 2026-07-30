@@ -1,16 +1,16 @@
 [tool.poetry]
-name = "smartcs"
+name = "lumio"
 version = "0.1.0"
-description = "银行信用卡智能客服平台 - AI坐席辅助 + 机器人自助问答"
-authors = ["SmartCS Team"]
+description = "灵智（Lumio）— 银行信用卡智能客服平台：AI 坐席辅助 + 机器人自助问答"
+authors = ["Lumio Team"]
 package-mode = false
 packages = [
-    { include = "smartcs", from = "." },
+    { include = "lumio", from = "." },
 ]
 
 [tool.poetry.scripts]
-smartcs-bot = "smartcs.main:bot_app"
-smartcs-assist = "smartcs.main:assist_app"
+lumio-bot = "lumio.main:bot_app"
+lumio-assist = "lumio.main:assist_app"
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -108,7 +108,7 @@ markers = [
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-src = ["smartcs", "tests"]
+src = ["lumio", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -131,7 +131,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["smartcs"]
+known-first-party = ["lumio"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -151,7 +151,7 @@ module = "tests.*"
 disallow_untyped_defs = false
 
 [tool.coverage.run]
-source = ["smartcs"]
+source = ["lumio"]
 branch = true
 omit = ["tests/*"]
 

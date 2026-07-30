@@ -1,0 +1,674 @@
+"""统一依赖注入工厂
+
+提供 FastAPI Depends 使用的依赖注入函数。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import AsyncGenerator
+from typing import Annotated, Any
+
+from elasticsearch import AsyncElasticsearch
+from fastapi import Depends, FastAPI, Request
+from minio import Minio
+from pymilvus import Collection
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from lumio.services.common.classifier import IntentClassifier, LLMClassifier, RuleClassifier
+from lumio.services.common.database import get_db
+from lumio.services.common.degradation import (
+    ContentDegrader,
+    DegradationManager,
+    HealthMonitor,
+)
+from lumio.services.common.embedding import (
+    EmbeddingCircuitBreaker,
+    EmbeddingProvider,
+    create_embedding_provider,
+)
+from lumio.services.common.llm import LLMCircuitBreaker, LLMClient
+from lumio.services.common.redis_client import get_redis
+from lumio.services.common.reranker import (
+    RerankerProvider,
+    create_reranker_provider,
+)
+from lumio.services.common.session import SessionManager
+from lumio.services.common.star_client import StarConnectionClient
+from lumio.services.common.transfer import TransferChecker
+from lumio.shared.config import get_settings
+
+_logger = logging.getLogger(__name__)
+
+
+async def _get_app(request: Request):
+    """从 Request 中获取 FastAPI app 实例"""
+    return request.app
+
+
+async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    """获取数据库会话（FastAPI 依赖注入）"""
+    async for session in get_db(request.app):
+        yield session
+
+
+def get_redis_client(request: Request) -> Redis:
+    """获取 Redis 客户端（FastAPI 依赖注入）"""
+    return get_redis(request.app)
+
+
+# 类型别名，方便在路由中使用
+DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+RedisClient = Annotated[Redis, Depends(get_redis_client)]
+
+
+async def init_embedding(app: FastAPI) -> None:
+    """初始化嵌入服务，存储到 app.state"""
+    settings = get_settings()
+    ollama_base = settings.llm.base_url.replace("/v1", "").rstrip("/")
+    provider = create_embedding_provider(
+        provider_type=settings.rag.embedding_provider,
+        ollama_base_url=ollama_base,
+        ollama_model=settings.rag.embedding_model,
+        tei_base_url=settings.rag.tei_base_url,
+        tei_model=settings.rag.tei_embedding_model,
+        dim=settings.rag.embedding_dim,
+        batch_size=settings.rag.embedding_batch_size,
+        timeout=settings.rag.embedding_timeout,
+        max_retries=settings.rag.embedding_max_retries,
+    )
+    # 启动时维度自检
+    try:
+        test_vec = await provider.embed(["维度校验"])
+        actual_dim = len(test_vec[0])
+        if actual_dim != settings.milvus.vector_dim:
+            raise RuntimeError(f"嵌入维度不匹配: 模型输出 {actual_dim} 维, Milvus 配置 {settings.milvus.vector_dim} 维")
+    except Exception as e:
+        _logger.warning("嵌入服务维度自检失败: %s", e)
+        if settings.environment != "development":
+            raise
+
+    breaker = EmbeddingCircuitBreaker(provider)
+    await breaker.start_probe()
+    app.state.embedding_breaker = breaker
+    app.state.embedding_provider = provider
+
+
+async def close_embedding(app: FastAPI) -> None:
+    """关闭嵌入服务"""
+    breaker: EmbeddingCircuitBreaker | None = getattr(app.state, "embedding_breaker", None)
+    if breaker:
+        await breaker.stop_probe()
+
+
+async def init_reranker(app: FastAPI) -> None:
+    """初始化重排服务，存储到 app.state"""
+    settings = get_settings()
+    ollama_base = settings.llm.base_url.replace("/v1", "").rstrip("/")
+    provider = create_reranker_provider(
+        provider_type=settings.rag.reranker_provider,
+        ollama_base_url=ollama_base,
+        ollama_model=settings.rag.reranker_model,
+        tei_base_url=settings.rag.tei_base_url,
+        tei_model=settings.rag.reranker_model,
+    )
+    app.state.reranker_provider = provider
+
+
+async def close_reranker(app: FastAPI) -> None:
+    """关闭重排服务（无需特殊清理）"""
+    pass
+
+
+async def init_elasticsearch(app: FastAPI) -> None:
+    """初始化 Elasticsearch 异步客户端，存储到 app.state"""
+    from elasticsearch import AsyncElasticsearch
+
+    settings = get_settings()
+    es_kwargs: dict[str, Any] = {"hosts": [settings.elasticsearch.hosts]}
+    if settings.elasticsearch.username:
+        es_kwargs["basic_auth"] = (settings.elasticsearch.username, settings.elasticsearch.password)
+    es_kwargs["verify_certs"] = settings.elasticsearch.verify_certs
+    client = AsyncElasticsearch(**es_kwargs)
+    try:
+        await client.ping()
+        app.state.es_client = client
+    except Exception as e:
+        _logger.warning("Elasticsearch 连接失败，将使用降级模式: %s", e)
+        app.state.es_client = None
+
+
+async def close_elasticsearch(app: FastAPI) -> None:
+    """关闭 Elasticsearch 客户端"""
+    client = getattr(app.state, "es_client", None)
+    if client:
+        await client.close()
+        app.state.es_client = None
+
+
+async def init_milvus(app: FastAPI) -> None:
+    """初始化 Milvus Collection，存储到 app.state"""
+    from pymilvus import Collection, connections
+
+    settings = get_settings()
+    try:
+        connections.connect(
+            alias="default",
+            host=settings.milvus.host,
+            port=settings.milvus.port,
+            timeout=3,
+        )
+        collection = Collection(settings.milvus.collection_name)
+        # load() 可能长时间阻塞, 用线程池 + 超时保护
+        await asyncio.wait_for(asyncio.to_thread(collection.load), timeout=5)
+        app.state.milvus_collection = collection
+    except (TimeoutError, Exception) as e:
+        _logger.warning("Milvus 连接/加载超时，将使用降级模式: %s", e)
+        app.state.milvus_collection = None
+
+
+async def close_milvus(app: FastAPI) -> None:
+    """关闭 Milvus 连接"""
+    from pymilvus import connections
+
+    collection = getattr(app.state, "milvus_collection", None)
+    if collection:
+        with contextlib.suppress(Exception):
+            connections.disconnect("default")
+        app.state.milvus_collection = None
+
+
+async def init_minio(app: FastAPI) -> None:
+    """初始化 MinIO 客户端，存储到 app.state"""
+    from minio import Minio
+
+    settings = get_settings()
+    try:
+        client = Minio(
+            endpoint=settings.minio.endpoint,
+            access_key=settings.minio.access_key,
+            secret_key=settings.minio.secret_key,
+            secure=settings.minio.secure,
+        )
+        if not client.bucket_exists(settings.minio.bucket):
+            client.make_bucket(settings.minio.bucket)
+        app.state.minio_client = client
+    except Exception as e:
+        _logger.warning("MinIO 连接失败: %s", e)
+        app.state.minio_client = None
+
+
+async def close_minio(app: FastAPI) -> None:
+    """关闭 MinIO 客户端（无需特殊清理）"""
+    app.state.minio_client = None
+
+
+def get_embedding_provider(request: Request) -> EmbeddingProvider:
+    """获取嵌入服务（FastAPI 依赖注入）"""
+    return request.app.state.embedding_provider
+
+
+def get_embedding_breaker(request: Request) -> EmbeddingCircuitBreaker:
+    """获取嵌入熔断器（FastAPI 依赖注入）"""
+    return request.app.state.embedding_breaker
+
+
+def get_reranker_provider(request: Request) -> RerankerProvider:
+    """获取重排服务（FastAPI 依赖注入）"""
+    return request.app.state.reranker_provider
+
+
+def get_es_client(request: Request) -> AsyncElasticsearch | None:
+    """获取 Elasticsearch 客户端（FastAPI 依赖注入）"""
+    return getattr(request.app.state, "es_client", None)
+
+
+def get_milvus_collection(request: Request) -> Collection | None:
+    """获取 Milvus Collection（FastAPI 依赖注入）"""
+    return getattr(request.app.state, "milvus_collection", None)
+
+
+def get_minio_client(request: Request) -> Minio | None:
+    """获取 MinIO 客户端（FastAPI 依赖注入）"""
+    return getattr(request.app.state, "minio_client", None)
+
+
+# ── LLM 客户端 ──
+
+
+async def init_llm(app: FastAPI) -> None:
+    """初始化 LLM 客户端，存储到 app.state"""
+    settings = get_settings()
+    breaker = LLMCircuitBreaker()
+    client = LLMClient(settings=settings.llm, breaker=breaker)
+    app.state.llm_client = client
+    app.state.llm_breaker = breaker
+
+
+async def close_llm(app: FastAPI) -> None:
+    """关闭 LLM 客户端（无需特殊清理）"""
+    app.state.llm_client = None
+
+
+def get_llm_client(request: Request) -> LLMClient:
+    """获取 LLM 客户端（FastAPI 依赖注入）"""
+    return request.app.state.llm_client
+
+
+# ── 健康监控 ──
+
+
+async def init_health_monitor(app: FastAPI) -> None:
+    """初始化健康监控器，存储到 app.state"""
+    llm_client = app.state.llm_client
+    breaker = app.state.llm_breaker
+    settings = get_settings()
+    monitor = HealthMonitor(
+        llm_client=llm_client,
+        breaker=breaker,
+        probe_interval=settings.llm.health_probe_interval_seconds,
+        probe_max_interval=settings.llm.health_probe_max_interval,
+        probe_timeout=settings.llm.health_probe_timeout,
+        fail_threshold=settings.llm.health_probe_fail_threshold,
+        success_threshold=settings.llm.health_probe_success_threshold,
+    )
+    await monitor.start()
+    app.state.health_monitor = monitor
+
+
+async def close_health_monitor(app: FastAPI) -> None:
+    """关闭健康监控器"""
+    monitor = getattr(app.state, "health_monitor", None)
+    if monitor:
+        await monitor.stop()
+        app.state.health_monitor = None
+
+
+def get_health_monitor(request: Request) -> HealthMonitor:
+    """获取健康监控器（FastAPI 依赖注入）"""
+    return request.app.state.health_monitor
+
+
+# ── 降级管理 ──
+
+
+async def init_degradation_manager(app: FastAPI) -> None:
+    """初始化降级管理器，存储到 app.state"""
+    llm_client = app.state.llm_client
+    health_monitor = app.state.health_monitor
+    content_degrader = ContentDegrader()
+    mgr = DegradationManager(
+        llm_client=llm_client,
+        health_monitor=health_monitor,
+        content_degrader=content_degrader,
+    )
+    app.state.degradation_manager = mgr
+
+
+async def close_degradation_manager(app: FastAPI) -> None:
+    """关闭降级管理器（无需特殊清理）"""
+    app.state.degradation_manager = None
+
+
+def get_degradation_manager(request: Request) -> DegradationManager:
+    """获取降级管理器（FastAPI 依赖注入）"""
+    return request.app.state.degradation_manager
+
+
+# ── 会话管理 ──
+
+
+async def init_session_manager(app: FastAPI) -> None:
+    """初始化会话管理器，存储到 app.state"""
+    redis = get_redis(app)
+    app.state.session_manager = SessionManager(redis)
+
+    # 注入 DB session factory 供对话记录持久化
+    db_session_factory = getattr(app.state, "db_session_factory", None)
+    if db_session_factory:
+        app.state.session_manager.set_db_session_factory(db_session_factory)
+
+
+async def init_session_timeout_manager(app: FastAPI) -> None:
+    """初始化会话超时管理器，绑定到 SessionManager"""
+    from fastapi import WebSocket
+
+    from lumio.services.assist.router import WS_POOL_KEY
+    from lumio.services.common.session_timeout import SessionSubPhase, SessionTimeoutManager
+
+    session_manager: SessionManager | None = getattr(app.state, "session_manager", None)
+    if session_manager is None:
+        _logger.warning("SessionManager 未初始化，跳过超时管理器")
+        return
+
+    redis = get_redis(app)
+
+    async def on_timeout(session_id: str, sub_phase: SessionSubPhase, reason: str) -> None:
+        """超时时推送 WebSocket 事件给坐席"""
+        ws_pool: dict[str, WebSocket] = getattr(app.state, WS_POOL_KEY, {})
+        ws = ws_pool.get(session_id)
+        if ws is not None:
+            try:
+                await ws.send_json(
+                    {
+                        "type": "session_timeout",
+                        "session_id": session_id,
+                        "sub_phase": sub_phase.value,
+                        "reason": reason,
+                    }
+                )
+            except Exception:
+                _logger.debug("超时通知推送失败: session=%s", session_id)
+
+    timeout_mgr = SessionTimeoutManager(
+        session_manager,
+        redis=redis,
+        on_timeout=on_timeout,
+    )
+    session_manager.set_timeout_manager(timeout_mgr)
+    await timeout_mgr.start_poller()
+    app.state.session_timeout_manager = timeout_mgr
+    _logger.info("会话超时管理器初始化完成 (Redis ZSET 分布式方案)")
+
+
+async def close_session_timeout_manager(app: FastAPI) -> None:
+    """关闭会话超时管理器"""
+    timeout_mgr = getattr(app.state, "session_timeout_manager", None)
+    if timeout_mgr:
+        await timeout_mgr.stop_poller()
+    app.state.session_timeout_manager = None
+
+
+async def close_session_manager(app: FastAPI) -> None:
+    """关闭会话管理器（先等待持久化任务完成）"""
+    mgr = getattr(app.state, "session_manager", None)
+    if mgr:
+        await mgr.flush_pending_persists(timeout=10.0)
+    app.state.session_manager = None
+
+
+def get_session_manager(request: Request) -> SessionManager:
+    """获取会话管理器（FastAPI 依赖注入）"""
+    return request.app.state.session_manager
+
+
+# ── 分类器 ──
+
+
+async def init_classifier(app: FastAPI) -> None:
+    """初始化意图分类器，存储到 app.state"""
+    llm_client: LLMClient = app.state.llm_client
+    rule_classifier = RuleClassifier()
+    llm_classifier = LLMClassifier(llm_client)
+    settings = get_settings()
+    classifier = IntentClassifier(
+        rule_classifier=rule_classifier,
+        llm_classifier=llm_classifier,
+        fast_threshold=settings.classification.intent_threshold + 0.1,
+    )
+    app.state.classifier = classifier
+
+
+async def close_classifier(app: FastAPI) -> None:
+    """关闭分类器（无需特殊清理）"""
+    app.state.classifier = None
+
+
+def get_classifier(request: Request) -> IntentClassifier:
+    """获取意图分类器（FastAPI 依赖注入）"""
+    return request.app.state.classifier
+
+
+# ── 转人工检查 ──
+
+
+async def init_transfer_checker(app: FastAPI) -> None:
+    """初始化转人工检查器，存储到 app.state"""
+    app.state.transfer_checker = TransferChecker()
+
+
+def get_transfer_checker(request: Request) -> TransferChecker:
+    """获取转人工检查器（FastAPI 依赖注入）"""
+    return request.app.state.transfer_checker
+
+
+# ── Agent ──
+
+
+async def init_mcp_client(app: FastAPI) -> None:
+    """初始化 MCP 工具客户端，存储到 app.state
+
+    MCP_ENABLED=False 时创建的客户端 connect() 为空操作，list_tools() 返回 []，
+    编排层据此走原有降级链（零回归）。
+    """
+    from lumio.services.common.mcp_client import MCPToolClient
+
+    settings = get_settings()
+    client = MCPToolClient(settings=settings.mcp)
+    await client.connect()
+    app.state.mcp_client = client
+    _logger.info("MCP 工具客户端初始化完成 (enabled=%s, connected=%s)", settings.mcp.enabled, client.connected)
+
+
+async def close_mcp_client(app: FastAPI) -> None:
+    """关闭 MCP 工具客户端"""
+    client = getattr(app.state, "mcp_client", None)
+    if client is not None:
+        await client.close()
+    app.state.mcp_client = None
+
+
+def get_mcp_client(request: Request) -> Any:
+    """获取 MCP 工具客户端（FastAPI 依赖注入）"""
+    return getattr(request.app.state, "mcp_client", None)
+
+
+async def init_agent(app: FastAPI) -> None:
+    """初始化对话 Agent，存储到 app.state"""
+    from lumio.services.bot.bot_agent import SmartCSAgent
+
+    classifier: IntentClassifier = app.state.classifier
+    degradation_mgr: DegradationManager = app.state.degradation_manager
+    transfer_checker: TransferChecker = app.state.transfer_checker
+    session_manager: SessionManager = app.state.session_manager
+
+    es_client = getattr(app.state, "es_client", None)
+    milvus_collection = getattr(app.state, "milvus_collection", None)
+    embedding_breaker = getattr(app.state, "embedding_breaker", None)
+
+    # 工具执行器：仅在 MCP 启用且连接成功时装配，否则为 None（零回归）
+    tool_executor = None
+    settings = get_settings()
+    mcp_client = getattr(app.state, "mcp_client", None)
+    if settings.mcp.enabled and mcp_client is not None and mcp_client.connected:
+        from lumio.services.bot.tool_executor import ToolCallingExecutor
+        from lumio.services.bot.tool_guard import ToolGuard
+
+        guard = ToolGuard(settings.mcp)
+        tool_executor = ToolCallingExecutor(
+            mcp_client=mcp_client,
+            llm_client=app.state.llm_client,
+            audit_session_factory=getattr(app.state, "db_session_factory", None),
+            settings=settings.mcp,
+            guard=guard,
+        )
+        _logger.info("工具执行器已装配（护栏 active=%s）", guard.active)
+
+    agent = SmartCSAgent(
+        classifier=classifier,
+        degradation_mgr=degradation_mgr,
+        transfer_checker=transfer_checker,
+        session_manager=session_manager,
+        es_client=es_client,
+        milvus_collection=milvus_collection,
+        embedding_breaker=embedding_breaker,
+        tool_executor=tool_executor,
+    )
+    app.state.agent = agent
+    _logger.info("对话 Agent 初始化完成")
+
+
+async def close_agent(app: FastAPI) -> None:
+    """关闭 Agent（无需特殊清理）"""
+    app.state.agent = None
+
+
+def get_agent(request: Request) -> Any:
+    """获取对话 Agent（FastAPI 依赖注入）"""
+    return request.app.state.agent
+
+
+# ── 坐席辅助引擎依赖 ──
+
+
+async def init_assist_orchestrator(app: FastAPI) -> None:
+    """初始化坐席辅助引擎所需的依赖组件
+
+    历史遗留：函数名保留 init_assist_orchestrator 以避免改动 lifespan 调用链，
+    但已不再实例化旧 AssistOrchestrator。坐席辅助引擎（run_assist_engine）
+    为唯一编排路径，依赖 script_service / alert_engine / ai_executor。
+    """
+    from lumio.services.assist.alert_engine import AlertEngine
+    from lumio.services.assist.product_catalog import ProductCatalog
+    from lumio.services.assist.script_service import ScriptService
+
+    # 话术服务（从 DB 加载，fallback 到内存）
+    script_service = ScriptService()
+    try:
+        session_factory = app.state.db_session_factory
+        async with session_factory() as db_session:
+            await script_service.load_from_db(db_session)
+    except Exception as e:
+        _logger.warning("从数据库加载话术失败，使用内存种子数据: %s", e)
+        script_service.load_from_memory()
+
+    # 告警引擎
+    alert_engine = AlertEngine()
+    try:
+        session_factory = app.state.db_session_factory
+        async with session_factory() as db_session:
+            await alert_engine.load_from_db(db_session)
+    except Exception as e:
+        _logger.warning("从数据库加载告警规则失败，使用内存种子数据: %s", e)
+        alert_engine.load_from_memory()
+
+    # 产品目录
+    product_catalog = ProductCatalog()
+
+    # 检索依赖（直接传参给 retrieve() 函数）
+    es_client = getattr(app.state, "es_client", None)
+    milvus_col = getattr(app.state, "milvus_collection", None)
+    embedding_provider = getattr(app.state, "embedding_provider", None)
+    embedding_breaker = getattr(app.state, "embedding_breaker", None)
+    reranker = getattr(app.state, "reranker_provider", None)
+
+    llm_client = getattr(app.state, "llm_client", None)
+
+    app.state.script_service = script_service
+    app.state.alert_engine = alert_engine
+    app.state.product_catalog = product_catalog
+    _logger.info("坐席辅助引擎依赖初始化完成（script/alert/product）")
+
+    # 初始化 AI 执行器 (PydanticAI)
+    from lumio.services.assist.ai_executor import AIExecutor
+
+    ai_executor = AIExecutor(
+        script_service=script_service,
+        es_client=es_client,
+        milvus_collection=milvus_col,
+        embedding_provider=embedding_provider,
+        embedding_breaker=embedding_breaker,
+        reranker=reranker,
+        llm_client=llm_client,
+        alert_engine=alert_engine,
+    )
+    app.state.ai_executor = ai_executor
+    _logger.info("AI 执行器 (PydanticAI) 初始化完成")
+
+
+async def close_assist_orchestrator(app: FastAPI) -> None:
+    """关闭坐席辅助引擎依赖"""
+    app.state.ai_executor = None
+    app.state.script_service = None
+    app.state.alert_engine = None
+    app.state.product_catalog = None
+
+
+# ── star-connection 客户端 ──
+
+
+async def init_star_client(app: FastAPI) -> None:
+    """初始化 star-connection HTTP 客户端，存储到 app.state"""
+    settings = get_settings()
+    app.state.star_client = StarConnectionClient(base_url=settings.star_connection_url)
+
+
+async def close_star_client(app: FastAPI) -> None:
+    """关闭 star-connection 客户端"""
+    app.state.star_client = None
+
+
+def get_star_client(request: Request) -> StarConnectionClient:
+    """获取 star-connection 客户端（FastAPI 依赖注入）"""
+    return request.app.state.star_client
+
+
+# ── 类型别名 ──
+
+EmbeddingProviderDep = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
+EmbeddingBreakerDep = Annotated[EmbeddingCircuitBreaker, Depends(get_embedding_breaker)]
+RerankerProviderDep = Annotated[RerankerProvider, Depends(get_reranker_provider)]
+ESClientDep = Annotated[AsyncElasticsearch | None, Depends(get_es_client)]
+MilvusCollectionDep = Annotated[Collection | None, Depends(get_milvus_collection)]
+MinioClientDep = Annotated[Minio | None, Depends(get_minio_client)]
+LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
+SessionManagerDep = Annotated[SessionManager, Depends(get_session_manager)]
+ClassifierDep = Annotated[IntentClassifier, Depends(get_classifier)]
+TransferCheckerDep = Annotated[TransferChecker, Depends(get_transfer_checker)]
+AgentDep = Annotated[Any, Depends(get_agent)]
+HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
+DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
+
+
+StarClientDep = Annotated[StarConnectionClient, Depends(get_star_client)]
+
+
+# ── 依赖组件熔断器 (ES / Milvus) ──
+
+
+async def init_dependency_breakers(app: FastAPI) -> None:
+    """初始化 ES/Milvus 熔断器"""
+    from lumio.services.common.circuit_breaker import CircuitBreaker
+
+    app.state.es_breaker = CircuitBreaker(
+        failure_threshold=0.5,
+        sliding_window_size=20,
+        recovery_timeout=30.0,
+    )
+    app.state.milvus_breaker = CircuitBreaker(
+        failure_threshold=0.5,
+        sliding_window_size=20,
+        recovery_timeout=30.0,
+    )
+
+
+async def close_dependency_breakers(app: FastAPI) -> None:
+    """关闭熔断器（无需特殊清理）"""
+    pass
+
+
+def get_es_breaker(request: Request):
+    """获取 ES 熔断器"""
+    return getattr(request.app.state, "es_breaker", None)
+
+
+def get_milvus_breaker(request: Request):
+    """获取 Milvus 熔断器"""
+    return getattr(request.app.state, "milvus_breaker", None)
+
+
+ESBreakerDep = Annotated[Any, Depends(get_es_breaker)]
+MilvusBreakerDep = Annotated[Any, Depends(get_milvus_breaker)]

@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.common.assist_engine import (
+from lumio.services.common.assist_engine import (
     evaluate_d1_service,
     evaluate_d2_marketing,
     evaluate_d3_risk,
     run_assist_engine,
 )
-from smartcs.services.common.decision import PushTracker
+from lumio.services.common.decision import PushTracker
 
 
 class TestEvaluators:

@@ -17,8 +17,8 @@ import time
 
 import pytest
 
-from smartcs.services.common.circuit_breaker import CircuitBreaker, CircuitState
-from smartcs.shared.exceptions import CircuitBreakerOpenError
+from lumio.services.common.circuit_breaker import CircuitBreaker, CircuitState
+from lumio.shared.exceptions import CircuitBreakerOpenError
 
 # ── 基础属性 ──
 
@@ -500,8 +500,8 @@ class TestCircuitBreakerOpenError:
         assert err.code == 4020
         assert err.message == "熔断器打开"
 
-    def test_is_smartcs_error(self) -> None:
-        from smartcs.shared.exceptions import SmartCSError
+    def test_is_lumio_error(self) -> None:
+        from lumio.shared.exceptions import LumioError
 
         err = CircuitBreakerOpenError(executor_name="test")
-        assert isinstance(err, SmartCSError)
+        assert isinstance(err, LumioError)

@@ -16,10 +16,10 @@ from typing import Any
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session as connect_in_memory
 
-from smartcs.services.common.llm import ToolCall, ToolCallResult
-from smartcs.services.common.mcp_client import MCPToolClient
-from smartcs.services.tools.reference_server import build_reference_server
-from smartcs.shared.config import MCPSettings
+from lumio.services.common.llm import ToolCall, ToolCallResult
+from lumio.services.common.mcp_client import MCPToolClient
+from lumio.services.tools.reference_server import build_reference_server
+from lumio.shared.config import MCPSettings
 
 
 class _ScriptedLLM:
@@ -124,7 +124,7 @@ class TestToolLayerE2E:
             assert "3288.5" in result["content"] or "3288" in result["content"]
 
     async def test_nonsensitive_tool_flow_produces_final_answer(self) -> None:
-        from smartcs.services.bot.tool_executor import ToolCallingExecutor
+        from lumio.services.bot.tool_executor import ToolCallingExecutor
 
         server = build_reference_server()
         async with connect_in_memory(server._mcp_server) as session:
@@ -154,7 +154,7 @@ class TestToolLayerE2E:
             assert llm.calls == 2
 
     async def test_sensitive_tool_short_circuits_to_pending_then_confirms(self) -> None:
-        from smartcs.services.bot.tool_executor import ToolCallingExecutor
+        from lumio.services.bot.tool_executor import ToolCallingExecutor
 
         server = build_reference_server()
         async with connect_in_memory(server._mcp_server) as session:

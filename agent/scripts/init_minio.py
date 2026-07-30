@@ -1,6 +1,6 @@
 """初始化 MinIO Bucket
 
-创建 smartcs-docs 桶（幂等操作），设置桶策略为 private。
+创建 lumio-docs 桶（幂等操作），设置桶策略为 private。
 
 使用方式:
     poetry run python scripts/init_minio.py
@@ -25,7 +25,7 @@ def init_minio():
         print("   请确保 MinIO 已启动: docker-compose up -d minio")
         sys.exit(1)
 
-    bucket_name = "smartcs-docs"
+    bucket_name = "lumio-docs"
 
     if client.bucket_exists(bucket_name):
         print(f"⚠️  Bucket '{bucket_name}' 已存在，跳过创建")

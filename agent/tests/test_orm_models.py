@@ -18,7 +18,7 @@ import uuid_utils
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from smartcs.shared.orm_models import (
+from lumio.shared.orm_models import (
     Base,
     KbChunk,
     KbDocStatus,

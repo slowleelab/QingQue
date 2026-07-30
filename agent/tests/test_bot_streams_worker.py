@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-# 不直接 import smartcs.services.bot.router, 用 mock 避免 import 链
+# 不直接 import lumio.services.bot.router, 用 mock 避免 import 链
 # 测试核心逻辑函数和常量定义
 
 

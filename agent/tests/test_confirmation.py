@@ -9,9 +9,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
-from smartcs.services.bot.bot_agent import SmartCSAgent
-from smartcs.services.bot.tool_executor import ToolExecutionResult
-from smartcs.shared.models import PendingAction, SessionState
+from lumio.services.bot.bot_agent import SmartCSAgent
+from lumio.services.bot.tool_executor import ToolExecutionResult
+from lumio.shared.models import PendingAction, SessionState
 
 
 def _make_agent(session_manager, tool_executor):

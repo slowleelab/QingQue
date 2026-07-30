@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from smartcs.services.common.star_client import StarConnectionClient
+from lumio.services.common.star_client import StarConnectionClient
 
 
 def test_client_has_base_url():

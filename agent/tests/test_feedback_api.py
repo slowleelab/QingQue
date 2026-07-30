@@ -12,8 +12,8 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from smartcs.main import create_assist_app
-from smartcs.services.assist.router import _action_to_confidence
+from lumio.main import create_assist_app
+from lumio.services.assist.router import _action_to_confidence
 
 # ── Unit tests: _action_to_confidence ──
 

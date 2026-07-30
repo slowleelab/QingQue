@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from smartcs.shared.password import hash_password, verify_password
+from lumio.shared.password import hash_password, verify_password
 
 
 def test_hash_password_format():

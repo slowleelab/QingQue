@@ -1,6 +1,6 @@
 """初始化 Milvus Collection
 
-创建 smartcs_knowledge Collection (v2.1 — 标量索引 + ARRAY keywords):
+创建 lumio_knowledge Collection (v2.1 — 标量索引 + ARRAY keywords):
 - 向量维度: 1024 (bge-large-zh-v1.5)
 - 索引类型: IVF_FLAT (nlist=128)
 - 度量类型: COSINE
@@ -26,7 +26,7 @@ def init_milvus():
         print("   请确保 Milvus 已启动: docker-compose up -d milvus")
         sys.exit(1)
 
-    collection_name = "smartcs_knowledge"
+    collection_name = "lumio_knowledge"
 
     # 删除旧 Collection（仅开发环境，数据可重建）
     if utility.has_collection(collection_name):
