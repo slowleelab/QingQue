@@ -81,33 +81,33 @@ LLM_CALL_DURATION = Histogram(
 # ── Bot 运行时指标（由 router 监控循环周期性刷新） ──
 
 BOT_FAST_REPLY = Counter(
-    "smartcs_fast_reply_total",
+    "lumio_fast_reply_total",
     "Bot 快速兜底回复次数（并发满载时的模板回复）",
 )
 
 BOT_AGENT_RESPONSES = Counter(
-    "smartcs_agent_responses_total",
+    "lumio_agent_responses_total",
     "Bot Agent 正常回复次数",
     ["source"],  # source: llm/template/fallback/tool_* 等
 )
 
 BOT_SEMAPHORE_UTILIZATION = Gauge(
-    "smartcs_bot_semaphore_utilization",
+    "lumio_bot_semaphore_utilization",
     "Bot Agent 信号量利用率（0~1，已占用槽位 / 总槽位）",
 )
 
 BOT_ACTIVE_WORKERS = Gauge(
-    "smartcs_active_workers",
+    "lumio_active_workers",
     "Bot 当前活跃的会话 worker 数",
 )
 
 BOT_STREAM_LENGTH = Gauge(
-    "smartcs_stream_length",
+    "lumio_stream_length",
     "Bot 聊天消息流（Redis Stream）长度",
 )
 
 BOT_STREAM_PENDING = Gauge(
-    "smartcs_stream_pending_total",
+    "lumio_stream_pending_total",
     "Bot 聊天消息流待确认（PEL pending）消息数",
 )
 

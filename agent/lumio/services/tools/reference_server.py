@@ -32,7 +32,7 @@ _MOCK_POINTS: dict[str, int] = {"default": 128600}
 
 def build_reference_server(
     *,
-    name: str = "smartcs-reference-tools",
+    name: str = "lumio-reference-tools",
     host: str = "127.0.0.1",
     port: int = 8080,
 ) -> FastMCP:

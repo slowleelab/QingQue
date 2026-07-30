@@ -118,11 +118,11 @@ def build_milvus_expr(filters: dict) -> str:
 
 
 def _build_cache_key(query: str, filters: dict, search_type: str) -> str:
-    """生成检索缓存 key: smartcs:rag:cache:{search_type}:{query_hash}:{filters_hash}"""
+    """生成检索缓存 key: lumio:rag:cache:{search_type}:{query_hash}:{filters_hash}"""
     query_hash = hashlib.md5(query.encode()).hexdigest()[:12]
     filters_str = json.dumps(filters, sort_keys=True, ensure_ascii=False) if filters else "{}"
     filters_hash = hashlib.md5(filters_str.encode()).hexdigest()[:8]
-    return f"smartcs:rag:cache:{search_type}:{query_hash}:{filters_hash}"
+    return f"lumio:rag:cache:{search_type}:{query_hash}:{filters_hash}"
 
 
 def _date_to_epoch(date_str: str) -> int | None:

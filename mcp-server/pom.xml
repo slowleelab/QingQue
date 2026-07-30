@@ -5,12 +5,12 @@
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.smartcs</groupId>
-    <artifactId>smartcs-mcp-server</artifactId>
+    <groupId>com.lumio</groupId>
+    <artifactId>lumio-mcp-server</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
-    <name>smartcs-mcp-server</name>
-    <description>SmartCS 银行信用卡智能客服 MCP 工具服务（Spring AI MCP Server，streamable/SSE，22 个常用信用卡工具）</description>
+    <name>lumio-mcp-server</name>
+    <description>Lumio 银行信用卡智能客服 MCP 工具服务（Spring AI MCP Server，streamable/SSE，22 个常用信用卡工具）</description>
 
     <!-- 独立顶层工程：不挂到 star-connection 聚合 pom 下，直接继承 Spring Boot 父 pom -->
     <parent>
@@ -100,7 +100,7 @@
     </dependencies>
 
     <build>
-        <finalName>smartcs-mcp-server</finalName>
+        <finalName>lumio-mcp-server</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -115,13 +115,13 @@
                 <configuration>
                     <!-- 排除引导类、纯数据 DTO、Nacos 注册与演示数据常量等无业务分支的样板代码 -->
                     <excludes>
-                        <exclude>com/smartcs/mcp/McpServerApplication.class</exclude>
-                        <exclude>com/smartcs/mcp/model/**</exclude>
-                        <exclude>com/smartcs/mcp/nacos/**</exclude>
-                        <exclude>com/smartcs/mcp/adapter/mock/DemoCards.class</exclude>
-                        <exclude>com/smartcs/mcp/adapter/mock/MockDataSeeder.class</exclude>
-                        <exclude>com/smartcs/mcp/config/CreditCardProperties.class</exclude>
-                        <exclude>com/smartcs/mcp/config/SecurityProperties.class</exclude>
+                        <exclude>com/lumio/mcp/McpServerApplication.class</exclude>
+                        <exclude>com/lumio/mcp/model/**</exclude>
+                        <exclude>com/lumio/mcp/nacos/**</exclude>
+                        <exclude>com/lumio/mcp/adapter/mock/DemoCards.class</exclude>
+                        <exclude>com/lumio/mcp/adapter/mock/MockDataSeeder.class</exclude>
+                        <exclude>com/lumio/mcp/config/CreditCardProperties.class</exclude>
+                        <exclude>com/lumio/mcp/config/SecurityProperties.class</exclude>
                     </excludes>
                 </configuration>
                 <executions>

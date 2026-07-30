@@ -149,7 +149,7 @@ curl -X POST http://localhost:8000/api/chat/send \
 >
 > **或者直接拉取预构建镜像（免编译）**：
 > ```bash
-> docker run --name smartcs-demo -d slowleelab/qingque:demo
+> docker run --name lumio-demo -d slowleelab/qingque:demo
 > ```
 
 ---

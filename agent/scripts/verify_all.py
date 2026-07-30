@@ -188,7 +188,7 @@ def main():
     ]
 
     print("=" * 60)
-    print("SmartCS 中间件连通性验证")
+    print("Lumio 中间件连通性验证")
     print("=" * 60)
 
     results = []

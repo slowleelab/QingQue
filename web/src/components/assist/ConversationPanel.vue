@@ -135,7 +135,7 @@ async function scrollToBottom() {
 }
 
 // HTTP 长轮询 star-connection 获取新消息（基于时间戳游标，非消费性读取）
-// 注意：AI 分析由 star-connection 回调 SmartCS 服务端完成，前端不参与分析链路
+// 注意：AI 分析由 star-connection 回调 Lumio 服务端完成，前端不参与分析链路
 let pollActive = false
 let lastPollTimestamp = 0  // 游标，只拉取该时间戳之后的消息
 

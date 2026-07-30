@@ -20,7 +20,7 @@ import redis.asyncio as aioredis
 
 logger = logging.getLogger(__name__)
 
-_RELOAD_CHANNEL = "smartcs:safety:reload"
+_RELOAD_CHANNEL = "lumio:safety:reload"
 
 # 全角→半角转换表（银行场景客户常输入全角字符）
 _FULLWIDTH_OFFSET = 0xFEE0
@@ -230,7 +230,7 @@ class SafetyFilter:
                 if msg.get("type") == "message":
                     logger.info("收到敏感词热更新通知，正在重新加载...")
                     try:
-                        raw_words = await self._redis.smembers("smartcs:safety:words")  # type: ignore[union-attr]
+                        raw_words = await self._redis.smembers("lumio:safety:words")  # type: ignore[union-attr]
                         words = {w.decode() if isinstance(w, bytes) else w for w in raw_words}
                         self.load_from_set(words)
                         logger.info("敏感词已热更新: %d 个", self.word_count)

@@ -68,7 +68,7 @@ def test_openai_api() -> bool:
 
 def main():
     print("=" * 60)
-    print("SmartCS Ollama 部署验证")
+    print("Lumio Ollama 部署验证")
     print("=" * 60)
 
     # 1. 检查 Ollama 运行状态

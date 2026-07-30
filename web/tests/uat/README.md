@@ -1,4 +1,4 @@
-# SmartCS UAT 自动化测试
+# Lumio UAT 自动化测试
 
 基于 Playwright 的用户验收测试，模拟真实用户操作流程。
 

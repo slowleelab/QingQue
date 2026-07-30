@@ -142,7 +142,7 @@ class UserAccount(Base):
     替代单 admin 密码环境变量方案：
     - 密码使用 PBKDF2-HMAC-SHA256 哈希存储（Django 兼容格式）
     - 角色与 JWT claim 对齐：customer / agent / admin / service
-    - 首次启动时通过 SMARTCS_ADMIN_PASSWORD 初始化默认 admin
+    - 首次启动时通过 LUMIO_ADMIN_PASSWORD 初始化默认 admin
     """
 
     __tablename__ = "user_account"

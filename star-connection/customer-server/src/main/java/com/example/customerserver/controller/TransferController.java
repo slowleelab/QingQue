@@ -40,22 +40,22 @@ public class TransferController {
     public ResponseEntity<TransferSessionResponse> createSession(
             @RequestBody TransferSessionRequest request
     ) {
-        String smartcsSessionId = request.getSessionId();
-        if (smartcsSessionId == null || smartcsSessionId.isEmpty()) {
-            smartcsSessionId = UUID.randomUUID().toString();
+        String lumioSessionId = request.getSessionId();
+        if (lumioSessionId == null || lumioSessionId.isEmpty()) {
+            lumioSessionId = UUID.randomUUID().toString();
         }
 
-        log.info("Creating transfer session from SmartCS: sessionId={}", smartcsSessionId);
+        log.info("Creating transfer session from Lumio: sessionId={}", lumioSessionId);
 
         // 确保有一个默认坐席可用（开发/演示环境）
         ensureDemoAgent();
 
         // 使用 SessionManager 创建会话（自动触发坐席分配）
         CustomerInfo customerInfo = new CustomerInfo(
-            request.getCustomerId() != null ? request.getCustomerId() : "cust-" + smartcsSessionId.substring(0, 8),
+            request.getCustomerId() != null ? request.getCustomerId() : "cust-" + lumioSessionId.substring(0, 8),
             "客户"
         );
-        customerInfo.setSource("SMARTCS_BOT");
+        customerInfo.setSource("LUMIO_BOT");
 
         Session session = sessionManager.createSession(customerInfo);
 

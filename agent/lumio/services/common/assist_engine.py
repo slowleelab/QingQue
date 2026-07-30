@@ -45,17 +45,17 @@ except ImportError:
 
 if _PROMETHEUS_OK:
     ASSIST_ENGINE_DECISIONS = Counter(
-        "smartcs_assist_engine_decisions_total",
+        "lumio_assist_engine_decisions_total",
         "坐席辅助引擎决策计数",
         ["scene", "decision"],
     )
     ASSIST_ENGINE_LATENCY = Histogram(
-        "smartcs_assist_engine_latency_seconds",
+        "lumio_assist_engine_latency_seconds",
         "坐席辅助引擎耗时",
         ["phase"],
     )
     ASSIST_ENGINE_DEGRADATION = Counter(
-        "smartcs_assist_engine_degradation_total",
+        "lumio_assist_engine_degradation_total",
         "坐席辅助引擎降级次数",
         ["agent", "reason"],
     )
@@ -212,7 +212,7 @@ async def run_assist_engine(
     push_tracker = push_tracker or PushTracker()
 
     # ── 幂等性检查 ──
-    dedup_key = f"smartcs:ae:dedup:{trace_id}"
+    dedup_key = f"lumio:ae:dedup:{trace_id}"
     if redis_client:
         try:
             cached = await redis_client.get(dedup_key)
@@ -636,7 +636,7 @@ async def run_assist_engine(
             await redis_client.setex(dedup_key, 30, json.dumps(push_data, default=str))
             # 保存 push_tracker 状态
             await redis_client.setex(
-                f"smartcs:ae:tracker:{session_id}",
+                f"lumio:ae:tracker:{session_id}",
                 3600,  # 1 小时 TTL
                 json.dumps(push_tracker.to_dict()),
             )
@@ -680,7 +680,7 @@ async def load_push_tracker(session_id: str, redis_client: Any) -> PushTracker:
     try:
         import json
 
-        data = await redis_client.get(f"smartcs:ae:tracker:{session_id}")
+        data = await redis_client.get(f"lumio:ae:tracker:{session_id}")
         if data:
             return PushTracker.from_dict(json.loads(data))
     except Exception:

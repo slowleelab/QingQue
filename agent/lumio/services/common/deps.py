@@ -468,7 +468,7 @@ def get_mcp_client(request: Request) -> Any:
 
 async def init_agent(app: FastAPI) -> None:
     """初始化对话 Agent，存储到 app.state"""
-    from lumio.services.bot.bot_agent import SmartCSAgent
+    from lumio.services.bot.bot_agent import LumioAgent
 
     classifier: IntentClassifier = app.state.classifier
     degradation_mgr: DegradationManager = app.state.degradation_manager
@@ -497,7 +497,7 @@ async def init_agent(app: FastAPI) -> None:
         )
         _logger.info("工具执行器已装配（护栏 active=%s）", guard.active)
 
-    agent = SmartCSAgent(
+    agent = LumioAgent(
         classifier=classifier,
         degradation_mgr=degradation_mgr,
         transfer_checker=transfer_checker,

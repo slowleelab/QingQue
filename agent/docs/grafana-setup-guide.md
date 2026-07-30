@@ -1,4 +1,4 @@
-# SmartCS Grafana 监控对接手册
+# Lumio Grafana 监控对接手册
 
 > **版本**: v1.0 | **日期**: 2026-05-25
 
@@ -21,7 +21,7 @@
                       ▼
 ┌─────────────────────────────────────────────────┐
 │              Grafana (:3001)                     │
-│          Dashboard: SmartCS 服务监控              │
+│          Dashboard: Lumio 服务监控              │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -61,7 +61,7 @@ scrape_configs:
       - targets: ["postgres-exporter:9187"]
 ```
 
-**新增采集目标**：在 `scrape_configs` 中添加新的 `job_name` 块，执行 `docker exec smartcs-prometheus kill -HUP 1` 热加载。
+**新增采集目标**：在 `scrape_configs` 中添加新的 `job_name` 块，执行 `docker exec lumio-prometheus kill -HUP 1` 热加载。
 
 ## 四、Grafana Dashboard
 
@@ -70,14 +70,14 @@ scrape_configs:
 | 面板 | 类型 | 指标 | 说明 |
 |------|------|------|------|
 | HTTP 请求速率 | Stat | `rate(http_requests_total[1m])` | 每秒请求数 |
-| Agent 槽位利用率 | Gauge | `smartcs_bot_semaphore_utilization` | 0-100%，>80% 黄色，>90% 红色 |
-| PEL 待处理消息 | Stat | `smartcs_stream_pending_total` | Redis Streams 未确认消息数 |
-| 活跃 Worker 数 | Stat | `smartcs_active_workers` | 当前活跃的 per-session Worker |
+| Agent 槽位利用率 | Gauge | `lumio_bot_semaphore_utilization` | 0-100%，>80% 黄色，>90% 红色 |
+| PEL 待处理消息 | Stat | `lumio_stream_pending_total` | Redis Streams 未确认消息数 |
+| 活跃 Worker 数 | Stat | `lumio_active_workers` | 当前活跃的 per-session Worker |
 | 请求延迟 P50/P99 | TimeSeries | `http_request_duration_seconds` | HTTP 响应延迟分位数 |
 | 会话阶段转换 | TimeSeries | `session_transitions_total` | BOT→AGENT→ENDED 转换速率 |
 | 快速兜底 vs 标准 Agent | TimeSeries | `fast_reply_total` / `agent_responses_total` | 过载保护触发频率 |
 | 会话超时事件 | TimeSeries | `session_timeouts_total` | 各子阶段超时速率 |
-| Stream 长度趋势 | TimeSeries | `smartcs_stream_length` | 消息队列堆积情况 |
+| Stream 长度趋势 | TimeSeries | `lumio_stream_length` | 消息队列堆积情况 |
 | LLM 调用延迟 | TimeSeries | `llm_call_duration_seconds` | LLM 调用 P50/P99 |
 
 ### 导入方式
@@ -86,16 +86,16 @@ scrape_configs:
 ```bash
 curl -X POST "http://admin:admin@localhost:3001/api/dashboards/db" \
   -H "Content-Type: application/json" \
-  -d "{\"dashboard\":$(cat config/grafana/dashboards/smartcs-overview.json),\"overwrite\":true}"
+  -d "{\"dashboard\":$(cat config/grafana/dashboards/lumio-overview.json),\"overwrite\":true}"
 ```
 
 **方式二：UI 手动导入**
 1. 打开 `http://localhost:3001` → 登录
 2. 左侧菜单 → Dashboards → New → Import
-3. 上传 `config/grafana/dashboards/smartcs-overview.json`
+3. 上传 `config/grafana/dashboards/lumio-overview.json`
 
 ### 访问 Dashboard
-- URL: `http://localhost:3001/d/smartcs-overview`
+- URL: `http://localhost:3001/d/lumio-overview`
 - 自动刷新: 10 秒
 
 ## 五、关键告警规则
@@ -104,7 +104,7 @@ curl -X POST "http://admin:admin@localhost:3001/api/dashboards/db" \
 
 ```yaml
 groups:
-  - name: smartcs
+  - name: lumio
     rules:
       - alert: BotServiceDown
         expr: up{job="bot-service"} == 0
@@ -113,19 +113,19 @@ groups:
         annotations: {summary: "Bot 服务不可用"}
 
       - alert: HighSemaphoreUtilization
-        expr: smartcs_bot_semaphore_utilization > 0.8
+        expr: lumio_bot_semaphore_utilization > 0.8
         for: 5m
         labels: {severity: warning}
         annotations: {summary: "Agent 槽位利用率超过 80%"}
 
       - alert: PELBacklog
-        expr: smartcs_stream_pending_total > 50
+        expr: lumio_stream_pending_total > 50
         for: 5m
         labels: {severity: warning}
         annotations: {summary: "Redis Streams PEL 积压超过 50"}
 
       - alert: HighFastReplyRate
-        expr: rate(smartcs_fast_reply_total[5m]) / rate(http_requests_total[5m]) > 0.5
+        expr: rate(lumio_fast_reply_total[5m]) / rate(http_requests_total[5m]) > 0.5
         for: 5m
         labels: {severity: warning}
         annotations: {summary: "快速兜底占比超过 50%，建议扩容"}
@@ -133,12 +133,12 @@ groups:
 
 ## 六、自定义指标接入
 
-在代码中添加新指标（`agent/smartcs/shared/metrics.py`）：
+在代码中添加新指标（`agent/lumio/shared/metrics.py`）：
 
 ```python
 from prometheus_client import Counter, Histogram, Gauge
 
-NEW_METRIC = Counter("smartcs_new_metric_total", "新指标说明", ["label1"])
+NEW_METRIC = Counter("lumio_new_metric_total", "新指标说明", ["label1"])
 ```
 
 应用自动通过 `/metrics` 端点暴露，Prometheus 下一个采集周期自动发现。
@@ -148,9 +148,9 @@ NEW_METRIC = Counter("smartcs_new_metric_total", "新指标说明", ["label1"])
 | 问题 | 排查方法 |
 |------|---------|
 | Dashboard 无数据 | 检查 Prometheus targets: `http://localhost:9090/targets` |
-| 指标名不匹配 | 检查原始指标: `curl http://localhost:8000/metrics \| grep smartcs` |
-| Grafana 无法启动 | `docker logs smartcs-grafana` |
-| Prometheus 采集失败 | `docker logs smartcs-prometheus` |
+| 指标名不匹配 | 检查原始指标: `curl http://localhost:8000/metrics \| grep lumio` |
+| Grafana 无法启动 | `docker logs lumio-grafana` |
+| Prometheus 采集失败 | `docker logs lumio-prometheus` |
 
 ---
 
@@ -175,7 +175,7 @@ NEW_METRIC = Counter("smartcs_new_metric_total", "新指标说明", ["label1"])
 ### 启动 Jaeger
 
 ```bash
-docker run -d --name smartcs-jaeger \
+docker run -d --name lumio-jaeger \
   -p 16686:16686 -p 4317:4317 -p 4318:4318 \
   jaegertracing/all-in-one:latest
 ```
@@ -191,15 +191,15 @@ docker run -d --name smartcs-jaeger \
 
 环境变量控制：
 ```bash
-SMARTCS_TRACING_ENABLED=true   # 启用 (默认)
-SMARTCS_TRACING_ENABLED=false  # 禁用
+LUMIO_TRACING_ENABLED=true   # 启用 (默认)
+LUMIO_TRACING_ENABLED=false  # 禁用
 JAEGER_HOST=localhost           # Jaeger 地址
 ```
 
 ### Jaeger 使用
 
 1. 打开 `http://localhost:16686`
-2. 选择 Service: `smartcs-bot` 或 `smartcs-assist`
+2. 选择 Service: `lumio-bot` 或 `lumio-assist`
 3. 点击 Find Traces 查看请求链路
 4. 点击单个 Trace 查看每步耗时：
    - `POST /api/chat/send` → XADD → Agent.run() → LLM → SETEX → PUBLISH
@@ -220,5 +220,5 @@ pip install opentelemetry-api opentelemetry-sdk \
 | 问题 | 排查方法 |
 |------|---------|
 | Jaeger 无数据 | 检查 OTLP 端点: `curl http://localhost:4318/v1/traces` |
-| 服务未出现在 Jaeger | 检查 `SMARTCS_TRACING_ENABLED=true`，查看应用启动日志 |
+| 服务未出现在 Jaeger | 检查 `LUMIO_TRACING_ENABLED=true`，查看应用启动日志 |
 | Span 缺失 | 检查所需 opentelemetry-instrumentation-* 包是否安装 |

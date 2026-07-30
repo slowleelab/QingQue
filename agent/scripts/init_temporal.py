@@ -57,7 +57,7 @@ async def init_temporal():
 def main():
     """入口"""
     print("=" * 60)
-    print("SmartCS Temporal 基础设施初始化")
+    print("Lumio Temporal 基础设施初始化")
     print("=" * 60)
 
     asyncio.run(init_temporal())

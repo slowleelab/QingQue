@@ -2,10 +2,21 @@ import axios from "axios"
 import { ElMessage } from "element-plus"
 import type { ApiError } from "./types"
 
-const TOKEN_KEY = "smartcs_token"
+const TOKEN_KEY = "lumio_token"
+const LEGACY_TOKEN_KEY = "smartcs_token"
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
+  // 兼容旧 smartcs_token：首次读取时迁移到 lumio_token
+  if (typeof localStorage === "undefined") return null
+  const newToken = localStorage.getItem(TOKEN_KEY)
+  if (newToken) return newToken
+  const legacy = localStorage.getItem(LEGACY_TOKEN_KEY)
+  if (legacy) {
+    localStorage.setItem(TOKEN_KEY, legacy)
+    localStorage.removeItem(LEGACY_TOKEN_KEY)
+    return legacy
+  }
+  return null
 }
 
 export function setToken(token: string) {
@@ -14,6 +25,7 @@ export function setToken(token: string) {
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(LEGACY_TOKEN_KEY)
 }
 
 const client = axios.create({

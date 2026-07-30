@@ -83,7 +83,7 @@ def create_access_token(
         "sub": user_id,
         "role": role,
         "iss": "lumio",
-        "aud": "smartcs-api",
+        "aud": "lumio-api",
         "exp": expire,
         "iat": datetime.now(UTC),
         "jti": _uuid.uuid4().hex,
@@ -103,7 +103,7 @@ def create_refresh_token(user_id: str, role: Role) -> str:
         "sub": user_id,
         "role": role,
         "iss": "lumio",
-        "aud": "smartcs-refresh",
+        "aud": "lumio-refresh",
         "exp": expire,
         "iat": datetime.now(UTC),
         "jti": _uuid.uuid4().hex,
@@ -124,7 +124,7 @@ def decode_token(token: str) -> dict:
             settings.jwt_secret,
             algorithms=[settings.jwt_algorithm],
             issuer="lumio",
-            audience="smartcs-api",
+            audience="lumio-api",
             leeway=30,
         )
     except jwt.ExpiredSignatureError:
@@ -139,7 +139,7 @@ def decode_token(token: str) -> dict:
 def get_current_user(request: Request) -> AuthUser:
     """从 Authorization: Bearer <token> 头提取并验证用户
 
-    开发环境（SMARTCS_ENVIRONMENT=development）支持 query param ?token=xxx
+    开发环境（LUMIO_ENVIRONMENT=development）支持 query param ?token=xxx
     用于 WebSocket 和测试场景。
     """
     settings = get_settings()

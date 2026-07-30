@@ -1,7 +1,7 @@
 <template>
   <div class="chat-window">
     <div class="chat-header">
-      <span class="title">SmartCS 智能客服</span>
+      <span class="title">Lumio 智能客服</span>
       <el-tag size="small" type="success">在线</el-tag>
       <el-button text size="small" @click="chatStore.clearSession()">新会话</el-button>
     </div>

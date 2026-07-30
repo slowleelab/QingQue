@@ -68,8 +68,8 @@ router = APIRouter(tags=["bot"])
 CHAT_STREAM_KEY = "lumio:chat:stream"
 DEAD_LETTER_KEY = "lumio:chat:dead_letter"
 CONSUMER_GROUP = "bot-group"
-RESPONSE_KEY_PREFIX = "smartcs:response"
-NOTIFY_CHANNEL_PREFIX = "smartcs:notify"
+RESPONSE_KEY_PREFIX = "lumio:response"
+NOTIFY_CHANNEL_PREFIX = "lumio:notify"
 RESPONSE_TTL = 120
 STREAM_MAXLEN = 10000  # Stream 最大保留条数（近似裁剪，防止无限增长）
 DEAD_LETTER_MAXLEN = 5000  # 死信队列最大保留条数
@@ -845,7 +845,7 @@ async def start_bot_worker(app) -> None:
         _rule_loader.load_from_memory()
 
     redis_client = app.state.redis_client
-    agent = app.state.agent  # SmartCSAgent 实例, 由 init_agent 注入
+    agent = app.state.agent  # LumioAgent 实例, 由 init_agent 注入
 
     # 启动规则热加载监听
     if _db_session_factory:
@@ -1386,7 +1386,7 @@ async def chat_feedback(body: ChatFeedbackRequest, req: Request):
     """客户对 Bot 回复的反馈（点赞/踩/评论）"""
     redis_client = getattr(req.app.state, "redis_client", None)
     if redis_client:
-        feedback_key = f"smartcs:feedback:customer:{body.message_id}"
+        feedback_key = f"lumio:feedback:customer:{body.message_id}"
         import json as _json
 
         await redis_client.setex(

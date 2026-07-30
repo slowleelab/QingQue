@@ -116,6 +116,6 @@ agent/tests/              # pytest with httpx AsyncClient fixtures
 ## Environment Variables
 
 All config via `.env` file or environment variables with prefixes:
-`SMARTCS_`, `POSTGRES_`, `REDIS_`, `ES_`, `MILVUS_`, `MINIO_`, `KAFKA_`, `LLM_`, `CLS_`, `RAG_`, `SAFETY_`, `SESSION_`
+`LUMIO_`, `POSTGRES_`, `REDIS_`, `ES_`, `MILVUS_`, `MINIO_`, `KAFKA_`, `LLM_`, `CLS_`, `RAG_`, `SAFETY_`, `SESSION_`
 
 See `.env.example` for full list with defaults.

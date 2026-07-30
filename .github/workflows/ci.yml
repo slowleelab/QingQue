@@ -48,7 +48,7 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_PASSWORD: smartcs_pass
+          POSTGRES_PASSWORD: lumio_pass
           POSTGRES_USER: smartcs
           POSTGRES_DB: smartcs
         ports: ["5432:5432"]
@@ -60,9 +60,9 @@ jobs:
     env:
       REDIS_HOST: localhost
       POSTGRES_HOST: localhost
-      POSTGRES_PASSWORD: smartcs_pass
-      SMARTCS_ENVIRONMENT: development
-      SMARTCS_RATE_LIMIT_ENABLED: "false"
+      POSTGRES_PASSWORD: lumio_pass
+      LUMIO_ENVIRONMENT: development
+      LUMIO_RATE_LIMIT_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -113,10 +113,10 @@ jobs:
     needs: [build]
     if: github.ref == 'refs/heads/main'
     env:
-      SMARTCS_ENVIRONMENT: development
-      SMARTCS_RATE_LIMIT_ENABLED: "false"
+      LUMIO_ENVIRONMENT: development
+      LUMIO_RATE_LIMIT_ENABLED: "false"
       LLM_BASE_URL: http://localhost:11434/v1
-      POSTGRES_PASSWORD_DOCKER: smartcs_pass
+      POSTGRES_PASSWORD_DOCKER: lumio_pass
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

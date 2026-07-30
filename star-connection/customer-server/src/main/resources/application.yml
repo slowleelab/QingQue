@@ -56,8 +56,8 @@ websocket:
     max-wait-time-seconds: 300
     heartbeat-interval-seconds: 30
 
-# SmartCS 回调配置
-smartcs:
+# Lumio 回调配置
+lumio:
   assist:
     url: http://localhost:8001
 

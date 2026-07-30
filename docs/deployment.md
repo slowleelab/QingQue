@@ -91,7 +91,7 @@ make dev
 | nginx | nginx:1.25-alpine | 8080:80 | 接入层 |
 | nacos | nacos/nacos-server:v2.4.3 | 8848:8848, 9848:9848 | 服务发现 + MCP Registry（`gateway` profile，默认不启动） |
 | higress | higress/all-in-one:2.1.5 | 10000:80, 8443:443, 18080:8080 | AI 网关统一 MCP 数据面 + 控制台（`gateway` profile，默认不启动） |
-| mcp-server | smartcs-mcp-server:1.0.0（本地构建） | 8090:8090 | Java 信用卡 MCP 工具服务（mock 数据，`gateway` profile，默认不启动） |
+| mcp-server | lumio-mcp-server:1.0.0（本地构建） | 8090:8090 | Java 信用卡 MCP 工具服务（mock 数据，`gateway` profile，默认不启动） |
 
 > **Grafana 宿主机端口为 3001**（避免与常见 3000 冲突），容器内仍是 3000。
 

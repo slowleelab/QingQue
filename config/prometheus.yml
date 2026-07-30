@@ -1,4 +1,4 @@
-# SmartCS Prometheus 采集配置
+# Lumio Prometheus 采集配置
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

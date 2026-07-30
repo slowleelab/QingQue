@@ -1,8 +1,8 @@
-# SmartCS MCP Server（银行信用卡智能客服工具服务）
+# Lumio MCP Server（银行信用卡智能客服工具服务）
 
 基于 **Spring Boot 3.4 + Spring AI 1.0（MCP Server WebMVC starter）** 的独立工程，通过
 [Model Context Protocol](https://modelcontextprotocol.io/) 对外暴露 **22 个信用卡业务工具**，
-供上游编排大脑（SmartCS 的 Python Bot / Assist 服务，经 Higress AI 网关）以标准 MCP 协议调用。
+供上游编排大脑（Lumio 的 Python Bot / Assist 服务，经 Higress AI 网关）以标准 MCP 协议调用。
 
 > ⚠️ **安全红线**：本工程为参考 / mock 实现，所有数据均来自内存 Mock 仓库，**不连接任何真实银行核心系统**。
 > 工具入参采用天然业务字段 **完整卡号 `cardNo`**，但均为 **Luhn 合法的假卡号**（如 `6225880012346780`），
@@ -85,13 +85,13 @@
 领域逻辑与基础设施解耦，mock 适配器可整体替换为真实核心系统适配器而不动领域层：
 
 ```
-com.smartcs.mcp
+com.lumio.mcp
 ├── McpServerApplication              # 入口（@ConfigurationPropertiesScan）
 ├── config/
 │   ├── CreditCardTool                # 空标记接口：所有 @Tool 服务类实现它
 │   ├── ToolConfiguration             # 注入 List<CreditCardTool> 自动收集 → 单一 ToolCallbackProvider
-│   ├── CreditCardProperties          # smartcs.creditcard.*（费率/提额倍数/期数/渠道/幂等TTL/Luhn）
-│   ├── SecurityProperties            # smartcs.security.api-key.*（默认关）
+│   ├── CreditCardProperties          # lumio.creditcard.*（费率/提额倍数/期数/渠道/幂等TTL/Luhn）
+│   ├── SecurityProperties            # lumio.security.api-key.*（默认关）
 │   └── ApiKeyAuthFilter              # 可选 API-Key 过滤器（@ConditionalOnProperty，默认不注册）
 ├── domain/
 │   ├── CardAccount / TransactionRecord           # 账户聚合与交易实体（主键 cardNo）
@@ -116,7 +116,7 @@ com.smartcs.mcp
 - **并发安全**：`CardAccountRepository.updateAtomically(cardNo, fn)` 持每账户 `ReentrantLock`，
   消除还款 / 提额 / 分期的 in-place 竞态。
 - **幂等**：写工具传入 `idempotencyKey` 时，`IdempotentExecutor` 命中缓存回放原结果、不重复受理；
-  未传 key 保持直接执行语义。TTL 由 `smartcs.creditcard.idempotency-ttl` 控制（默认 30 分钟）。
+  未传 key 保持直接执行语义。TTL 由 `lumio.creditcard.idempotency-ttl` 控制（默认 30 分钟）。
 - **错误码体系**：校验 / 业务失败统一抛 `BusinessException(ErrorCode, 中文消息)`，Spring AI 将消息
   作为工具错误结果回传；错误码仅用于日志 / 指标维度，不泄漏内部规则。
 
@@ -132,16 +132,16 @@ com.smartcs.mcp
 
 | 前缀 | 关键项 | 默认 | 说明 |
 |------|--------|------|------|
-| `smartcs.creditcard` | `installment-fee-rates` | 3/6→0.0060，12→0.0066，24→0.0072 | 分期手续费率表 |
-| `smartcs.creditcard` | `temp-limit-multiplier` | 2.0 | 临时提额上限 = 固定额度 × 倍数 |
-| `smartcs.creditcard` | `default-repay-channel` | 本人储蓄卡快捷 | 还款默认渠道 |
-| `smartcs.creditcard` | `idempotency-ttl` | 30m | 幂等结果缓存时长 |
-| `smartcs.creditcard` | `luhn-check` | false | 是否对 `cardNo` 做 Luhn 校验 |
-| `smartcs.security.api-key` | `enabled` | false | 是否启用服务端 API-Key 校验（**默认关 = 零回归**） |
-| `smartcs.security.api-key` | `header` | X-MCP-Api-Key | 携带 API-Key 的请求头 |
-| `smartcs.security.api-key` | `keys` | （空） | API-Key 白名单 |
+| `lumio.creditcard` | `installment-fee-rates` | 3/6→0.0060，12→0.0066，24→0.0072 | 分期手续费率表 |
+| `lumio.creditcard` | `temp-limit-multiplier` | 2.0 | 临时提额上限 = 固定额度 × 倍数 |
+| `lumio.creditcard` | `default-repay-channel` | 本人储蓄卡快捷 | 还款默认渠道 |
+| `lumio.creditcard` | `idempotency-ttl` | 30m | 幂等结果缓存时长 |
+| `lumio.creditcard` | `luhn-check` | false | 是否对 `cardNo` 做 Luhn 校验 |
+| `lumio.security.api-key` | `enabled` | false | 是否启用服务端 API-Key 校验（**默认关 = 零回归**） |
+| `lumio.security.api-key` | `header` | X-MCP-Api-Key | 携带 API-Key 的请求头 |
+| `lumio.security.api-key` | `keys` | （空） | API-Key 白名单 |
 
-所有项均可经环境变量覆盖（如 `SMARTCS_CREDITCARD_LUHN_CHECK=true`）。
+所有项均可经环境变量覆盖（如 `LUMIO_CREDITCARD_LUHN_CHECK=true`）。
 
 ## 构建与运行
 
@@ -170,7 +170,7 @@ mvn verify                          # 单测 + 并发/幂等/错误码/鉴权 + 
 
 ```bash
 # 单独构建镜像
-docker build -t smartcs-mcp-server:1.0.0 mcp-server/
+docker build -t lumio-mcp-server:1.0.0 mcp-server/
 
 # 随网关一并启动（gateway profile，默认 make up 不含）
 make gateway-up                     # 启动 nacos + higress + mcp-server
@@ -182,7 +182,7 @@ make gateway-up                     # 启动 nacos + higress + mcp-server
 
 ## 传输与网关
 
-Spring AI 1.0 的 WebMVC MCP starter 采用 **SSE** 传输；而 SmartCS 的 Python `MCPToolClient`
+Spring AI 1.0 的 WebMVC MCP starter 采用 **SSE** 传输；而 Lumio 的 Python `MCPToolClient`
 使用 **streamable-http**。生产部署中由 **Higress AI 网关**在前置层完成鉴权、限流与传输桥接，
 Python 编排层统一连接网关，无需与本服务的传输方式一一对应。若需本地直连联调，可让 Python 客户端使用 SSE
 指向 `http://127.0.0.1:8090/sse`。

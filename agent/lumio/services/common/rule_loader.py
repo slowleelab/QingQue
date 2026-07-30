@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_RULES_RELOAD_CHANNEL = "smartcs:rules:reload"
+_RULES_RELOAD_CHANNEL = "lumio:rules:reload"
 
 
 class CompiledRule:

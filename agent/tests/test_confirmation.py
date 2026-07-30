@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
-from lumio.services.bot.bot_agent import SmartCSAgent
+from lumio.services.bot.bot_agent import LumioAgent
 from lumio.services.bot.tool_executor import ToolExecutionResult
 from lumio.shared.models import PendingAction, SessionState
 
@@ -18,7 +18,7 @@ def _make_agent(session_manager, tool_executor):
     # 决策审计为异步方法，确保被 await 时可用（P2 引入）
     if not isinstance(getattr(tool_executor, "audit_decision", None), AsyncMock):
         tool_executor.audit_decision = AsyncMock()
-    agent = SmartCSAgent(
+    agent = LumioAgent(
         classifier=MagicMock(),
         degradation_mgr=MagicMock(),
         transfer_checker=MagicMock(),

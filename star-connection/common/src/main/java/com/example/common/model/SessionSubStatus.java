@@ -4,7 +4,7 @@ package com.example.common.model;
  * 会话子状态枚举
  *
  * 与 SessionStatus 配合使用，提供更细粒度的状态描述。
- * 对应 SmartCS SessionSubPhase:
+ * 对应 Lumio SessionSubPhase:
  * - WAITING + QUEUED     → agent:queued
  * - WAITING + RINGING    → agent:assigned
  * - ACTIVE  + IN_CALL    → agent:active
@@ -49,9 +49,9 @@ public enum SessionSubStatus {
     }
 
     /**
-     * 转换为 SmartCS sub_phase 字符串
+     * 转换为 Lumio sub_phase 字符串
      */
-    public String toSmartcsSubPhase() {
+    public String toLumioSubPhase() {
         return switch (this) {
             case QUEUED -> "agent:queued";
             case RINGING -> "agent:assigned";

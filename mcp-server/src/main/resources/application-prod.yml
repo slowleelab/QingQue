@@ -26,14 +26,14 @@ management:
 logging:
   level:
     root: INFO
-    com.smartcs.mcp: INFO
+    com.lumio.mcp: INFO
     io.modelcontextprotocol: WARN
     org.springframework.ai.mcp: WARN
 
 # Nacos 注册：容器内经 compose 网络访问 nacos 服务
 # 仅当 SPRING_PROFILES_ACTIVE 同时包含 nacos 时,NacosRegistrationService 才生效
-smartcs:
+lumio:
   nacos:
-    server-addr: ${SMARTCS_NACOS_SERVER_ADDR:nacos:8848}
-    service-name: ${SMARTCS_NACOS_SERVICE_NAME:smartcs-mcp-server}
-    group: ${SMARTCS_NACOS_GROUP:DEFAULT_GROUP}
+    server-addr: ${LUMIO_NACOS_SERVER_ADDR:nacos:8848}
+    service-name: ${LUMIO_NACOS_SERVICE_NAME:lumio-mcp-server}
+    group: ${LUMIO_NACOS_GROUP:DEFAULT_GROUP}

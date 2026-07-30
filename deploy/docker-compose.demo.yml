@@ -1,4 +1,4 @@
-# ── SmartCS 一键 Demo 编排 ──────────────────────────────
+# ── Lumio 一键 Demo 编排 ──────────────────────────────
 # 在中间件（docker-compose.yml）之上，追加应用服务与一次性初始化。
 #
 # 使用方式（在 deploy/ 目录）:
@@ -19,15 +19,15 @@ services:
     build:
       context: ../agent
       dockerfile: ../deploy/Dockerfile
-    image: smartcs:demo
-    container_name: smartcs-demo-init
+    image: lumio:demo
+    container_name: lumio-demo-init
     environment:
-      POSTGRES_HOST: smartcs-postgres
+      POSTGRES_HOST: lumio-postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: smartcs
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
-      POSTGRES_DATABASE: smartcs
-      MINIO_ENDPOINT: smartcs-minio:9000
+      POSTGRES_USER: lumio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-lumio_pass}
+      POSTGRIO_DATABASE: lumio
+      MINIO_ENDPOINT: lumio-minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
     depends_on:
@@ -49,7 +49,7 @@ services:
        echo '==> 灌入种子知识库' && python scripts/seed_knowledge.py &&
        echo '==> Demo 初始化完成'"
     networks:
-      - smartcs-net
+      - lumio-net
     restart: "no"
 
   # ── Bot 自助服务 ──
@@ -57,29 +57,29 @@ services:
     build:
       context: ../agent
       dockerfile: ../deploy/Dockerfile
-    image: smartcs:demo
-    container_name: smartcs-bot
+    image: lumio:demo
+    container_name: lumio-bot
     environment:
       SERVICE: bot
-      SMARTCS_ENVIRONMENT: ${SMARTCS_ENVIRONMENT:-development}
-      SMARTCS_LOG_LEVEL: ${SMARTCS_LOG_LEVEL:-INFO}
-      # 全链路追踪：向主 compose 的 Jaeger 导出 span（SMARTCS_TRACING_ENABLED=false 可关）
-      SMARTCS_TRACING_ENABLED: ${SMARTCS_TRACING_ENABLED:-true}
+      LUMIO_ENVIRONMENT: ${LUMIO_ENVIRONMENT:-development}
+      LUMIO_LOG_LEVEL: ${LUMIO_LOG_LEVEL:-INFO}
+      # 全链路追踪：向主 compose 的 Jaeger 导出 span（LUMIO_TRACING_ENABLED=false 可关）
+      LUMIO_TRACING_ENABLED: ${LUMIO_TRACING_ENABLED:-true}
       JAEGER_HOST: jaeger
-      POSTGRES_HOST: smartcs-postgres
+      POSTGRES_HOST: lumio-postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: smartcs
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
-      POSTGRES_DATABASE: smartcs
-      REDIS_HOST: smartcs-redis
+      POSTGRES_USER: lumio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-lumio_pass}
+      POSTGRIO_DATABASE: lumio
+      REDIS_HOST: lumio-redis
       REDIS_PORT: "6379"
-      ES_HOSTS: http://smartcs-elasticsearch:9200
-      MILVUS_HOST: smartcs-milvus
+      ES_HOSTS: http://lumio-elasticsearch:9200
+      MILVUS_HOST: lumio-milvus
       MILVUS_PORT: "19530"
-      MINIO_ENDPOINT: smartcs-minio:9000
+      MINIO_ENDPOINT: lumio-minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      KAFKA_BOOTSTRAP_SERVERS: smartcs-kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: lumio-kafka:9092
       # 容器内无法访问宿主机 Ollama；不可达时自动降级，无需修改
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
@@ -100,7 +100,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"   # 允许访问宿主机 Ollama（可选）
     networks:
-      - smartcs-net
+      - lumio-net
     restart: unless-stopped
 
   # ── Assist 坐席辅助 ──
@@ -108,29 +108,29 @@ services:
     build:
       context: ../agent
       dockerfile: ../deploy/Dockerfile
-    image: smartcs:demo
-    container_name: smartcs-assist
+    image: lumio:demo
+    container_name: lumio-assist
     environment:
       SERVICE: assist
-      SMARTCS_ENVIRONMENT: ${SMARTCS_ENVIRONMENT:-development}
-      SMARTCS_LOG_LEVEL: ${SMARTCS_LOG_LEVEL:-INFO}
-      # 全链路追踪：向主 compose 的 Jaeger 导出 span（SMARTCS_TRACING_ENABLED=false 可关）
-      SMARTCS_TRACING_ENABLED: ${SMARTCS_TRACING_ENABLED:-true}
+      LUMIO_ENVIRONMENT: ${LUMIO_ENVIRONMENT:-development}
+      LUMIO_LOG_LEVEL: ${LUMIO_LOG_LEVEL:-INFO}
+      # 全链路追踪：向主 compose 的 Jaeger 导出 span（LUMIO_TRACING_ENABLED=false 可关）
+      LUMIO_TRACING_ENABLED: ${LUMIO_TRACING_ENABLED:-true}
       JAEGER_HOST: jaeger
-      POSTGRES_HOST: smartcs-postgres
+      POSTGRES_HOST: lumio-postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: smartcs
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
-      POSTGRES_DATABASE: smartcs
-      REDIS_HOST: smartcs-redis
+      POSTGRES_USER: lumio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-lumio_pass}
+      POSTGRIO_DATABASE: lumio
+      REDIS_HOST: lumio-redis
       REDIS_PORT: "6379"
-      ES_HOSTS: http://smartcs-elasticsearch:9200
-      MILVUS_HOST: smartcs-milvus
+      ES_HOSTS: http://lumio-elasticsearch:9200
+      MILVUS_HOST: lumio-milvus
       MILVUS_PORT: "19530"
-      MINIO_ENDPOINT: smartcs-minio:9000
+      MINIO_ENDPOINT: lumio-minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      KAFKA_BOOTSTRAP_SERVERS: smartcs-kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: lumio-kafka:9092
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
       LLM_PRIMARY_MODEL: ${LLM_PRIMARY_MODEL:-qwen2.5:7b}
@@ -150,9 +150,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - smartcs-net
+      - lumio-net
     restart: unless-stopped
 
 networks:
-  smartcs-net:
+  lumio-net:
     driver: bridge

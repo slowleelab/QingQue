@@ -23,7 +23,7 @@ import pytest_asyncio
 
 # 测试环境默认关闭全链路追踪：无 Jaeger 后端时避免 OTLP 导出重试噪声。
 # 需断言 tracing 行为的用例（test_observability）自行开启并注入内存 exporter。
-os.environ.setdefault("SMARTCS_TRACING_ENABLED", "false")
+os.environ.setdefault("LUMIO_TRACING_ENABLED", "false")
 
 # ── 服务器子进程管理 ──
 
@@ -60,8 +60,8 @@ def _wait_for_port(port: int, timeout: float = 30.0) -> bool:
 def _start_server(service: str, port: int) -> subprocess.Popen:
     """启动 uvicorn 子进程"""
     env = os.environ.copy()
-    env["SMARTCS_ENVIRONMENT"] = "development"
-    env.setdefault("SMARTCS_TRACING_ENABLED", "false")
+    env["LUMIO_ENVIRONMENT"] = "development"
+    env.setdefault("LUMIO_TRACING_ENABLED", "false")
 
     target = "lumio.main:bot_app" if service == "bot" else "lumio.main:assist_app"
 

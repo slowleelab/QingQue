@@ -2,7 +2,7 @@ package com.example.customerserver.controller;
 
 import com.example.common.model.ChatMessage;
 import com.example.common.model.SenderType;
-import com.example.customerserver.client.SmartcsClient;
+import com.example.customerserver.client.LumioClient;
 import com.example.customerserver.message.CustomerMessageStore;
 import com.example.customerserver.session.SessionManager;
 import org.slf4j.Logger;
@@ -17,13 +17,13 @@ import java.util.*;
 public class MessageController {
     private static final Logger log = LoggerFactory.getLogger(MessageController.class);
     private final CustomerMessageStore messageStore;
-    private final SmartcsClient smartcsClient;
+    private final LumioClient lumioClient;
     private final SessionManager sessionManager;
 
-    public MessageController(CustomerMessageStore messageStore, SmartcsClient smartcsClient,
+    public MessageController(CustomerMessageStore messageStore, LumioClient lumioClient,
                              SessionManager sessionManager) {
         this.messageStore = messageStore;
-        this.smartcsClient = smartcsClient;
+        this.lumioClient = lumioClient;
         this.sessionManager = sessionManager;
     }
 
@@ -41,13 +41,13 @@ public class MessageController {
         messageStore.addMessage(sessionId, msg);
         log.debug("Message stored: session={} sender={}", sessionId, sender);
 
-        // 客户消息 → 路由到坐席 + 异步回调 SmartCS 进行 AI 分析
+        // 客户消息 → 路由到坐席 + 异步回调 Lumio 进行 AI 分析
         if ("customer".equals(sender)) {
             // 路由消息到坐席（如果会话已分配坐席）
             sessionManager.routeMessage(sessionId, msg);
 
             String customerId = body.getOrDefault("customer_id", null);
-            smartcsClient.analyzeMessage(sessionId, content, customerId);
+            lumioClient.analyzeMessage(sessionId, content, customerId);
         }
 
         Map<String, Object> resp = new LinkedHashMap<>();

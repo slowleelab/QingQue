@@ -1,6 +1,6 @@
 # Higress + Nacos 接入指南（MCP 单工具平面 · 统一治理）
 
-Higress 是阿里云开源的云原生 AI 网关（Istio + Envoy）。在 SmartCS 中，Higress 承担
+Higress 是阿里云开源的云原生 AI 网关（Istio + Envoy）。在 Lumio 中，Higress 承担
 **「单工具平面 · 单治理」**：把后端各 MCP Server（如 `mcp-server/` 的 22 个信用卡工具）统一收敛，
 对上游 Python 编排大脑暴露**一个** streamable-http MCP 入口，并在网关层完成鉴权、限流、审计；
 **Nacos** 作为服务发现与 MCP Registry，供 Higress 发现后端 MCP Server。
@@ -75,7 +75,7 @@ Higress 负责**网关层**治理（鉴权、限流、路由、粗粒度审计�
 helm repo add higress https://higress.io/helm-charts
 helm install higress higress/higress -n higress-system --create-namespace \
   --set global.mcpRegistry.enabled=true \
-  --set global.mcpRegistry.nacos.serverUrl=http://nacos.smartcs:8848
+  --set global.mcpRegistry.nacos.serverUrl=http://nacos.lumio:8848
 ```
 
 MCP Server 与网关路由通过 Higress CRD（`McpBridge` / MCP 管理）或控制台声明式下发；
@@ -87,8 +87,8 @@ MCP Server 与网关路由通过 Higress CRD（`McpBridge` / MCP 管理）或控
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: smartcs-ingress
-  namespace: smartcs
+  name: lumio-ingress
+  namespace: lumio
   annotations:
     higress.io/websocket: "true"       # assist WebSocket
     higress.io/rate-limit: "100/min"

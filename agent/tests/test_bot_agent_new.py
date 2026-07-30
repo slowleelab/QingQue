@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lumio.services.bot.bot_agent import SmartCSAgent, _is_farewell, _is_greeting
+from lumio.services.bot.bot_agent import LumioAgent, _is_farewell, _is_greeting
 from lumio.shared.models import IntentLabel, IntentResult
 
 
@@ -74,7 +74,7 @@ class TestBotAgent:
     @pytest.mark.asyncio
     async def test_run_greeting_fast_path(self, mock_deps: dict) -> None:
         """问候语走快速路径，不调 LLM"""
-        agent = SmartCSAgent(**mock_deps)
+        agent = LumioAgent(**mock_deps)
         result = await agent.run("test-session", "你好")
 
         assert result["response"] != ""
@@ -84,7 +84,7 @@ class TestBotAgent:
     @pytest.mark.asyncio
     async def test_run_farewell_fast_path(self, mock_deps: dict) -> None:
         """告别语走快速路径"""
-        agent = SmartCSAgent(**mock_deps)
+        agent = LumioAgent(**mock_deps)
         result = await agent.run("test-session", "再见")
 
         assert result["response"] != ""
@@ -98,7 +98,7 @@ class TestBotAgent:
             source="llm",
         )
 
-        agent = SmartCSAgent(**mock_deps)
+        agent = LumioAgent(**mock_deps)
         result = await agent.run("test-session", "帮我查一下账单")
 
         assert result["response"] == "这是自动回复"
@@ -116,7 +116,7 @@ class TestBotAgent:
             )
         )
 
-        agent = SmartCSAgent(**mock_deps)
+        agent = LumioAgent(**mock_deps)
         result = await agent.run("test-session", "我卡丢了")
 
         assert result["should_transfer"] is True
@@ -130,7 +130,7 @@ class TestBotAgent:
             source="llm",
         )
 
-        agent = SmartCSAgent(**mock_deps)
+        agent = LumioAgent(**mock_deps)
         result = await agent.run("test-session", "测试消息")
 
         assert "session_id" in result
@@ -155,7 +155,7 @@ class TestBotAgent:
             source="template",
         )
 
-        agent = SmartCSAgent(**mock_deps)
+        agent = LumioAgent(**mock_deps)
         result = await agent.run("test-session", "任意消息")
 
         # 分类失败不应崩溃，走降级回复
@@ -168,7 +168,7 @@ class TestBotAgent:
         mock_deps["classifier"].classify = AsyncMock(side_effect=RuntimeError("BOOM"))
         mock_deps["degradation_mgr"].generate_with_fallback = AsyncMock(side_effect=RuntimeError("DOUBLE BOOM"))
 
-        agent = SmartCSAgent(**mock_deps)
+        agent = LumioAgent(**mock_deps)
         result = await agent.run("test-session", "任意消息")
 
         assert result["response_source"] == "fallback"
@@ -231,7 +231,7 @@ class TestProgressiveDisclosureRouting:
         """开关开启 + 查询意图 → 进入工具编排，run_conversation 收到预期 tool_names"""
         self._patch_flag(monkeypatch, True)
         te = self._tool_executor()
-        agent = SmartCSAgent(**mock_deps, tool_executor=te)
+        agent = LumioAgent(**mock_deps, tool_executor=te)
 
         result = await agent.run("s1", "帮我查账单")
 
@@ -253,7 +253,7 @@ class TestProgressiveDisclosureRouting:
         """开关关闭 → 不进入工具编排，BILL_QUERY 仍走 knowledge/RAG（路由同现状）"""
         self._patch_flag(monkeypatch, False)
         te = self._tool_executor()
-        agent = SmartCSAgent(**mock_deps, tool_executor=te)
+        agent = LumioAgent(**mock_deps, tool_executor=te)
 
         result = await agent.run("s1", "帮我查账单")
 
@@ -268,7 +268,7 @@ class TestProgressiveDisclosureRouting:
         self._patch_flag(monkeypatch, True)
         te = self._tool_executor()
         te.run_conversation = AsyncMock(side_effect=RuntimeError("tool down"))
-        agent = SmartCSAgent(**mock_deps, tool_executor=te)
+        agent = LumioAgent(**mock_deps, tool_executor=te)
 
         result = await agent.run("s1", "帮我查账单")
 
@@ -282,7 +282,7 @@ class TestProgressiveDisclosureRouting:
         self._patch_flag(monkeypatch, True)
         te = self._tool_executor()
         te.has_tools = MagicMock(return_value=False)
-        agent = SmartCSAgent(**mock_deps, tool_executor=te)
+        agent = LumioAgent(**mock_deps, tool_executor=te)
 
         result = await agent.run("s1", "帮我查账单")
 

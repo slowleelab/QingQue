@@ -34,8 +34,8 @@ show_cmd "make demo"
 cat <<'EOF'
 [+] Running 16/16
  ✔ demo-init       Exited (0)   数据库迁移 ✓  种子知识库 ✓
- ✔ smartcs-bot     Healthy      → http://localhost:8000
- ✔ smartcs-assist  Healthy      → http://localhost:8001
+ ✔ lumio-bot     Healthy      → http://localhost:8000
+ ✔ lumio-assist  Healthy      → http://localhost:8001
 ✅ Demo 已启动
 EOF
 sleep 1.2

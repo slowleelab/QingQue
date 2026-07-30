@@ -299,7 +299,7 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
     """star-connection 回调：分析客户消息并推送辅助结果给坐席
 
     由 star-connection 在收到客户消息时调用。
-    SmartCS 执行完整分析链路后将结果推送到对应 WebSocket。
+    Lumio 执行完整分析链路后将结果推送到对应 WebSocket。
     走坐席辅助引擎（run_assist_engine）单一编排路径；
     ai_executor 缺失时 E1 自动降级，E3 风控独立运行。
     """
@@ -676,7 +676,7 @@ async def record_feedback(body: FeedbackRequest, request: Request):
         try:
             from lumio.services.common.decision import FeedbackAction, PushTracker
 
-            tracker_key = f"smartcs:ae:tracker:{body.session_id}"
+            tracker_key = f"lumio:ae:tracker:{body.session_id}"
             raw = await redis_client.get(tracker_key)
             tracker = PushTracker.from_dict(json.loads(raw) if raw else None)
 

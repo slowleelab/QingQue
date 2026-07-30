@@ -1,4 +1,4 @@
-# ── SmartCS 应用 Dockerfile ──
+# ── Lumio 应用 Dockerfile ──
 # 多阶段构建：builder 安装依赖 → runtime 仅含虚拟环境 + 应用代码
 
 # ── Stage 1: Builder ──
@@ -22,13 +22,13 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 # 创建非 root 用户
-RUN groupadd -r smartcs && useradd -r -g smartcs smartcs
+RUN groupadd -r lumio && useradd -r -g lumio lumio
 
 # 从 builder 拷贝虚拟环境
 COPY --from=builder /app/.venv /app/.venv
 
 # 拷贝应用代码
-COPY smartcs/ /app/smartcs/
+COPY lumio/ /app/lumio/
 
 # 拷贝配置文件
 COPY config/ /app/config/
@@ -36,7 +36,7 @@ COPY config/ /app/config/
 # 多入口切换: 通过 SERVICE 环境变量选择启动目标
 #   SERVICE=bot     → Bot:8000 (默认)
 #   SERVICE=assist  → Assist:8001
-# 使用: docker run -e SERVICE=assist smartcs:latest
+# 使用: docker run -e SERVICE=assist lumio:latest
 ENV SERVICE=bot
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
 
@@ -47,7 +47,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1
 
 # 切换到非 root 用户
-USER smartcs
+USER lumio
 
 # 健康检查（Bot 默认 8000；Assist 部署时改为 8001）
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

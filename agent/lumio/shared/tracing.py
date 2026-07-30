@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
-_TRACING_ENABLED = os.getenv("SMARTCS_TRACING_ENABLED", "true").lower() == "true"
+_TRACING_ENABLED = os.getenv("LUMIO_TRACING_ENABLED", "true").lower() == "true"
 _provider_initialized = False
 _instrumented = False
 

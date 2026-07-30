@@ -1,6 +1,6 @@
 """E2E 会话生命周期集成测试
 
-验证 star-connection → SmartCS 回调链路的端到端流程：
+验证 star-connection → Lumio 回调链路的端到端流程：
 1. Session update 回调 (AGENT/ENDED 阶段)
 2. Analyze 回调 (客户消息 → AI 分析)
 3. Feedback 反馈闭环

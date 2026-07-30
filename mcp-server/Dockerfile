@@ -1,4 +1,4 @@
-# ── SmartCS Java MCP Server 生产镜像（多阶段构建）────────────────────
+# ── Lumio Java MCP Server 生产镜像（多阶段构建）────────────────────
 # 红线：本服务仅使用 mock 构造数据，绝不连接真实银行核心系统。
 # 阶段一：用 Maven 构建可执行 jar（含 mvn verify 之外的纯打包，CI 已在别处 verify）
 
@@ -13,21 +13,21 @@ RUN mvn -B -q clean package -DskipTests
 
 # 阶段二：精简运行时镜像（仅 JRE + 非 root 用户）
 FROM eclipse-temurin:21-jre AS runtime
-LABEL org.opencontainers.image.title="smartcs-mcp-server" \
-      org.opencontainers.image.description="SmartCS 信用卡 MCP Server（mock 数据，生产级骨架）"
+LABEL org.opencontainers.image.title="lumio-mcp-server" \
+      org.opencontainers.image.description="Lumio 信用卡 MCP Server（mock 数据，生产级骨架）"
 
 # 安装 curl 供健康探针使用，并创建非 root 运行用户
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system smartcs \
-    && useradd --system --gid smartcs --home /app smartcs
+    && groupadd --system lumio \
+    && useradd --system --gid lumio --home /app lumio
 WORKDIR /app
 
-# 从构建阶段拷贝可执行 jar（finalName=smartcs-mcp-server）
-COPY --from=build /workspace/target/smartcs-mcp-server.jar /app/app.jar
-RUN chown -R smartcs:smartcs /app
-USER smartcs
+# 从构建阶段拷贝可执行 jar（finalName=lumio-mcp-server）
+COPY --from=build /workspace/target/lumio-mcp-server.jar /app/app.jar
+RUN chown -R lumio:lumio /app
+USER lumio
 
 EXPOSE 8090
 

@@ -29,12 +29,12 @@ def test_metric_names_registered() -> None:
         "http_requests_total",
         "http_request_duration_seconds",
         "llm_call_duration_seconds",
-        "smartcs_fast_reply_total",
-        "smartcs_agent_responses_total",
-        "smartcs_bot_semaphore_utilization",
-        "smartcs_active_workers",
-        "smartcs_stream_length",
-        "smartcs_stream_pending_total",
+        "lumio_fast_reply_total",
+        "lumio_agent_responses_total",
+        "lumio_bot_semaphore_utilization",
+        "lumio_active_workers",
+        "lumio_stream_length",
+        "lumio_stream_pending_total",
         "tool_calls_total",
     ):
         assert name in text, f"指标 {name} 未在 /metrics 暴露"
@@ -189,14 +189,14 @@ def test_httpx_injects_traceparent() -> None:
 
 
 def test_dashboard_metric_names_defined() -> None:
-    """Grafana 看板引用的 smartcs_*/llm_/http_/session_/tool_ 指标均在代码中定义"""
+    """Grafana 看板引用的 lumio_*/llm_/http_/session_/tool_ 指标均在代码中定义"""
     import json
     import re
     from pathlib import Path
 
     from prometheus_client import REGISTRY, generate_latest
 
-    dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / "smartcs-overview.json"
+    dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / "lumio-overview.json"
     text = dash.read_text(encoding="utf-8")
     data = json.loads(text)
 
@@ -208,7 +208,7 @@ def test_dashboard_metric_names_defined() -> None:
 
     metrics_text = generate_latest(REGISTRY).decode()
     # 本仓库自有指标前缀（排除 Java mcp_* 与 Prometheus 函数名）
-    owned = re.compile(r"\b(smartcs_[a-z_]+|llm_call_duration_seconds|http_request[a-z_]*|http_requests_total|session_[a-z_]+|tool_calls_total)")
+    owned = re.compile(r"\b(lumio_[a-z_]+|llm_call_duration_seconds|http_request[a-z_]*|http_requests_total|session_[a-z_]+|tool_calls_total)")
     referenced: set[str] = set()
     for expr in exprs:
         for m in owned.findall(expr):

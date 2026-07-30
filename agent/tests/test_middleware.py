@@ -129,8 +129,8 @@ async def test_generic_error_production_hides_type():
     """生产环境下不暴露内部异常类型"""
     import os
 
-    os.environ["SMARTCS_ENVIRONMENT"] = "production"
-    os.environ["SMARTCS_JWT_SECRET"] = "x" * 32  # 生产环境必须设置安全密钥
+    os.environ["LUMIO_ENVIRONMENT"] = "production"
+    os.environ["LUMIO_JWT_SECRET"] = "x" * 32  # 生产环境必须设置安全密钥
     try:
         # 清除 lru_cache 以读取新的环境变量
         from lumio.shared.config import get_settings
@@ -144,8 +144,8 @@ async def test_generic_error_production_hides_type():
             data = resp.json()
             assert data["error"]["type"] == "InternalError"
     finally:
-        os.environ.pop("SMARTCS_ENVIRONMENT", None)
-        os.environ.pop("SMARTCS_JWT_SECRET", None)
+        os.environ.pop("LUMIO_ENVIRONMENT", None)
+        os.environ.pop("LUMIO_JWT_SECRET", None)
         # 恢复 lru_cache
         from lumio.shared.config import get_settings
 

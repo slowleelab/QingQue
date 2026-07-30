@@ -1,7 +1,7 @@
 <template>
   <div class="login-container">
     <div class="login-card">
-      <h2>SmartCS 管理端</h2>
+      <h2>Lumio 管理端</h2>
       <p class="subtitle">银行信用卡智能客服平台</p>
       <el-form :model="form" label-width="0" @submit.prevent="doLogin">
         <el-form-item>

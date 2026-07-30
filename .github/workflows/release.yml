@@ -19,16 +19,16 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_PASSWORD: smartcs_pass
+          POSTGRES_PASSWORD: lumio_pass
           POSTGRES_USER: smartcs
           POSTGRES_DB: smartcs
         ports: ["5432:5432"]
     env:
       REDIS_HOST: localhost
       POSTGRES_HOST: localhost
-      POSTGRES_PASSWORD: smartcs_pass
-      SMARTCS_ENVIRONMENT: development
-      SMARTCS_RATE_LIMIT_ENABLED: "false"
+      POSTGRES_PASSWORD: lumio_pass
+      LUMIO_ENVIRONMENT: development
+      LUMIO_RATE_LIMIT_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -63,7 +63,7 @@ class LoginResponse(BaseModel):
 async def _ensure_default_admin(request: Request) -> None:
     """首次启动时初始化默认 admin 用户
 
-    若 user_account 表无 admin 用户，且设置了 SMARTCS_ADMIN_PASSWORD，
+    若 user_account 表无 admin 用户，且设置了 LUMIO_ADMIN_PASSWORD，
     则创建 username=admin 的默认管理员。
     """
     import os
@@ -77,10 +77,10 @@ async def _ensure_default_admin(request: Request) -> None:
         if result.scalar_one_or_none():
             return  # 已有 admin
 
-        admin_password = os.getenv("SMARTCS_ADMIN_PASSWORD", "")
+        admin_password = os.getenv("LUMIO_ADMIN_PASSWORD", "")
         if not admin_password:
             logger.warning(
-                "首次启动: 无 admin 用户且未设置 SMARTCS_ADMIN_PASSWORD，" "请在配置后通过 init 脚本创建管理员"
+                "首次启动: 无 admin 用户且未设置 LUMIO_ADMIN_PASSWORD，" "请在配置后通过 init 脚本创建管理员"
             )
             return
 
@@ -100,7 +100,7 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
     """用户登录，返回 JWT token
 
     多用户模式：查 user_account 表验证用户名+密码哈希。
-    首次调用会自动初始化默认 admin（若 SMARTCS_ADMIN_PASSWORD 已设置）。
+    首次调用会自动初始化默认 admin（若 LUMIO_ADMIN_PASSWORD 已设置）。
     """
     await _ensure_default_admin(request)
 
@@ -328,10 +328,10 @@ async def update_sensitive_words(body: SensitiveWordsUpdate, request: Request, u
     # 发布热更新通知
     redis = getattr(request.app.state, "redis_client", None)
     if redis:
-        await redis.delete("smartcs:safety:words")
+        await redis.delete("lumio:safety:words")
         if body.words:
-            await redis.sadd("smartcs:safety:words", *body.words)
-        await redis.publish("smartcs:safety:reload", "update")
+            await redis.sadd("lumio:safety:words", *body.words)
+        await redis.publish("lumio:safety:reload", "update")
 
     logger.info("敏感词已更新: %d 个 (by %s)", len(body.words), user.user_id)
     return SensitiveWordsResponse(
@@ -348,7 +348,7 @@ async def reload_rules(request: Request):
     """触发意图规则热加载"""
     redis = getattr(request.app.state, "redis_client", None)
     if redis:
-        await redis.publish("smartcs:rules:reload", json.dumps({"action": "reload"}))
+        await redis.publish("lumio:rules:reload", json.dumps({"action": "reload"}))
     return {"status": "ok", "message": "规则热加载通知已发布"}
 
 

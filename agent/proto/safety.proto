@@ -3,9 +3,9 @@
 // 敏感词检测 + 信息脱敏 + 合规校验
 syntax = "proto3";
 
-package smartcs;
+package lumio;
 
-option java_package = "com.smartcs.proto";
+option java_package = "com.lumio.proto";
 option java_outer_classname = "SafetyProto";
 
 // 安全过滤服务

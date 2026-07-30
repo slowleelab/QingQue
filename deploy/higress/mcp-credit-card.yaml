@@ -1,6 +1,6 @@
 # Higress 网关配置 — 服务来源与 MCP Server 路由参考
 #
-# 用途：将 SmartCS Java MCP Server（22 个信用卡工具，SSE 后端）经 Higress 以
+# 用途：将 Lumio Java MCP Server（22 个信用卡工具，SSE 后端）经 Higress 以
 #       streamable-http 统一暴露给上游 Python 编排大脑，并借 Nacos 完成后端服务发现。
 #
 # 应用方式（开发环境 all-in-one）：
@@ -13,7 +13,7 @@
 
 # ── 1. 服务来源：Nacos（后端 MCP Server 经 Nacos 发现）──
 serviceSource:
-  name: smartcs-nacos
+  name: lumio-nacos
   type: nacos
   nacosServerUrl: http://nacos:8848
   nacosNamespaceId: public
@@ -21,11 +21,11 @@ serviceSource:
     - DEFAULT_GROUP
 
 # ── 2. 后端服务：Java MCP Server ──
-# 方式 A（推荐，经 Nacos 发现）：Java 侧以 profile=nacos 启动，注册服务名 smartcs-mcp-server
+# 方式 A（推荐，经 Nacos 发现）：Java 侧以 profile=nacos 启动，注册服务名 lumio-mcp-server
 # 方式 B（无 Nacos 注册时）：直接指向宿主机运行的 Java 进程
 upstream:
   # 方式 A
-  nacosService: smartcs-mcp-server
+  nacosService: lumio-mcp-server
   # 方式 B（二选一）：static / DNS 后端
   staticAddress: host.docker.internal:8090
 
@@ -40,7 +40,7 @@ mcpServer:
   backendProtocol: sse
   backendSsePath: /sse
   backendMessagePath: /mcp/message
-  upstreamRef: smartcs-mcp-server
+  upstreamRef: lumio-mcp-server
 
 # ── 4. 统一治理（在网关层收敛，与 Python 侧 ToolGuard 纵深互补）──
 governance:

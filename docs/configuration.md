@@ -12,16 +12,16 @@
 
 ## 变量总览
 
-### 全局（`SMARTCS_`）
+### 全局（`LUMIO_`）
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `SMARTCS_ENVIRONMENT` | `development` | 运行环境（development/staging/production） |
-| `SMARTCS_DEBUG` | `true` | 调试开关 |
-| `SMARTCS_LOG_LEVEL` | `INFO` | 日志级别 |
-| `SMARTCS_SERVICE_HOST` | `127.0.0.1` | 服务监听地址 |
-| `SMARTCS_STAR_CONNECTION_URL` | `http://localhost:8080` | star-connection 接入地址 |
-| `SMARTCS_CORS_ORIGINS` | `["http://localhost:5173","http://localhost:8080"]` | CORS 允许源（JSON 数组） |
+| `LUMIO_ENVIRONMENT` | `development` | 运行环境（development/staging/production） |
+| `LUMIO_DEBUG` | `true` | 调试开关 |
+| `LUMIO_LOG_LEVEL` | `INFO` | 日志级别 |
+| `LUMIO_SERVICE_HOST` | `127.0.0.1` | 服务监听地址 |
+| `LUMIO_STAR_CONNECTION_URL` | `http://localhost:8080` | star-connection 接入地址 |
+| `LUMIO_CORS_ORIGINS` | `["http://localhost:5173","http://localhost:8080"]` | CORS 允许源（JSON 数组） |
 
 ### Bot 服务（`BOT_`）
 
@@ -38,7 +38,7 @@
 | `POSTGRES_HOST` | `localhost` | 主机 |
 | `POSTGRES_PORT` | `5432` | 端口 |
 | `POSTGRES_USER` | `smartcs` | 用户 |
-| `POSTGRES_PASSWORD` | `smartcs_pass` | 密码（应用连接用） |
+| `POSTGRES_PASSWORD` | `lumio_pass` | 密码（应用连接用） |
 | `POSTGRES_DATABASE` | `smartcs` | 数据库名 |
 
 ### Redis（`REDIS_`）
@@ -115,7 +115,7 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `POSTGRES_PASSWORD_DOCKER` | `smartcs_pass` | PG 容器初始密码 |
+| `POSTGRES_PASSWORD_DOCKER` | `lumio_pass` | PG 容器初始密码 |
 | `MINIO_ROOT_USER` | `minioadmin` | MinIO root 用户 |
 | `MINIO_ROOT_PASSWORD` | `minioadmin` | MinIO root 密码 |
 | `GF_ADMIN_USER` | `admin` | Grafana 管理员 |

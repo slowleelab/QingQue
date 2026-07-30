@@ -1,9 +1,9 @@
-# SmartCS 告警规则
+# Lumio 告警规则
 # 覆盖：服务下线、工具错误率、LLM 延迟、会话超时激增、LLM 降级（熔断）。
 # 加载方式：prometheus.yml 的 rule_files 引用本文件。默认无 Alertmanager 也可在
 # Prometheus UI 的 Alerts 页查看触发状态；如需通知可 opt-in 启动 Alertmanager。
 groups:
-  - name: smartcs-availability
+  - name: lumio-availability
     rules:
       - alert: ServiceDown
         expr: up{job=~"bot-service|assist-service|mcp-server"} == 0
@@ -14,7 +14,7 @@ groups:
           summary: "服务 {{ $labels.job }} 不可达"
           description: "{{ $labels.job }}（{{ $labels.instance }}）已下线超过 1 分钟。"
 
-  - name: smartcs-tools
+  - name: lumio-tools
     rules:
       # Java MCP 工具错误率 > 10%（5 分钟窗口）
       - alert: MCPToolErrorRateHigh
@@ -42,7 +42,7 @@ groups:
           summary: "编排层工具调用错误率偏高"
           description: "近 5 分钟编排层 MCP 工具调用错误率超过 10%。"
 
-  - name: smartcs-latency
+  - name: lumio-latency
     rules:
       # LLM 调用 p99 > 15s
       - alert: LLMLatencyP99High
@@ -64,7 +64,7 @@ groups:
           summary: "HTTP 请求延迟 p99 偏高"
           description: "近 5 分钟 HTTP 请求 p99 延迟超过 5 秒。"
 
-  - name: smartcs-sessions
+  - name: lumio-sessions
     rules:
       # 会话超时激增：每秒超时事件 > 1
       - alert: SessionTimeoutSpike

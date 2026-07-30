@@ -2,7 +2,7 @@
   <div class="admin-layout">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h3>SmartCS 管理</h3>
+        <h3>Lumio 管理</h3>
       </div>
       <el-menu
         :default-active="activeMenu"

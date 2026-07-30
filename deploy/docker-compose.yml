@@ -1,4 +1,4 @@
-# SmartCS Docker Compose - 开发环境全套中间件编排
+# Lumio Docker Compose - 开发环境全套中间件编排
 # 使用方式: docker compose up -d
 # 验证:     docker compose ps
 # 环境变量: 从项目根目录 .env 文件读取
@@ -7,29 +7,29 @@ services:
   # ── PostgreSQL 16 ──────────────────────────────────
   postgres:
     image: postgres:16
-    container_name: smartcs-postgres
+    container_name: lumio-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: smartcs
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
-      POSTGRES_DB: smartcs
+      POSTGRES_USER: lumio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DOCKER:-lumio_pass}
+      POSTGRES_DB: lumio
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U smartcs"]
+      test: ["CMD-SHELL", "pg_isready -U lumio"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Redis 7.2 ──────────────────────────────────────
   redis:
     image: redis:7.2-alpine
-    container_name: smartcs-redis
+    container_name: lumio-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     ports:
@@ -42,7 +42,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Elasticsearch 8.19 + IK 分词 ──────────────────
   elasticsearch:
@@ -50,14 +50,14 @@ services:
       context: ./elasticsearch
       dockerfile: Dockerfile
     image: smartcs/elasticsearch-ik:8.19.9
-    container_name: smartcs-elasticsearch
+    container_name: lumio-elasticsearch
     restart: unless-stopped
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - xpack.security.http.ssl.enabled=false
       - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
-      - cluster.name=smartcs-es
+      - cluster.name=lumio-es
       - bootstrap.memory_lock=true
     ulimits:
       memlock:
@@ -75,12 +75,12 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── etcd（Milvus 元数据）──────────────────────────
   etcd:
     image: quay.io/coreos/etcd:v3.5.5
-    container_name: smartcs-etcd
+    container_name: lumio-etcd
     restart: unless-stopped
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
@@ -97,12 +97,12 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── MinIO（对象存储 + Milvus 依赖）────────────────
   minio:
     image: minio/minio:RELEASE.2024-01-16T16-07-38Z
-    container_name: smartcs-minio
+    container_name: lumio-minio
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -119,12 +119,12 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Milvus 2.4 Standalone ─────────────────────────
   milvus:
     image: milvusdb/milvus:v2.4.0
-    container_name: smartcs-milvus
+    container_name: lumio-milvus
     restart: unless-stopped
     command: ["milvus", "run", "standalone"]
     environment:
@@ -149,12 +149,12 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Kafka 3.7 KRaft 模式 ──────────────────────────
   kafka:
     image: apache/kafka:3.7.0
-    container_name: smartcs-kafka
+    container_name: lumio-kafka
     restart: unless-stopped
     environment:
       # KRaft 模式（无需 ZooKeeper）
@@ -185,12 +185,12 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Redis Exporter ────────────────────────────────
   redis-exporter:
     image: oliver006/redis_exporter:latest
-    container_name: smartcs-redis-exporter
+    container_name: lumio-redis-exporter
     restart: unless-stopped
     environment:
       REDIS_ADDR: redis:6379
@@ -200,27 +200,27 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── PostgreSQL Exporter ───────────────────────────
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:latest
-    container_name: smartcs-postgres-exporter
+    container_name: lumio-postgres-exporter
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: "postgresql://smartcs:${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}@postgres:5432/smartcs?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://lumio:${POSTGRES_PASSWORD_DOCKER:-lumio_pass}@postgres:5432/lumio?sslmode=disable"
     ports:
       - "9187:9187"
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Kafka Exporter ────────────────────────────────
   kafka-exporter:
     image: danielqsj/kafka-exporter:latest
-    container_name: smartcs-kafka-exporter
+    container_name: lumio-kafka-exporter
     restart: unless-stopped
     command: --kafka.server=kafka:9092
     ports:
@@ -229,12 +229,12 @@ services:
       kafka:
         condition: service_healthy
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Prometheus ────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.50.0
-    container_name: smartcs-prometheus
+    container_name: lumio-prometheus
     restart: unless-stopped
     ports:
       - "9090:9090"
@@ -249,12 +249,12 @@ services:
       - milvus
       - kafka
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Grafana ───────────────────────────────────────
   grafana:
     image: grafana/grafana:10.4.0
-    container_name: smartcs-grafana
+    container_name: lumio-grafana
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
@@ -269,12 +269,12 @@ services:
     depends_on:
       - prometheus
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Jaeger（全链路追踪后端：OTLP 采集 + UI） ──────────
   jaeger:
     image: jaegertracing/all-in-one:1.57
-    container_name: smartcs-jaeger
+    container_name: lumio-jaeger
     restart: unless-stopped
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
@@ -282,25 +282,25 @@ services:
       - "16686:16686"   # Jaeger UI
       - "4318:4318"     # OTLP over HTTP（Python/Java 导出入口）
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── ZooKeeper（star-connection 在线客服） ──────────
   zookeeper:
     image: zookeeper:3.8
-    container_name: smartcs-zk
+    container_name: lumio-zk
     restart: unless-stopped
     environment:
       ZOO_4LW_COMMANDS_WHITELIST: "srvr,ruok,cons"
     ports:
       - "2182:2181"
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Nginx 开发网关 ────────────────────────────────
   # 生产环境使用 Higress（K8s 原生），开发环境用 Nginx 替代
   nginx:
     image: nginx:1.25-alpine
-    container_name: smartcs-nginx
+    container_name: lumio-nginx
     restart: unless-stopped
     ports:
       - "8080:80"
@@ -310,18 +310,18 @@ services:
     depends_on:
       - prometheus
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Temporal Server ─────────────────────────────────
   temporal:
     image: temporalio/auto-setup:latest
-    container_name: smartcs-temporal
+    container_name: lumio-temporal
     restart: unless-stopped
     environment:
       - DB=postgresql
       - DB_PORT=5432
-      - POSTGRES_USER=smartcs
-      - POSTGRES_PWD=${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
+      - POSTGRES_USER=lumio
+      - POSTGRES_PWD=${POSTGRES_PASSWORD_DOCKER:-lumio_pass}
       - POSTGRES_SEEDS=postgres
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     ports:
@@ -330,11 +330,11 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - smartcs-net
+      - lumio-net
 
   temporal-ui:
     image: temporalio/ui:latest
-    container_name: smartcs-temporal-ui
+    container_name: lumio-temporal-ui
     restart: unless-stopped
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
@@ -344,14 +344,14 @@ services:
     depends_on:
       - temporal
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Nacos：服务注册 + MCP Registry（仅 gateway profile 启用）─────
   # 启动：make gateway-up（= docker compose --profile gateway up -d）
   # 默认 make up 不会拉起本服务，开发主流程零影响。
   nacos:
     image: nacos/nacos-server:v2.4.3
-    container_name: smartcs-nacos
+    container_name: lumio-nacos
     profiles: ["gateway"]
     restart: unless-stopped
     environment:
@@ -372,14 +372,14 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Higress AI 网关：单工具平面 + 统一治理（仅 gateway profile 启用）──
   # 以外部 Nacos 作为服务发现与配置存储；对上游 Python 大脑暴露统一 MCP 入口（streamable-http）。
   # 数据面路由与 MCP Server 通过控制台/OpenAPI 或 deploy/higress/ 参考配置下发。
   higress:
     image: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/all-in-one:2.1.5
-    container_name: smartcs-higress
+    container_name: lumio-higress
     profiles: ["gateway"]
     restart: unless-stopped
     environment:
@@ -401,7 +401,7 @@ services:
     volumes:
       - higress_data:/data
     networks:
-      - smartcs-net
+      - lumio-net
 
   # ── Java MCP Server：信用卡工具平面（仅 gateway profile 启用）──────
   # 红线：仅 mock 构造数据，绝不连接真实银行核心系统。
@@ -412,17 +412,17 @@ services:
     build:
       context: ../mcp-server
       dockerfile: Dockerfile
-    image: smartcs-mcp-server:1.0.0
-    container_name: smartcs-mcp-server
+    image: lumio-mcp-server:1.0.0
+    container_name: lumio-mcp-server
     profiles: ["gateway"]
     restart: unless-stopped
     environment:
       # prod：优雅停机 + 暴露面收敛；nacos：向 Nacos 注册实例
       - SPRING_PROFILES_ACTIVE=prod,nacos
-      - SMARTCS_NACOS_SERVER_ADDR=nacos:8848
-      - SMARTCS_NACOS_SERVICE_NAME=smartcs-mcp-server
+      - LUMIO_NACOS_SERVER_ADDR=nacos:8848
+      - LUMIO_NACOS_SERVICE_NAME=lumio-mcp-server
       # 注册到 Nacos 的实例 IP 用容器服务名，便于 Higress 经网络路由
-      - SMARTCS_NACOS_INSTANCE_IP=mcp-server
+      - LUMIO_NACOS_INSTANCE_IP=mcp-server
       # 全链路追踪：向 Jaeger 导出 span（缺省关，设端点即启用）
       - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=${MCP_TRACING_SAMPLE:-0.1}
       - MANAGEMENT_OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
@@ -438,7 +438,7 @@ services:
       retries: 5
       start_period: 40s
     networks:
-      - smartcs-net
+      - lumio-net
 
 # ── 数据卷 ──────────────────────────────────────────
 volumes:
@@ -456,5 +456,5 @@ volumes:
 
 # ── 网络 ────────────────────────────────────────────
 networks:
-  smartcs-net:
+  lumio-net:
     driver: bridge

@@ -88,7 +88,7 @@ public class Session implements Serializable {
 
     /**
      * 会话子状态
-     * <p>与 status 配合提供更细粒度的状态描述，对应 SmartCS SessionSubPhase。</p>
+     * <p>与 status 配合提供更细粒度的状态描述，对应 Lumio SessionSubPhase。</p>
      * @see SessionSubStatus
      */
     private SessionSubStatus subStatus;

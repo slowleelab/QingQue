@@ -88,8 +88,8 @@ def _is_important(content: str) -> bool:
     return any(kw in content for kw in _IMPORTANT_KEYWORDS)
 
 
-class SmartCSAgent:
-    """SmartCS 对话 Agent — 确定性路由
+class LumioAgent:
+    """Lumio 对话 Agent — 确定性路由
 
     规则引擎决定处理路径，LLM 仅用于内容生成。
     """
@@ -780,7 +780,7 @@ class SmartCSAgent:
     async def _load_slot_prompt(self, session_id: str, intent: IntentLabel, entities: list[Entity]) -> str:
         """加载/创建槽位追踪器，从实体池填充，返回槽位 prompt 段
 
-        槽位状态持久化在 Redis key smartcs:slot:{session_id}，跨轮次保留。
+        槽位状态持久化在 Redis key lumio:slot:{session_id}，跨轮次保留。
         仅当意图有定义的必填槽位时才返回非空 prompt。
         """
         import json
@@ -793,7 +793,7 @@ class SmartCSAgent:
         tracker: SlotTracker | None = None
         if redis:
             try:
-                raw = await redis.get(f"smartcs:slot:{session_id}")
+                raw = await redis.get(f"lumio:slot:{session_id}")
                 if raw:
                     data = json.loads(raw)
                     # 意图切换时重置 tracker
@@ -814,7 +814,7 @@ class SmartCSAgent:
         # 持久化
         if redis:
             try:
-                await redis.setex(f"smartcs:slot:{session_id}", 3600, json.dumps(tracker.to_dict(), ensure_ascii=False))
+                await redis.setex(f"lumio:slot:{session_id}", 3600, json.dumps(tracker.to_dict(), ensure_ascii=False))
             except Exception:
                 pass
 

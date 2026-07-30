@@ -406,7 +406,7 @@ class Settings(BaseSettings):
     """全局配置根"""
 
     model_config = SettingsConfigDict(
-        env_prefix="SMARTCS_",
+        env_prefix="LUMIO_",
         env_nested_delimiter="__",
         env_file=".env",
         env_file_encoding="utf-8",
@@ -427,7 +427,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     # 认证（JWT）
-    jwt_secret: str = "smartcs-dev-secret-change-in-production"
+    jwt_secret: str = "lumio-dev-secret-change-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 30  # access token 30 分钟
     jwt_refresh_expire_days: int = 7  # refresh token 7 天
@@ -436,8 +436,8 @@ class Settings(BaseSettings):
     def _validate_production_security(self) -> Settings:
         """生产环境安全检查: 拒绝使用默认 JWT 密钥启动"""
         if self.environment == "production":
-            if self.jwt_secret == "smartcs-dev-secret-change-in-production":
-                raise ValueError("生产环境必须设置 SMARTCS_JWT_SECRET 环境变量，" "不能使用默认开发密钥")
+            if self.jwt_secret == "lumio-dev-secret-change-in-production":
+                raise ValueError("生产环境必须设置 LUMIO_JWT_SECRET 环境变量，" "不能使用默认开发密钥")
             if self.jwt_secret and len(self.jwt_secret) < 32:
                 raise ValueError("生产环境 JWT 密钥长度必须 >= 32 字符")
         return self
