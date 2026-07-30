@@ -1,0 +1,15 @@
+# 仅当以 profile=nacos 启动时生效：
+#   cd mcp-server && mvn spring-boot:run -Dspring-boot.run.profiles=nacos
+# 或运行 jar：java -jar target/smartcs-mcp-server.jar --spring.profiles.active=nacos
+#
+# 默认（无此 profile）不注册 Nacos，构建/运行/测试均不受影响。
+
+smartcs:
+  nacos:
+    # Nacos 地址（make gateway-up 启动的 Nacos，宿主机 8848）
+    server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+    namespace: ${NACOS_NAMESPACE:public}
+    service-name: ${NACOS_SERVICE_NAME:smartcs-mcp-server}
+    group: ${NACOS_GROUP:DEFAULT_GROUP}
+    # 留空自动探测本机 IP；容器/跨网段场景可显式指定 Higress 可达的地址
+    instance-ip: ${NACOS_INSTANCE_IP:}

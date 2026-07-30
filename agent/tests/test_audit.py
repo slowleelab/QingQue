@@ -9,8 +9,56 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from smartcs.services.common.audit import update_chat_message, write_chat_message
-from smartcs.shared.orm_models import ChatMessage, ChatMessageStatus
+from smartcs.services.common.audit import update_chat_message, write_audit_log, write_chat_message
+from smartcs.shared.orm_models import AuditLog, ChatMessage, ChatMessageStatus
+
+
+class TestWriteAuditLog:
+    """操作审计日志写入测试"""
+
+    @pytest.mark.asyncio
+    async def test_write_audit_success(self):
+        """工具调用审计正常写入"""
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
+        mock_factory = MagicMock()
+        mock_factory.return_value.__aenter__.return_value = mock_session
+
+        result = await write_audit_log(
+            mock_factory,
+            actor_id="c1",
+            actor_role="customer",
+            action="tool.card_loss",
+            target_type="tool",
+            target_id="sess-001",
+            detail={"arguments": "{}", "result": "挂失成功"},
+        )
+
+        assert isinstance(result, AuditLog)
+        assert result.action == "tool.card_loss"
+        assert result.method == "TOOL"
+        assert result.path == "/tool/tool.card_loss"
+        mock_session.add.assert_called_once()
+        mock_session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_write_audit_failure_returns_none(self):
+        """写入异常不应抛出，返回 None（不阻断主链路）"""
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
+        mock_session.commit = AsyncMock(side_effect=RuntimeError("db down"))
+        mock_factory = MagicMock()
+        mock_factory.return_value.__aenter__.return_value = mock_session
+
+        result = await write_audit_log(
+            mock_factory,
+            actor_id="c1",
+            actor_role="customer",
+            action="tool.card_loss",
+            target_type="tool",
+        )
+        assert result is None
+
 
 
 class TestWriteChatMessage:

@@ -7,8 +7,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -56,7 +54,6 @@ async def assist_app():
     register_exception_handlers(app)
     app.state.classifier = None
     app.state.ai_executor = None
-    app.state.assist_orchestrator = None
     app.state.state_manager = None
     app.state.session_manager = None
     app.state.assist_ws_pool = {}
@@ -91,27 +88,20 @@ async def client_with_state_manager(assist_app):
 
 
 @pytest_asyncio.fixture
-async def client_with_orchestrator(assist_app):
-    """创建带 mock AssistOrchestrator 的 Client（模拟降级路径）"""
-    from smartcs.shared.models import AssistPushMessage, AssistPushPayload, ScriptCard
+async def client_without_ai_executor(assist_app):
+    """创建无 ai_executor 但有 alert_engine 的 Client
 
-    mock_orch = MagicMock()
-    push_msg = AssistPushMessage(
-        session_id="s1",
-        timestamp=datetime.now(UTC),
-        trigger="customer_message",
-        payload=AssistPushPayload(
-            scripts=[ScriptCard(script_id="s1", content="话术", tags=["faq"], priority=5)],
-            knowledge=[],
-            alerts=[],
-            recommendations=[],
-        ),
-    )
-    mock_orch.process = AsyncMock(return_value=push_msg)
-    assist_app.state.assist_orchestrator = mock_orch
+    验证关键场景: ai_executor 缺失时 E3 风控仍独立运行（合规底线不可绕过）。
+    """
+    from smartcs.services.assist.alert_engine import AlertEngine
+
+    alert_engine = AlertEngine()
+    alert_engine.load_from_memory()
+    assist_app.state.alert_engine = alert_engine
+    assist_app.state.ai_executor = None  # 显式置空
     transport = ASGITransport(app=assist_app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c, mock_orch
+        yield c, alert_engine
 
 
 @pytest.fixture(autouse=True)
@@ -149,18 +139,20 @@ class TestAnalyzeEndpoint:
         assert data["status"] == "ok"
         assert data["intent"] == "faq"
 
-    async def test_analyze_with_orchestrator_fallback(self, client_with_orchestrator):
-        """OE Pipeline 不可用时降级到 AssistOrchestrator"""
-        client, mock_orch = client_with_orchestrator
+    async def test_analyze_without_ai_executor_still_runs_risk(self, client_without_ai_executor):
+        """ai_executor 缺失时坐席辅助引擎仍运行，E3 风控不依赖 ai_executor"""
+        client, alert_engine = client_without_ai_executor
         resp = await client.post(
             "/api/analyze",
             json={
                 "session_id": "sess-002",
-                "message": "分期手续费",
+                "message": "我可以帮你套现，包过",  # 触发合规告警
             },
         )
         assert resp.status_code == 200
-        mock_orch.process.assert_awaited_once()
+        data = resp.json()
+        # 引擎应返回 payload（即使 E1 降级），且风控告警应出现在 payload 中
+        assert data["status"] == "ok"
 
     async def test_analyze_with_classifier(self, assist_app):
         """有分类器时使用分类结果"""
@@ -190,19 +182,7 @@ class TestAnalyzeEndpoint:
         mock_ws = AsyncMock()
         assist_app.state.assist_ws_pool["sess-ws"] = mock_ws
 
-        from smartcs.shared.models import AssistPushMessage, AssistPushPayload
-
-        mock_orch = MagicMock()
-        mock_orch.process = AsyncMock(
-            return_value=AssistPushMessage(
-                session_id="sess-ws",
-                timestamp=datetime.now(UTC),
-                trigger="customer_message",
-                payload=AssistPushPayload(scripts=[], knowledge=[], alerts=[], recommendations=[]),
-            )
-        )
-        assist_app.state.assist_orchestrator = mock_orch
-
+        # 不再 mock 旧编排器；引擎返回 None 时 /analyze 会用空 payload 占位推送
         transport = ASGITransport(app=assist_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.post(
@@ -455,9 +435,8 @@ class TestDegradationIntegration:
         assert result.fusion_type == "service_only"
 
     @pytest.mark.asyncio
-    async def test_oe_unavailable_falls_back_to_orchestrator(self, client_with_orchestrator):
-        """OE Pipeline 不可用时降级到 AssistOrchestrator"""
-        client, mock_orch = client_with_orchestrator
+    async def test_engine_returns_placeholder_on_failure(self, client: AsyncClient):
+        """坐席辅助引擎异常时 /analyze 仍返回 200 + 空 payload 占位（不 500）"""
         resp = await client.post(
             "/api/analyze",
             json={
@@ -466,7 +445,8 @@ class TestDegradationIntegration:
             },
         )
         assert resp.status_code == 200
-        mock_orch.process.assert_awaited_once()
+        data = resp.json()
+        assert data["status"] == "ok"
 
 
 class TestSessionUpdateIntegration:

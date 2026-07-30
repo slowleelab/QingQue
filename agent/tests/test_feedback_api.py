@@ -46,9 +46,8 @@ async def feedback_client():
     """创建测试用 AsyncClient，注入 mock 依赖"""
     app = create_assist_app()
 
-    # 注入空 classifier + orchestrator 避免启动依赖
+    # 注入空 classifier 避免启动依赖
     app.state.classifier = None
-    app.state.assist_orchestrator = None
     app.state.temporal_client = None
     app.state.state_manager = None
 
@@ -179,7 +178,6 @@ async def test_feedback_with_state_manager():
     """POST /api/feedback 响应包含 delayed_commit 标记（H2: 3秒延迟确认）"""
     app = create_assist_app()
     app.state.classifier = None
-    app.state.assist_orchestrator = None
     app.state.temporal_client = None
 
     # Mock state_manager
@@ -233,7 +231,6 @@ async def test_feedback_no_state_no_cas_write():
     """POST /api/feedback state_manager 存在但 session 不存在时，cas_write 不会立即调用（H2 延迟确认）"""
     app = create_assist_app()
     app.state.classifier = None
-    app.state.assist_orchestrator = None
     app.state.temporal_client = None
 
     mock_state_manager = AsyncMock()

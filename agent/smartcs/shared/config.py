@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from urllib.parse import quote_plus
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -316,6 +316,92 @@ class CircuitBreakerConfigSettings(BaseSettings):
     risk_sliding_window_size: int = 20
 
 
+class MCPBackend(BaseModel):
+    """路由模式下的单个 MCP 后端定义
+
+    用于「多 server」拓扑：host（MCPToolClient）连接多个后端，合并各自工具目录，
+    按域前缀命名空间避免撞名，并按名字分发调用。默认 ``MCPSettings.backends=[]`` →
+    退回单后端（``endpoint``、``prefix=""``），名字与 schema 契约不变（零回归）。
+    """
+
+    # 后端逻辑名（用于分发索引与日志，不进入 host-facing 工具名）
+    name: str
+    # 后端 MCP 入口 URL（streamable-http）
+    endpoint: str
+    # host-facing 工具名前缀（域命名空间，如 "card."）；单后端留空即原名
+    prefix: str = ""
+    # 该后端的敏感工具原名白名单（与工具注解、全局 sensitive_tools 取并集）
+    sensitive_tools: list[str] = Field(default_factory=list)
+
+
+class MCPSettings(BaseSettings):
+    """MCP 工具层配置（经 Higress AI 网关调用受治理工具）
+
+    默认 ``enabled=False``：编排大脑行为与现状完全一致（零回归）。
+    """
+
+    model_config = SettingsConfigDict(env_prefix="MCP_")
+
+    # 总开关：关闭时不加载任何工具，bot 走原有 RAG/LLM 生成路径
+    enabled: bool = False
+    # Higress MCP 入口 URL（经 Nacos MCP Registry 发现的工具经此暴露）。
+    # 默认指向 Higress AI 网关统一 MCP 入口（streamable-http）；本地联调可改指参考 Server（:8080/mcp）。
+    endpoint: str = "http://localhost:10000/mcp/credit-card"
+    # 工具调用超时（秒）
+    timeout_seconds: float = 10.0
+    # ── 路由模式：多 MCP 后端（host 侧合并 + 分发）──
+    # 默认空 → 单后端（用 endpoint、空前缀、名字契约不变，零回归）。
+    # 非空时，host 连接每个后端、按 prefix 生成域命名空间工具名并合并目录，
+    # 按 name→(server, raw_name) 分发调用；某后端失败仅其工具缺席，不整体报错。
+    # 可经环境变量 MCP_BACKENDS 以 JSON 数组配置。
+    backends: list[MCPBackend] = Field(default_factory=list)
+    # 敏感工具白名单（与工具自身注解取并集，命中即需用户确认）
+    sensitive_tools: list[str] = Field(default_factory=list)
+    # 工具调用循环最大轮数（防死循环）
+    max_tool_iterations: int = 5
+    # 待确认操作（pending_action）过期时间（秒）
+    confirmation_ttl_seconds: int = 300
+
+    # ── 工具护栏（Python 侧纵深防御，与 Higress 治理互补）──
+    # 按角色的工具授权白名单：{role: [tool, ...]}。
+    # 默认空 → 不做授权限制（零回归）；一旦配置非空，未列出的角色/工具将被拒绝。
+    tool_role_allowlist: dict[str, list[str]] = Field(default_factory=dict)
+    # 敏感工具入参额度上限：{tool_name: max_amount}。默认空 → 不做额度校验。
+    tool_amount_limits: dict[str, float] = Field(default_factory=dict)
+    # 视为「金额」的入参键名，命中任一且超过对应上限即拒绝。
+    amount_arg_keys: list[str] = Field(default_factory=lambda: ["amount", "target_limit", "target_amount", "limit"])
+
+    # ── 渐进式工具暴露（Progressive Disclosure）──
+    # 开关：默认关 → bot 业务路由与工具暴露完全同现状（零回归）。
+    # 开启后，命中「查询类工具意图」且置信度达标时，仅向 LLM 暴露该意图对应的工具子集，
+    # 降低多工具（22+）场景下的选择噪声与 token 开销；未命中/低置信时回落全量或知识问答。
+    progressive_disclosure_enabled: bool = False
+    # 渐进式暴露的置信度阈值：意图置信度 >= 此值才裁剪到子集，否则暴露全量交 LLM 判断。
+    pd_confidence_threshold: float = 0.7
+    # 意图 → 工具子集映射：{intent_label: [tool_name, ...]}。
+    # 键为 IntentLabel 值（如 "bill_query"）；值为工具名（单后端时即工具原名，
+    # 多后端路由模式下为带域前缀全名，见 MCPToolClient）。默认给出五类查询意图的常用子集。
+    intent_tool_map: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "bill_query": ["query_card_bill", "query_bill_detail", "query_annual_fee", "repay_credit_card"],
+            "transaction_query": ["query_transactions", "report_transaction_dispute"],
+            "limit_query": [
+                "query_credit_limit",
+                "query_limit_adjust_history",
+                "adjust_temp_credit_limit",
+                "apply_permanent_limit",
+            ],
+            "installment_inquiry": [
+                "query_installment_offer",
+                "query_installment_status",
+                "apply_bill_installment",
+                "cancel_installment",
+            ],
+            "reward_query": ["query_points", "query_card_benefits", "redeem_points"],
+        }
+    )
+
+
 class Settings(BaseSettings):
     """全局配置根"""
 
@@ -377,6 +463,7 @@ class Settings(BaseSettings):
     orchestration: OrchestrationSettings = Field(default_factory=OrchestrationSettings)
     temporal: TemporalSettings = Field(default_factory=TemporalSettings)
     circuit_breaker: CircuitBreakerConfigSettings = Field(default_factory=CircuitBreakerConfigSettings)
+    mcp: MCPSettings = Field(default_factory=MCPSettings)
 
 
 @lru_cache

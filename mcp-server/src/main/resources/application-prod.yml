@@ -1,0 +1,39 @@
+# ── 生产 profile：优雅停机 + 暴露面收敛 ────────────────────────────
+# 通过 SPRING_PROFILES_ACTIVE=prod 激活（Docker 镜像默认已设）。
+# 仅覆盖与生产相关的项，其余继承 application.yml。
+
+server:
+  # 优雅停机：停止接收新请求，等待在途请求完成后再退出
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    # 优雅停机的最长等待时长
+    timeout-per-shutdown-phase: 30s
+
+# 生产环境收敛 actuator 暴露面：仅保留健康探针与指标
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.smartcs.mcp: INFO
+    io.modelcontextprotocol: WARN
+    org.springframework.ai.mcp: WARN
+
+# Nacos 注册：容器内经 compose 网络访问 nacos 服务
+# 仅当 SPRING_PROFILES_ACTIVE 同时包含 nacos 时,NacosRegistrationService 才生效
+smartcs:
+  nacos:
+    server-addr: ${SMARTCS_NACOS_SERVER_ADDR:nacos:8848}
+    service-name: ${SMARTCS_NACOS_SERVICE_NAME:smartcs-mcp-server}
+    group: ${SMARTCS_NACOS_GROUP:DEFAULT_GROUP}

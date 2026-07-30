@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from smartcs.services.bot.bot_agent import _estimate_tokens, _is_important
 from smartcs.services.bot.slot_tracker import SlotTracker
-from smartcs.shared.models import Entity, IntentLabel
+from smartcs.shared.models import IntentLabel
 
 
 class TestEstimateTokens:
@@ -157,7 +157,7 @@ class TestSlotTracker:
         old_data = tracker1.to_dict()
         # 新意图不是 installment → 调用方不应使用旧 tracker
         assert old_data["intent"] == "installment_inquiry"
-        
+
         # 新建 card_loss tracker 应独立
         tracker2 = SlotTracker.for_intent(IntentLabel.CARD_LOSS)
         assert tracker2.missing_required

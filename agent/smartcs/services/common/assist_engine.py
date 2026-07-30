@@ -225,7 +225,7 @@ async def run_assist_engine(
             pass
 
     # ── Phase 1: 场景识别 + 评估（并行）──
-    scene = detect_scene(message)
+    scene = detect_scene(message, intent=intent)
 
     d1 = evaluate_d1_service(state_snapshot)
     d2 = evaluate_d2_marketing(state_snapshot)
@@ -246,6 +246,16 @@ async def run_assist_engine(
         """E1 AI 服务执行器"""
         if not d1.activated:
             return None
+
+        # ai_executor 未配置时直接降级（不阻塞 E3 风控）
+        if ai_executor is None:
+            ASSIST_ENGINE_DEGRADATION.labels(agent="ai", reason="no_executor").inc()
+            return ExecutorResult(
+                executor_id="ai_service",
+                degraded=True,
+                degradation_type="no_ai_executor",
+                trace_id=trace_id,
+            )
 
         ai_breaker = breakers.get("ai")
         if ai_breaker and ai_breaker.state == CircuitState.OPEN:
@@ -677,20 +687,3 @@ async def load_push_tracker(session_id: str, redis_client: Any) -> PushTracker:
         pass
 
     return PushTracker()
-
-
-async def save_push_tracker(session_id: str, tracker: PushTracker, redis_client: Any) -> None:
-    """保存推送追踪器到 Redis"""
-    if redis_client is None:
-        return
-
-    try:
-        import json
-
-        await redis_client.setex(
-            f"oe:tracker:{session_id}",
-            3600,
-            json.dumps(tracker.to_dict()),
-        )
-    except Exception:
-        pass

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
@@ -59,7 +59,7 @@ async def learn_customer_profile(
     Returns:
         {vip_level, card_types, risk_tolerance} 或空 dict
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
     profiles: dict[str, object] = {}
 
     try:

@@ -173,3 +173,118 @@ class TestBotAgent:
 
         assert result["response_source"] == "fallback"
         assert "抱歉" in result["response"]
+
+
+class TestProgressiveDisclosureRouting:
+    """渐进式工具暴露路由（flag-gated，零回归）"""
+
+    @pytest.fixture
+    def mock_deps(self) -> dict:
+        classifier = MagicMock()
+        classifier.classify = AsyncMock(
+            return_value=(
+                IntentResult(primary_intent=IntentLabel.BILL_QUERY, primary_confidence=0.95),
+                [],
+                MagicMock(),
+                "",
+            )
+        )
+        degradation_mgr = MagicMock()
+        degradation_mgr.generate_with_fallback = AsyncMock(
+            return_value=MagicMock(content="RAG 知识回复", source="llm")
+        )
+        degradation_mgr._degrader = MagicMock()
+        degradation_mgr._degrader.hardcoded_fallback = MagicMock(return_value="兜底")
+        transfer_checker = MagicMock()
+        transfer_checker.check = MagicMock(return_value=(False, "", ""))
+        session_manager = MagicMock()
+        session_manager.get_history = AsyncMock(return_value=[])
+        session_manager.get_session = AsyncMock(return_value=None)
+        return {
+            "classifier": classifier,
+            "degradation_mgr": degradation_mgr,
+            "transfer_checker": transfer_checker,
+            "session_manager": session_manager,
+        }
+
+    def _tool_executor(self) -> MagicMock:
+        from smartcs.services.bot.tool_executor import ToolExecutionResult
+
+        te = MagicMock()
+        te.has_tools = MagicMock(return_value=True)
+        te.run_conversation = AsyncMock(
+            return_value=ToolExecutionResult(content="您本期账单 8650 元", source="tool")
+        )
+        return te
+
+    def _patch_flag(self, monkeypatch: pytest.MonkeyPatch, enabled: bool) -> None:
+        from smartcs.shared.config import Settings
+
+        settings = Settings()
+        settings.mcp.progressive_disclosure_enabled = enabled
+        monkeypatch.setattr("smartcs.services.bot.bot_agent.get_settings", lambda: settings)
+
+    @pytest.mark.asyncio
+    async def test_flag_on_routes_to_tool_with_expected_names(
+        self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """开关开启 + 查询意图 → 进入工具编排，run_conversation 收到预期 tool_names"""
+        self._patch_flag(monkeypatch, True)
+        te = self._tool_executor()
+        agent = SmartCSAgent(**mock_deps, tool_executor=te)
+
+        result = await agent.run("s1", "帮我查账单")
+
+        te.run_conversation.assert_awaited_once()
+        kwargs = te.run_conversation.await_args.kwargs
+        assert kwargs["tool_names"] == [
+            "query_card_bill",
+            "query_bill_detail",
+            "query_annual_fee",
+            "repay_credit_card",
+        ]
+        assert result["response"] == "您本期账单 8650 元"
+        assert result["response_source"] == "tool"
+
+    @pytest.mark.asyncio
+    async def test_flag_off_keeps_knowledge_routing(
+        self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """开关关闭 → 不进入工具编排，BILL_QUERY 仍走 knowledge/RAG（路由同现状）"""
+        self._patch_flag(monkeypatch, False)
+        te = self._tool_executor()
+        agent = SmartCSAgent(**mock_deps, tool_executor=te)
+
+        result = await agent.run("s1", "帮我查账单")
+
+        te.run_conversation.assert_not_awaited()
+        assert result["response"] == "RAG 知识回复"
+
+    @pytest.mark.asyncio
+    async def test_tool_failure_falls_back_to_knowledge(
+        self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """工具编排异常 → 优雅回落知识问答"""
+        self._patch_flag(monkeypatch, True)
+        te = self._tool_executor()
+        te.run_conversation = AsyncMock(side_effect=RuntimeError("tool down"))
+        agent = SmartCSAgent(**mock_deps, tool_executor=te)
+
+        result = await agent.run("s1", "帮我查账单")
+
+        assert result["response"] == "RAG 知识回复"
+
+    @pytest.mark.asyncio
+    async def test_flag_on_but_no_tools_keeps_knowledge(
+        self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """开关开启但无可用工具 → 不进入工具编排"""
+        self._patch_flag(monkeypatch, True)
+        te = self._tool_executor()
+        te.has_tools = MagicMock(return_value=False)
+        agent = SmartCSAgent(**mock_deps, tool_executor=te)
+
+        result = await agent.run("s1", "帮我查账单")
+
+        te.run_conversation.assert_not_awaited()
+        assert result["response"] == "RAG 知识回复"

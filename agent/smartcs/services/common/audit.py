@@ -10,12 +10,65 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from smartcs.shared.orm_models import ChatMessage, ChatMessageStatus
+from smartcs.shared.orm_models import AuditLog, ChatMessage, ChatMessageStatus
 
 if TYPE_CHECKING:
-    pass
+    from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+async def write_audit_log(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    actor_id: str,
+    actor_role: str,
+    action: str,
+    target_type: str,
+    target_id: str | None = None,
+    detail: dict[str, Any] | None = None,
+    method: str = "TOOL",
+    path: str = "",
+    status_code: int = 200,
+) -> AuditLog | None:
+    """写入操作审计日志（append-only）
+
+    用于工具调用、确认/取消决策等非 HTTP 触发的状态变更审计。
+    ``detail`` 应为**已脱敏**内容（调用方负责脱敏）。
+
+    Args:
+        actor_id: 操作者 ID（customer_id / user_id / service）
+        actor_role: 角色 customer/agent/admin/service
+        action: 操作类型，如 ``tool.card_loss`` / ``tool.confirm``
+        target_type: 目标类型，如 session/tool
+        target_id: 目标 ID（会话 ID 等）
+        detail: 已脱敏的操作详情（入参/出参摘要、决策等）
+        method: 合成方法标识，工具调用默认 "TOOL"
+        path: 合成路径，默认 ``/tool/{action}``
+        status_code: 结果码，成功 200 / 失败 500
+
+    Returns:
+        AuditLog 对象，失败返回 None（审计失败不阻断主链路）
+    """
+    try:
+        async with session_factory() as session:
+            record = AuditLog(
+                actor_id=actor_id or "unknown",
+                actor_role=actor_role or "service",
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                method=method,
+                path=path or f"/tool/{action}",
+                status_code=status_code,
+                detail=detail,
+            )
+            session.add(record)
+            await session.commit()
+            return record
+    except Exception as exc:  # 审计失败不应阻断主链路
+        logger.warning("写入审计日志失败: action=%s, error=%s", action, exc)
+        return None
 
 
 async def write_chat_message(

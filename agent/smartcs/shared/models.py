@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -213,6 +213,22 @@ class DialogueTurn(BaseModel):
 # ── 会话状态 ──
 
 
+class PendingAction(BaseModel):
+    """待用户确认的敏感工具调用
+
+    敏感工具（如挂失、调额、账单分期）在 LLM 请求调用后不立即执行，
+    而是暂存于此，返回确认话术，等待用户下一轮回复「确认/取消」。
+    """
+
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    tool_call_id: str = ""  # 关联 LLM 返回的 tool_call id
+    confirm_prompt: str = ""  # 已生成的确认话术
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime | None = None  # 过期时间，超时需重新发起
+    trace_id: str = ""  # 链路追踪 id
+
+
 class SessionState(BaseModel):
     """会话状态对象
 
@@ -254,10 +270,13 @@ class SessionState(BaseModel):
     entity_pool: list[Entity] = Field(default_factory=list)
     emotion_vector: EmotionVector | None = None
     suppress_flag: bool = False  # 营销压制标记（单向门 false→true，对应文档 §3.2 覆写规则）
-    node_position: str = ""  # LangGraph DAG 节点位置
+    node_position: str = ""  # DAG 节点位置
     risk_pending_audit: bool = False  # 风控待审标记
     transfer_reason: str | None = None
     transfer_summary: str | None = None
+
+    # 工具确认状态机：存在未过期 pending_action 时，下一轮拦截判定确认/取消
+    pending_action: PendingAction | None = None
 
     # 元数据
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

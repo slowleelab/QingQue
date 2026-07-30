@@ -112,16 +112,30 @@ async def _write_audit_log(request: Request, response: Response, elapsed_ms: int
 
 
 def _infer_action(request: Request) -> tuple[str, str, str | None]:
-    """从请求路径推断操作类型和目标
+    """从请求推断操作类型和目标
+
+    优先级:
+    1. 路由元数据（endpoint 函数名）-> 精确映射，无歧义
+    2. 路径推断（兜底，用于未映射的端点或 404）
 
     Returns:
         (action, target_type, target_id)
     """
+    # 1. 优先用路由元数据（FastAPI 匹配到的 APIRoute.endpoint 函数名）
+    route = request.scope.get("route")
+    if route is not None and hasattr(route, "endpoint"):
+        endpoint_name = route.endpoint.__name__  # type: ignore[attr-defined]
+        mapped = _ENDPOINT_ACTION_MAP.get(endpoint_name)
+        if mapped:
+            action, target_type = mapped
+            target_id = _extract_target_id(request.url.path, target_type)
+            return action, target_type, target_id
+
+    # 2. 兜底：路径字符串推断（用于未映射端点或 404）
     path = request.url.path.strip("/")
     parts = path.split("/")
     method = request.method
 
-    # /api/session/update → session.transition
     if "session" in parts:
         idx = parts.index("session")
         target_id = parts[idx + 1] if idx + 1 < len(parts) else None
@@ -129,35 +143,76 @@ def _infer_action(request: Request) -> tuple[str, str, str | None]:
             return "session.transition", "session", target_id
         return f"session.{method.lower()}", "session", target_id
 
-    # /api/feedback → feedback.submit
     if "feedback" in parts:
         if "undo" in parts:
             return "feedback.undo", "feedback", None
         return "feedback.submit", "feedback", None
 
-    # /api/kb/documents → document.upload
     if "kb" in parts and "documents" in parts:
         return "document.upload", "document", None
 
-    # /api/hold → session.hold
     if "hold" in parts:
         return "session.hold", "session", None
 
-    # /api/resume → session.resume
     if "resume" in parts:
         return "session.resume", "session", None
 
-    # /api/review → review.submit
     if "review" in parts:
         return f"review.{method.lower()}", "review", None
 
-    # /api/notify → notify.receive
     if "notify" in parts:
         return "notify.receive", "notify", None
 
-    # /api/analyze → analyze.request
     if "analyze" in parts:
         return "analyze.request", "analyze", None
 
-    # 默认
     return f"{method.lower()}.{parts[-1] if parts else 'unknown'}", "other", None
+
+
+# endpoint 函数名 -> (action, target_type) 精确映射表
+# 权威来源：FastAPI 路由匹配后，endpoint 函数名唯一确定，无路径字符串歧义
+_ENDPOINT_ACTION_MAP: dict[str, tuple[str, str]] = {
+    # assist/router.py
+    "session_update": ("session.transition", "session"),
+    "hold_session": ("session.hold", "session"),
+    "resume_session": ("session.resume", "session"),
+    "analyze_message": ("analyze.request", "analyze"),
+    "notify_message": ("notify.receive", "notify"),
+    "generate_review": ("review.generate", "review"),
+    "submit_review": ("review.submit", "review"),
+    "record_feedback": ("feedback.submit", "feedback"),
+    "undo_feedback": ("feedback.undo", "feedback"),
+    "transfer_to_bot": ("session.transfer_to_bot", "session"),
+    # bot/router.py
+    "chat_send": ("chat.send", "chat"),
+    "chat_poll": ("chat.poll", "chat"),
+    "chat_end": ("chat.end", "chat"),
+    "chat_transfer": ("chat.transfer", "chat"),
+    "chat_feedback": ("chat.feedback", "feedback"),
+    "upload_document": ("document.upload", "document"),
+    "delete_document": ("document.delete", "document"),
+    # faq_router.py
+    "create_faq_endpoint": ("faq.create", "faq"),
+    "update_faq_endpoint": ("faq.update", "faq"),
+    "delete_faq_endpoint": ("faq.delete", "faq"),
+    "submit_faq": ("faq.submit", "faq"),
+    "approve_faq": ("faq.approve", "faq"),
+    "reject_faq": ("faq.reject", "faq"),
+    "publish_faq": ("faq.publish", "faq"),
+    "archive_faq": ("faq.archive", "faq"),
+    "batch_import": ("faq.batch_import", "faq"),
+    # auth_router.py
+    "login": ("auth.login", "auth"),
+}
+
+
+def _extract_target_id(path: str, target_type: str) -> str | None:
+    """从路径提取目标 ID（仅在 target_type 对应段后提取）"""
+    parts = path.strip("/").split("/")
+    try:
+        idx = parts.index(target_type)
+        if idx + 1 < len(parts):
+            return parts[idx + 1]
+    except ValueError:
+        pass
+    return None

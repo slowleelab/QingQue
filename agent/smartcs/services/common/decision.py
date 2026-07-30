@@ -87,29 +87,74 @@ _INQUIRY_KEYWORDS = [
     "还有多少",
 ]
 
+# 否定词（用于过滤"我不想分期""不要办卡"等否定语义）
+_NEGATION_WORDS = ["不想", "不要", "不用", "别", "不办", "取消", "拒绝"]
 
-def detect_scene(message: str) -> Scene:
-    """基于关键词的场景快速检测（纯规则引擎，不调 LLM）
+# intent -> Scene 映射（分类器输出比关键词可靠，作为高优先级信号）
+# 仅在关键词检测未命中 URGENT 时介入，避免关键词紧急场景被 intent 覆盖
+_INTENT_SCENE_MAP: dict[str, Scene] = {
+    "card_loss": Scene.URGENT,
+    "complaint": Scene.URGENT,
+    "installment_inquiry": Scene.SALES,
+    "bill_query": Scene.INQUIRY,
+    "transaction_query": Scene.INQUIRY,
+    "limit_query": Scene.INQUIRY,
+    "reward_query": Scene.INQUIRY,
+}
+
+
+def _keyword_hit_not_negated(text: str, keywords: list[str]) -> bool:
+    """关键词命中且未被否定词覆盖
+
+    例：text="我不想分期"，keyword="分期" -> 命中"分期"但前面有"不想" -> 返回 False
+    """
+    for kw in keywords:
+        idx = text.find(kw)
+        if idx == -1:
+            continue
+        # 检查关键词前 4 个字符内是否有否定词
+        prefix = text[max(0, idx - 4) : idx]
+        if any(neg in prefix for neg in _NEGATION_WORDS):
+            continue
+        return True
+    return False
+
+
+def detect_scene(message: str, intent: str | None = None) -> Scene:
+    """基于关键词 + 意图的场景快速检测（纯规则引擎，不调 LLM）
+
+    优先级:
+    1. URGENT intent (card_loss/complaint) 直接判定为 URGENT（合规优先）
+    2. 关键词检测（带否定过滤）-> URGENT > SALES > INQUIRY
+    3. 非 URGENT intent 映射作为回退（关键词未命中时）
+    4. GENERAL
 
     Args:
         message: 客户消息文本
+        intent: 意图标签字符串（可选，来自分类器）
 
     Returns:
         检测到的场景枚举
     """
     text = message.strip().lower()
 
-    for kw in _URGENT_KEYWORDS:
-        if kw in text:
-            return Scene.URGENT
+    # 1. intent 直接判定 URGENT（挂失/投诉不可被关键词覆盖）
+    if intent in ("card_loss", "complaint"):
+        return Scene.URGENT
 
-    for kw in _SALES_KEYWORDS:
-        if kw in text:
-            return Scene.SALES
+    # 2. 关键词检测（带否定过滤）
+    if _keyword_hit_not_negated(text, _URGENT_KEYWORDS):
+        return Scene.URGENT
 
-    for kw in _INQUIRY_KEYWORDS:
-        if kw in text:
-            return Scene.INQUIRY
+    if _keyword_hit_not_negated(text, _SALES_KEYWORDS):
+        return Scene.SALES
+
+    if _keyword_hit_not_negated(text, _INQUIRY_KEYWORDS):
+        return Scene.INQUIRY
+
+    # 3. intent 映射回退（关键词未命中时，信任分类器）
+    if intent and intent in _INTENT_SCENE_MAP:
+        return _INTENT_SCENE_MAP[intent]
 
     return Scene.GENERAL
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from smartcs.services.bot.prompts import (
@@ -23,10 +24,13 @@ from smartcs.services.bot.prompts import (
     GREETING_RESPONSE,
     KNOWLEDGE_SYSTEM_PROMPT,
 )
+from smartcs.services.bot.tool_executor import detect_confirmation
+from smartcs.services.bot.tool_selection import TOOL_INTENTS, select_tools_for_intent
 from smartcs.services.common.classifier import IntentClassifier, get_domain
 from smartcs.services.common.degradation import DegradationManager
 from smartcs.services.common.transfer import TransferChecker
 from smartcs.shared.config import get_settings
+from smartcs.shared.metrics import TOOL_CONFIRMATIONS
 from smartcs.shared.models import (
     DegradationLevel,
     Entity,
@@ -42,8 +46,10 @@ if TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
     from pymilvus import Collection
 
+    from smartcs.services.bot.tool_executor import ToolCallingExecutor
     from smartcs.services.common.embedding import EmbeddingCircuitBreaker
     from smartcs.services.common.session import SessionManager
+    from smartcs.shared.models import PendingAction
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +103,7 @@ class SmartCSAgent:
         es_client: AsyncElasticsearch | None = None,
         milvus_collection: Collection | None = None,
         embedding_breaker: EmbeddingCircuitBreaker | None = None,
+        tool_executor: ToolCallingExecutor | None = None,
     ) -> None:
         self._classifier = classifier
         self._degradation_mgr = degradation_mgr
@@ -105,6 +112,8 @@ class SmartCSAgent:
         self._es_client = es_client
         self._milvus_collection = milvus_collection
         self._embedding_breaker = embedding_breaker
+        # 工具执行器（MCP_ENABLED=False 时为 None，走原有降级链，零回归）
+        self._tool_executor = tool_executor
 
     # ── 公共接口 ──
 
@@ -124,6 +133,15 @@ class SmartCSAgent:
             except Exception:
                 pass
 
+        # ── 工具确认状态机拦截：存在未过期 pending_action 时，本轮解读为确认/取消 ──
+        if self._tool_executor is not None and self._session_manager is not None:
+            try:
+                state = await self._session_manager.get_session(session_id)
+            except Exception:
+                state = None
+            if state is not None and state.pending_action is not None:
+                return await self._handle_pending_action(session_id, user_input, state, customer_id)
+
         # 快速路径：问候/告别不调 LLM
         if _is_greeting(user_input):
             return self._build_result(session_id, user_input, GREETING_RESPONSE, "template", "chitchat")
@@ -138,10 +156,24 @@ class SmartCSAgent:
             domain = get_domain(intent_result.primary_intent)
             history = await self._load_history(session_id)
 
+            # 2.5 渐进式工具暴露：仅当开关开启 + 有可用工具 + 命中查询类工具意图时，
+            #     打通 MCP 工具编排路径（在 domain 分派之前）。开关关闭时整段不进入，路由 100% 同现状。
+            if (
+                get_settings().mcp.progressive_disclosure_enabled
+                and self._tool_executor is not None
+                and self._tool_executor.has_tools()
+                and intent_result.primary_intent in TOOL_INTENTS
+            ):
+                return await self._handle_tool(
+                    session_id, user_input, intent_result, history, entities, sentiment, customer_id
+                )
+
             if domain == "knowledge":
                 return await self._handle_knowledge(session_id, user_input, intent_result, history, entities, sentiment)
             elif domain == "business":
-                return await self._handle_business(session_id, user_input, intent_result, history, entities, sentiment)
+                return await self._handle_business(
+                    session_id, user_input, intent_result, history, entities, sentiment, customer_id
+                )
             else:
                 return await self._handle_fallback(session_id, user_input, intent_result, history, entities, sentiment)
 
@@ -222,8 +254,9 @@ class SmartCSAgent:
         history: list[dict[str, str]],
         entities: list[Entity] | None = None,
         sentiment: SentimentLabel = SentimentLabel.NEUTRAL,
+        customer_id: str | None = None,
     ) -> dict[str, Any]:
-        """业务办理: 挂失/投诉直接转，否则 LLM 生成"""
+        """业务办理: 挂失/投诉直接转，否则（有工具）走工具编排 / （无工具）LLM 生成"""
         if intent.primary_intent in (IntentLabel.CARD_LOSS, IntentLabel.COMPLAINT, IntentLabel.TRANSFER_AGENT):
             reason_map = {
                 IntentLabel.CARD_LOSS: "挂失业务",
@@ -247,6 +280,42 @@ class SmartCSAgent:
         system_prompt = BUSINESS_SYSTEM_PROMPT
         if session_memory:
             system_prompt = f"{BUSINESS_SYSTEM_PROMPT}\n\n## 会话记忆\n{session_memory}"
+
+        # 工具编排路径：MCP 启用且有可用工具时，尝试 tool-calling；任何异常回落降级链
+        if self._tool_executor is not None and self._tool_executor.has_tools():
+            try:
+                tool_result = await self._tool_executor.run_conversation(
+                    system_prompt=system_prompt,
+                    user_input=user_input,
+                    history=history,
+                    session_id=session_id,
+                    actor_id=customer_id or session_id,
+                    actor_role="customer",
+                )
+                if tool_result.pending_action is not None:
+                    # 敏感操作：暂存待确认，返回确认话术，不执行
+                    await self._save_pending_action(session_id, tool_result.pending_action)
+                    return self._build_result(
+                        session_id,
+                        user_input,
+                        tool_result.content,
+                        "tool_confirm",
+                        intent.primary_intent.value,
+                        intent.primary_confidence,
+                    )
+                return self._build_result(
+                    session_id,
+                    user_input,
+                    tool_result.content,
+                    tool_result.source,
+                    intent.primary_intent.value,
+                    intent.primary_confidence,
+                    entities=entities,
+                    sentiment=sentiment,
+                )
+            except Exception as exc:
+                logger.warning("工具编排失败，回落降级链: %s", exc)
+
         result = await self._degradation_mgr.generate_with_fallback(
             system_prompt=system_prompt,
             user_input=user_input,
@@ -267,6 +336,167 @@ class SmartCSAgent:
             entities,
             sentiment,
         )
+
+    async def _handle_tool(
+        self,
+        session_id: str,
+        user_input: str,
+        intent: IntentResult,
+        history: list[dict[str, str]],
+        entities: list[Entity] | None = None,
+        sentiment: SentimentLabel = SentimentLabel.NEUTRAL,
+        customer_id: str | None = None,
+    ) -> dict[str, Any]:
+        """工具编排路径（渐进式暴露）：查询类意图打通 MCP 工具
+
+        - 依据意图/置信度选择工具子集（``None`` = 暴露全量）。
+        - 敏感写操作返回 ``pending_action``，暂存待确认（复用确认状态机）。
+        - 任何异常回落知识问答（RAG），保证优雅降级。
+        """
+        tool_names = select_tools_for_intent(intent.primary_intent, intent.primary_confidence, get_settings().mcp)
+
+        session_memory = await self._build_session_memory(session_id)
+        system_prompt = BUSINESS_SYSTEM_PROMPT
+        if session_memory:
+            system_prompt = f"{BUSINESS_SYSTEM_PROMPT}\n\n## 会话记忆\n{session_memory}"
+
+        try:
+            tool_result = await self._tool_executor.run_conversation(  # type: ignore[union-attr]
+                system_prompt=system_prompt,
+                user_input=user_input,
+                history=history,
+                session_id=session_id,
+                actor_id=customer_id or session_id,
+                actor_role="customer",
+                tool_names=tool_names,
+            )
+        except Exception as exc:
+            logger.warning("工具编排失败，回落知识问答: %s", exc)
+            return await self._handle_knowledge(session_id, user_input, intent, history, entities, sentiment)
+
+        if tool_result.pending_action is not None:
+            # 敏感操作：暂存待确认，返回确认话术，不执行
+            await self._save_pending_action(session_id, tool_result.pending_action)
+            return self._build_result(
+                session_id,
+                user_input,
+                tool_result.content,
+                "tool_confirm",
+                intent.primary_intent.value,
+                intent.primary_confidence,
+            )
+        return self._build_result(
+            session_id,
+            user_input,
+            tool_result.content,
+            tool_result.source,
+            intent.primary_intent.value,
+            intent.primary_confidence,
+            entities=entities,
+            sentiment=sentiment,
+        )
+
+    # ── 工具确认状态机 ──
+
+    async def _handle_pending_action(
+        self,
+        session_id: str,
+        user_input: str,
+        state: Any,
+        customer_id: str | None,
+    ) -> dict[str, Any]:
+        """处理待确认的敏感工具操作（confirm/cancel/unclear/expired）"""
+        pending: PendingAction = state.pending_action
+        actor_id = customer_id or state.customer_id or session_id
+
+        # 过期：清除并提示重新发起
+        if pending.expires_at is not None and datetime.now(UTC) > pending.expires_at:
+            await self._clear_pending_action(session_id, state.version)
+            TOOL_CONFIRMATIONS.labels(decision="expired").inc()
+            await self._tool_executor.audit_decision(  # type: ignore[union-attr]
+                session_id=session_id, actor_id=actor_id, actor_role="customer",
+                tool_name=pending.tool_name, decision="expired",
+            )
+            return self._build_result(
+                session_id, user_input, "您上一步的操作请求已超时失效，如仍需办理请重新告知我。", "template", "faq"
+            )
+
+        decision = detect_confirmation(user_input)
+
+        if decision == "confirm":
+            await self._tool_executor.audit_decision(  # type: ignore[union-attr]
+                session_id=session_id, actor_id=actor_id, actor_role="customer",
+                tool_name=pending.tool_name, decision="confirm",
+            )
+            try:
+                session_memory = await self._build_session_memory(session_id)
+                system_prompt = BUSINESS_SYSTEM_PROMPT
+                if session_memory:
+                    system_prompt = f"{BUSINESS_SYSTEM_PROMPT}\n\n## 会话记忆\n{session_memory}"
+                history = await self._load_history(session_id)
+                tool_result = await self._tool_executor.execute_confirmed_action(  # type: ignore[union-attr]
+                    pending=pending,
+                    system_prompt=system_prompt,
+                    history=history,
+                    session_id=session_id,
+                    actor_id=actor_id,
+                    actor_role="customer",
+                )
+                await self._clear_pending_action(session_id, state.version)
+                TOOL_CONFIRMATIONS.labels(decision="confirm").inc()
+                return self._build_result(session_id, user_input, tool_result.content, tool_result.source, "faq")
+            except Exception as exc:
+                logger.warning("确认执行工具失败，清除待确认并降级: %s", exc)
+                await self._clear_pending_action(session_id, state.version)
+                return self._build_result(
+                    session_id, user_input, self._degradation_mgr._degrader.hardcoded_fallback(), "fallback", "faq"
+                )
+
+        if decision == "cancel":
+            await self._clear_pending_action(session_id, state.version)
+            TOOL_CONFIRMATIONS.labels(decision="cancel").inc()
+            await self._tool_executor.audit_decision(  # type: ignore[union-attr]
+                session_id=session_id, actor_id=actor_id, actor_role="customer",
+                tool_name=pending.tool_name, decision="cancel",
+            )
+            return self._build_result(
+                session_id, user_input, "好的，已为您取消该操作。还有什么可以帮您的吗？", "template", "faq"
+            )
+
+        # unclear：重复确认话术，不清除
+        TOOL_CONFIRMATIONS.labels(decision="unclear").inc()
+        return self._build_result(session_id, user_input, pending.confirm_prompt, "template", "faq")
+
+    async def _save_pending_action(self, session_id: str, pending: PendingAction) -> None:
+        """将待确认操作写入会话状态（CAS）"""
+        if self._session_manager is None:
+            return
+        try:
+            state = await self._session_manager.get_session(session_id)
+            if state is None:
+                return
+            await self._session_manager.patch_state(
+                session_id=session_id,
+                expected_version=state.version,
+                patches={"pending_action": pending.model_dump(mode="json")},
+                writer="bot_agent:tool_confirm",
+            )
+        except Exception:
+            logger.debug("写入 pending_action 失败: session=%s", session_id)
+
+    async def _clear_pending_action(self, session_id: str, expected_version: int) -> None:
+        """清除待确认操作"""
+        if self._session_manager is None:
+            return
+        try:
+            await self._session_manager.patch_state(
+                session_id=session_id,
+                expected_version=expected_version,
+                patches={"pending_action": None},
+                writer="bot_agent:tool_confirm",
+            )
+        except Exception:
+            logger.debug("清除 pending_action 失败: session=%s", session_id)
 
     async def _handle_fallback(
         self,

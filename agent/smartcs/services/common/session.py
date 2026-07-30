@@ -1,7 +1,6 @@
 """会话状态管理
 
-通过 LangGraph state 读写会话状态（单一状态源），
-Redis 仅用于 LangGraph Checkpointer 持久化 + 会话元信息缓存。
+通过 Redis 读写会话状态（单一状态源），
 拆分 meta/history 键避免长对话全量读写。
 """
 
@@ -84,7 +83,7 @@ class SessionManager:
     - 阶段生命周期管理
 
     设计原则：
-    - 不与 LangGraph Checkpointer 竞争状态管理
+    - Redis 为唯一状态源，无外部状态竞争
     - meta 键存会话元信息（小，频繁更新）
     - history 键用 Redis List 存对话历史（append-only，高效）
     - 从 history 中提取意图/实体信息，不冗余存储

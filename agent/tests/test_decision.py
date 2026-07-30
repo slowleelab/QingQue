@@ -55,6 +55,53 @@ class TestDetectScene:
     def test_case_insensitive(self) -> None:
         assert detect_scene("我要挂失") == Scene.URGENT
 
+    # ── intent 融合 ──
+
+    def test_intent_card_loss_forces_urgent(self) -> None:
+        """intent=card_loss 直接判定 URGENT，即使消息无关键词"""
+        assert detect_scene("你好", intent="card_loss") == Scene.URGENT
+
+    def test_intent_complaint_forces_urgent(self) -> None:
+        """intent=complaint 直接判定 URGENT"""
+        assert detect_scene("没事", intent="complaint") == Scene.URGENT
+
+    def test_intent_fallback_when_no_keyword(self) -> None:
+        """关键词未命中时，intent 映射作为回退"""
+        assert detect_scene("嗯哼", intent="bill_query") == Scene.INQUIRY
+        assert detect_scene("嗯哼", intent="installment_inquiry") == Scene.SALES
+
+    def test_intent_none_falls_to_general(self) -> None:
+        """无关键词且无 intent -> GENERAL"""
+        assert detect_scene("嗯哼", intent=None) == Scene.GENERAL
+
+    def test_urgent_keyword_overrides_sales_intent(self) -> None:
+        """URGENT 关键词优先于 SALES intent（紧急场景不被营销意图覆盖）"""
+        assert detect_scene("我卡丢了", intent="installment_inquiry") == Scene.URGENT
+
+    # ── 否定语义 ──
+
+    def test_negation_suppresses_sales(self) -> None:
+        """'我不想分期' 不应判定为 SALES"""
+        assert detect_scene("我不想分期") != Scene.SALES
+
+    def test_negation_suppresses_inquiry(self) -> None:
+        """'别查账单了' 不应判定为 INQUIRY"""
+        assert detect_scene("别查账单了") != Scene.INQUIRY
+
+    def test_negation_not_overreach(self) -> None:
+        """否定词距离关键词过远时不误判（'不' 在句首，'办卡' 在句尾）"""
+        # 这里'不'和'办卡'距离 > 4，应判定为 SALES
+        assert detect_scene("不知道你们能不能办卡") == Scene.SALES
+
+    def test_negation_without_intent_falls_to_general(self) -> None:
+        """关键词被否定且无 intent -> GENERAL（'我不想分期' 无 intent 时不判 SALES）"""
+        assert detect_scene("我不想分期") == Scene.GENERAL
+
+    def test_negation_with_intent_trusts_classifier(self) -> None:
+        """关键词被否定但有 intent -> 信任分类器（intent 是深层判断，否定只是表层词法）"""
+        # '我不想分期' + intent=installment_inquiry -> SALES（分类器已判断为分期咨询）
+        assert detect_scene("我不想分期", intent="installment_inquiry") == Scene.SALES
+
 
 class TestShouldShow:
     """展示决策测试"""

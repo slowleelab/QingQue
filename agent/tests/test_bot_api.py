@@ -1,7 +1,7 @@
 """机器人服务 API 端到端测试
 
 启动真实 uvicorn 服务器（bot :8765），通过 HTTP 请求验证完整链路：
-Redis 队列 → Agent（LangGraph）→ LLM（Ollama/qwen2.5:7b）→ 回复。
+Redis 队列 → Bot Agent（asyncio）→ LLM（Ollama/qwen2.5:7b）→ 回复。
 
 前置条件：Docker 中间件已启动（make up）
 """

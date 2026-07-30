@@ -15,15 +15,18 @@
 # mypy: ignore-errors
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
 import grpc.aio
-
-from generated.proto import classification_pb2, classification_pb2_grpc
-from generated.proto import retrieval_pb2, retrieval_pb2_grpc
-from generated.proto import safety_pb2, safety_pb2_grpc
+from generated.proto import (
+    classification_pb2,
+    classification_pb2_grpc,
+    retrieval_pb2,
+    retrieval_pb2_grpc,
+    safety_pb2,
+    safety_pb2_grpc,
+)
 
 if TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
@@ -45,7 +48,7 @@ class ClassificationServicer(classification_pb2_grpc.ClassificationServiceServic
 
     async def Classify(self, request: classification_pb2.ClassifyRequest, context: grpc.aio.ServicerContext) -> classification_pb2.ClassifyResponse:
         try:
-            from smartcs.shared.models import ClassifyType, IntentLabel, SentimentLabel
+            from smartcs.shared.models import ClassifyType
 
             types = {t for t in request.classify_types}
             intent = intent_result_pb = None

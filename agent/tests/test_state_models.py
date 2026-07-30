@@ -8,11 +8,11 @@ import pytest
 
 from smartcs.shared.models import (
     ArbitrationResult,
+    AssistEngineState,
     EmotionVector,
     ExecutorResult,
     FeedbackSignal,
     IntentLabel,
-    AssistEngineState,
     OrchestrationState,
     RiskActionEnum,
     SentimentLabel,

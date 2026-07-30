@@ -438,6 +438,34 @@ def get_transfer_checker(request: Request) -> TransferChecker:
 # ── Agent ──
 
 
+async def init_mcp_client(app: FastAPI) -> None:
+    """初始化 MCP 工具客户端，存储到 app.state
+
+    MCP_ENABLED=False 时创建的客户端 connect() 为空操作，list_tools() 返回 []，
+    编排层据此走原有降级链（零回归）。
+    """
+    from smartcs.services.common.mcp_client import MCPToolClient
+
+    settings = get_settings()
+    client = MCPToolClient(settings=settings.mcp)
+    await client.connect()
+    app.state.mcp_client = client
+    _logger.info("MCP 工具客户端初始化完成 (enabled=%s, connected=%s)", settings.mcp.enabled, client.connected)
+
+
+async def close_mcp_client(app: FastAPI) -> None:
+    """关闭 MCP 工具客户端"""
+    client = getattr(app.state, "mcp_client", None)
+    if client is not None:
+        await client.close()
+    app.state.mcp_client = None
+
+
+def get_mcp_client(request: Request) -> Any:
+    """获取 MCP 工具客户端（FastAPI 依赖注入）"""
+    return getattr(request.app.state, "mcp_client", None)
+
+
 async def init_agent(app: FastAPI) -> None:
     """初始化对话 Agent，存储到 app.state"""
     from smartcs.services.bot.bot_agent import SmartCSAgent
@@ -451,6 +479,24 @@ async def init_agent(app: FastAPI) -> None:
     milvus_collection = getattr(app.state, "milvus_collection", None)
     embedding_breaker = getattr(app.state, "embedding_breaker", None)
 
+    # 工具执行器：仅在 MCP 启用且连接成功时装配，否则为 None（零回归）
+    tool_executor = None
+    settings = get_settings()
+    mcp_client = getattr(app.state, "mcp_client", None)
+    if settings.mcp.enabled and mcp_client is not None and mcp_client.connected:
+        from smartcs.services.bot.tool_executor import ToolCallingExecutor
+        from smartcs.services.bot.tool_guard import ToolGuard
+
+        guard = ToolGuard(settings.mcp)
+        tool_executor = ToolCallingExecutor(
+            mcp_client=mcp_client,
+            llm_client=app.state.llm_client,
+            audit_session_factory=getattr(app.state, "db_session_factory", None),
+            settings=settings.mcp,
+            guard=guard,
+        )
+        _logger.info("工具执行器已装配（护栏 active=%s）", guard.active)
+
     agent = SmartCSAgent(
         classifier=classifier,
         degradation_mgr=degradation_mgr,
@@ -459,6 +505,7 @@ async def init_agent(app: FastAPI) -> None:
         es_client=es_client,
         milvus_collection=milvus_collection,
         embedding_breaker=embedding_breaker,
+        tool_executor=tool_executor,
     )
     app.state.agent = agent
     _logger.info("对话 Agent 初始化完成")
@@ -474,12 +521,16 @@ def get_agent(request: Request) -> Any:
     return request.app.state.agent
 
 
-# ── 坐席辅助编排器 ──
+# ── 坐席辅助引擎依赖 ──
 
 
 async def init_assist_orchestrator(app: FastAPI) -> None:
-    """初始化坐席辅助编排器"""
-    from smartcs.services.assist.agent import AssistOrchestrator
+    """初始化坐席辅助引擎所需的依赖组件
+
+    历史遗留：函数名保留 init_assist_orchestrator 以避免改动 lifespan 调用链，
+    但已不再实例化旧 AssistOrchestrator。坐席辅助引擎（run_assist_engine）
+    为唯一编排路径，依赖 script_service / alert_engine / ai_executor。
+    """
     from smartcs.services.assist.alert_engine import AlertEngine
     from smartcs.services.assist.product_catalog import ProductCatalog
     from smartcs.services.assist.script_service import ScriptService
@@ -516,21 +567,10 @@ async def init_assist_orchestrator(app: FastAPI) -> None:
 
     llm_client = getattr(app.state, "llm_client", None)
 
-    orchestrator = AssistOrchestrator(
-        script_service=script_service,
-        alert_engine=alert_engine,
-        product_catalog=product_catalog,
-        llm_client=llm_client,
-        es_client=es_client,
-        milvus_collection=milvus_col,
-        embedding_provider=embedding_provider,
-        embedding_breaker=embedding_breaker,
-        reranker=reranker,
-    )
-    app.state.assist_orchestrator = orchestrator
     app.state.script_service = script_service
     app.state.alert_engine = alert_engine
-    _logger.info("坐席辅助编排器初始化完成")
+    app.state.product_catalog = product_catalog
+    _logger.info("坐席辅助引擎依赖初始化完成（script/alert/product）")
 
     # 初始化 AI 执行器 (PydanticAI)
     from smartcs.services.assist.ai_executor import AIExecutor
@@ -550,8 +590,11 @@ async def init_assist_orchestrator(app: FastAPI) -> None:
 
 
 async def close_assist_orchestrator(app: FastAPI) -> None:
-    """关闭坐席辅助编排器"""
-    app.state.assist_orchestrator = None
+    """关闭坐席辅助引擎依赖"""
+    app.state.ai_executor = None
+    app.state.script_service = None
+    app.state.alert_engine = None
+    app.state.product_catalog = None
 
 
 # ── star-connection 客户端 ──
@@ -590,9 +633,7 @@ HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
 DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
 
 
-def get_assist_orchestrator_dep(request: Request) -> Any:
-    """获取坐席辅助编排器（FastAPI 依赖注入）"""
-    return request.app.state.assist_orchestrator
+StarClientDep = Annotated[StarConnectionClient, Depends(get_star_client)]
 
 
 # ── 依赖组件熔断器 (ES / Milvus) ──
@@ -631,7 +672,3 @@ def get_milvus_breaker(request: Request):
 
 ESBreakerDep = Annotated[Any, Depends(get_es_breaker)]
 MilvusBreakerDep = Annotated[Any, Depends(get_milvus_breaker)]
-
-
-AssistOrchestratorDep = Annotated[Any, Depends(get_assist_orchestrator_dep)]
-StarClientDep = Annotated[StarConnectionClient, Depends(get_star_client)]

@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Literal
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -173,76 +173,57 @@ async def _process_notify_message(app, session_id: str, websocket: WebSocket, it
 
 
 async def _run_assist_engine(app, session_id: str, message: str, intent, confidence, sentiment=None) -> dict | None:
-    """执行 坐席辅助引擎, 返回 assist_push payload 或 None
+    """执行坐席辅助引擎，返回 assist_push payload 或 None
 
-    优先级: PydanticAI OE Pipeline > 同步编排器
+    单一编排路径：run_assist_engine。
+    - ai_executor 可用时 E1 正常执行
+    - ai_executor 为 None 时 E1 自动降级，但 E3 风控照常运行（合规底线不可绕过）
     """
     try:
+        from smartcs.services.common.assist_engine import load_push_tracker, run_assist_engine
+
         t0 = time.monotonic()
-        push_data = None
-
-        # 优先: PydanticAI OE Pipeline
+        redis_client = getattr(app.state, "redis_client", None)
         ai_executor = getattr(app.state, "ai_executor", None)
-        if ai_executor is not None:
-            try:
-                from smartcs.services.common.assist_engine import load_push_tracker, run_assist_engine
+        alert_engine = getattr(app.state, "alert_engine", None)
+        degrader = getattr(app.state, "degradation_mgr", None)
+        breakers = getattr(app.state, "oe_breakers", None)
+        session_manager = getattr(app.state, "session_manager", None)
 
-                redis_client = getattr(app.state, "redis_client", None)
-                alert_engine = getattr(app.state, "alert_engine", None)
-                degrader = getattr(app.state, "degradation_mgr", None)
-                breakers = getattr(app.state, "oe_breakers", None)
-                session_manager = getattr(app.state, "session_manager", None)
+        state_snapshot: dict = {}
+        if session_manager:
+            snapshot = await session_manager.read_state(session_id)
+            state_snapshot = snapshot or {"last_confidence": confidence}
 
-                state_snapshot: dict = {}
-                if session_manager:
-                    snapshot = await session_manager.read_state(session_id)
-                    state_snapshot = snapshot or {"last_confidence": confidence}
+        push_tracker = await load_push_tracker(session_id, redis_client)
+        trace_id = f"{session_id}-{int(t0 * 1000)}"
 
-                push_tracker = await load_push_tracker(session_id, redis_client)
-                trace_id = f"{session_id}-{int(t0 * 1000)}"
-
-                intent_str = intent.value if hasattr(intent, "value") else str(intent)
-                push_data = await asyncio.wait_for(
-                    run_assist_engine(
-                        session_id=session_id,
-                        message=message,
-                        intent=intent_str,
-                        confidence=confidence,
-                        trace_id=trace_id,
-                        state_snapshot=state_snapshot,
-                        ai_executor=ai_executor,
-                        alert_engine=alert_engine,
-                        degrader=degrader,
-                        breakers=breakers,
-                        push_tracker=push_tracker,
-                        redis_client=redis_client,
-                        session_manager=session_manager,
-                        sentiment=sentiment.value if sentiment and hasattr(sentiment, "value") else "neutral",
-                    ),
-                    timeout=5.0,
-                )
-                logger.debug("坐席辅助引擎完成(PydanticAI): session=%s elapsed=%.1fs", session_id, time.monotonic() - t0)
-                return push_data
-            except (TimeoutError, Exception) as e:
-                logger.debug("PydanticAI OE Pipeline 不可用, 降级: %s", e)
-
-        # 降级: 同步编排器
-        orchestrator = getattr(app.state, "assist_orchestrator", None)
-        if orchestrator:
-            try:
-                push_msg = await asyncio.wait_for(
-                    orchestrator.process(session_id=session_id, message=message),
-                    timeout=5.0,
-                )
-                if push_msg:
-                    push_msg["session_id"] = session_id
-                    logger.debug("坐席辅助引擎完成(同步): session=%s elapsed=%.1fs", session_id, time.monotonic() - t0)
-                    return push_msg
-            except (TimeoutError, Exception) as e:
-                logger.debug("同步编排失败: %s", e)
-
-    except Exception:
-        logger.exception("坐席辅助引擎异常: session=%s", session_id)
+        intent_str = intent.value if hasattr(intent, "value") else str(intent)
+        push_data = await asyncio.wait_for(
+            run_assist_engine(
+                session_id=session_id,
+                message=message,
+                intent=intent_str,
+                confidence=confidence,
+                trace_id=trace_id,
+                state_snapshot=state_snapshot,
+                ai_executor=ai_executor,  # 可为 None，引擎内部 E1 自动降级
+                alert_engine=alert_engine,
+                degrader=degrader,
+                breakers=breakers,
+                push_tracker=push_tracker,
+                redis_client=redis_client,
+                session_manager=session_manager,
+                sentiment=sentiment.value if sentiment and hasattr(sentiment, "value") else "neutral",
+            ),
+            timeout=5.0,
+        )
+        logger.debug("坐席辅助引擎完成: session=%s elapsed=%.1fs ai_executor=%s", session_id, time.monotonic() - t0, "on" if ai_executor else "off(degraded)")
+        return push_data
+    except TimeoutError:
+        logger.warning("坐席辅助引擎超时: session=%s", session_id)
+    except Exception as e:
+        logger.warning("坐席辅助引擎异常: session=%s error=%s", session_id, e)
 
     return None
 
@@ -319,7 +300,8 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
 
     由 star-connection 在收到客户消息时调用。
     SmartCS 执行完整分析链路后将结果推送到对应 WebSocket。
-    优先通过 OE Pipeline 编排，不可用时降级到旧 AssistOrchestrator。
+    走坐席辅助引擎（run_assist_engine）单一编排路径；
+    ai_executor 缺失时 E1 自动降级，E3 风控独立运行。
     """
     app = request.app
     classifier = getattr(app.state, "classifier", None)
@@ -329,6 +311,7 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
     # classify() 返回 (IntentResult, entities, sentiment, source)
     intent = IntentLabel.FAQ
     confidence = 0.0
+    sentiment_val = None  # 分类器不可用时为 None，_run_assist_engine 内部兜底为 neutral
     if classifier:
         try:
             intent_result, _entities, sentiment_val, source = await asyncio.wait_for(
@@ -343,91 +326,25 @@ async def analyze_message(body: AnalyzeRequest, request: Request):
         except Exception as e:
             logger.warning("意图分类失败: %s，使用默认 FAQ", e)
 
-    # 2. 执行编排（优先 PydanticAI OE Pipeline > 同步编排器）
+    # 2. 执行坐席辅助引擎（单一编排路径，ai_executor 为 None 时 E3 风控仍独立运行）
     t0 = time.monotonic()
-    push_data = None
+    push_data = await _run_assist_engine(
+        app,
+        session_id=body.session_id,
+        message=body.message,
+        intent=intent,
+        confidence=confidence,
+        sentiment=sentiment_val,
+    )
 
-    state_snapshot: dict = {}
-    session_manager = getattr(app.state, "session_manager", None)
-    if session_manager:
-        snapshot = await session_manager.read_state(body.session_id)
-        state_snapshot = snapshot or {"last_confidence": confidence}
-
-    # 优先: PydanticAI OE Pipeline
-    ai_executor = getattr(app.state, "ai_executor", None)
-    if ai_executor is not None:
-        try:
-            from smartcs.services.common.assist_engine import load_push_tracker, run_assist_engine
-
-            redis_client = getattr(app.state, "redis_client", None)
-            alert_engine = getattr(app.state, "alert_engine", None)
-            degrader = getattr(app.state, "degradation_mgr", None)
-            breakers = getattr(app.state, "oe_breakers", None)
-            push_tracker = await load_push_tracker(body.session_id, redis_client)
-            trace_id = f"{body.session_id}-{int(t0 * 1000)}"
-
-            push_data = await asyncio.wait_for(
-                run_assist_engine(
-                    session_id=body.session_id,
-                    message=body.message,
-                    intent=intent.value,
-                    confidence=confidence,
-                    trace_id=trace_id,
-                    state_snapshot=state_snapshot,
-                    ai_executor=ai_executor,
-                    alert_engine=alert_engine,
-                    degrader=degrader,
-                    breakers=breakers,
-                    push_tracker=push_tracker,
-                    redis_client=redis_client,
-                    session_manager=session_manager,
-                    sentiment=sentiment_val.value if sentiment_val and hasattr(sentiment_val, "value") else "neutral",
-                ),
-                timeout=5.0,
-            )
-        except TimeoutError:
-            logger.warning("OE Pipeline 超时 session=%s", body.session_id)
-        except Exception as e:
-            logger.warning("OE Pipeline 异常: %s，降级到同步编排器", e)
-
-    # 降级: 使用旧编排器
+    # 引擎返回 None（超时/异常）时给空 payload 占位，保证 WS 推送链路不中断
     if push_data is None:
-        orchestrator = getattr(app.state, "assist_orchestrator", None)
-        if orchestrator:
-            try:
-                push_msg = await asyncio.wait_for(
-                    orchestrator.process(
-                        session_id=body.session_id,
-                        message=body.message,
-                        intent=intent,
-                        sentiment=SentimentLabel.NEUTRAL,
-                        sentiment_history=[],
-                        context=body.message,
-                    ),
-                    timeout=5.0,
-                )
-                push_data = push_msg.model_dump(mode="json")
-            except TimeoutError:
-                push_data = {
-                    "type": "assist_push",
-                    "session_id": body.session_id,
-                    "trigger": "customer_message",
-                    "payload": {},
-                }
-            except Exception:
-                push_data = {
-                    "type": "assist_push",
-                    "session_id": body.session_id,
-                    "trigger": "customer_message",
-                    "payload": {},
-                }
-        else:
-            push_data = {
-                "type": "assist_push",
-                "session_id": body.session_id,
-                "trigger": "customer_message",
-                "payload": {},
-            }
+        push_data = {
+            "type": "assist_push",
+            "session_id": body.session_id,
+            "trigger": "customer_message",
+            "payload": {},
+        }
 
     elapsed = (time.monotonic() - t0) * 1000
     logger.info(
@@ -888,37 +805,6 @@ async def _handle_ws_notify(websocket: WebSocket, app, session_id: str) -> None:
             await pubsub.aclose()
 
 
-async def _handle_ws_client_simple(websocket: WebSocket, session_id: str) -> None:
-    """无编排器时的简化客户端消息处理"""
-    while True:
-        raw = await websocket.receive_text()
-        if raw == "ping":
-            await websocket.send_text("pong")
-            continue
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            await websocket.send_json({"type": "error", "message": "无效的 JSON"})
-            continue
-        msg_type = data.get("type", "")
-        if msg_type == "ping":
-            await websocket.send_json({"type": "pong"})
-        elif msg_type == "customer_message":
-            await websocket.send_json(
-                {
-                    "type": "assist_push",
-                    "session_id": session_id,
-                    "trigger": "customer_message",
-                    "payload": {
-                        "scripts": [],
-                        "knowledge": [],
-                        "alerts": [],
-                        "recommendations": [],
-                    },
-                }
-            )
-
-
 @router.websocket("/ws/{session_id}")
 async def session_websocket(websocket: WebSocket, session_id: str):
     """按会话建连的 WebSocket（测试 / 开发用）
@@ -946,7 +832,6 @@ async def session_websocket(websocket: WebSocket, session_id: str):
         }
     )
 
-    orchestrator = getattr(app.state, "assist_orchestrator", None)
     session_manager = getattr(app.state, "session_manager", None)
 
     # 从 SessionState 加载情绪历史（多实例一致，断线重连不丢）
@@ -954,11 +839,8 @@ async def session_websocket(websocket: WebSocket, session_id: str):
     if session_manager:
         sentiment_history = await _load_sentiment_history(session_manager, session_id)
 
-    # Task 1: 客户端消息处理
-    if orchestrator is not None:
-        client_task = asyncio.create_task(_handle_messages(websocket, orchestrator, session_id, sentiment_history))
-    else:
-        client_task = asyncio.create_task(_handle_ws_client_simple(websocket, session_id))
+    # Task 1: 客户端消息处理（统一走坐席辅助引擎）
+    client_task = asyncio.create_task(_handle_messages(websocket, app, session_id, sentiment_history))
 
     # Task 2: notify 消息处理 (Redis Pub/Sub)
     notify_task = asyncio.create_task(_handle_ws_notify(websocket, app, session_id))
@@ -1124,7 +1006,7 @@ async def _load_sentiment_history(session_manager: object, session_id: str) -> l
 
 async def _handle_messages(
     websocket: WebSocket,
-    orchestrator: object,
+    app: FastAPI,
     session_id: str,
     sentiment_history: list[SentimentLabel],
 ) -> None:
@@ -1148,40 +1030,38 @@ async def _handle_messages(
             continue
 
         if msg_type == "customer_message":
-            await _process_customer_message(websocket, orchestrator, session_id, data, sentiment_history)
+            await _process_customer_message(websocket, app, session_id, data, sentiment_history)
 
 
 async def _process_customer_message(
     websocket: WebSocket,
-    orchestrator: object,
+    app: FastAPI,
     session_id: str,
     data: dict,
     sentiment_history: list[SentimentLabel],
 ) -> None:
-    """处理客户消息并推送结果"""
+    """处理客户消息并推送结果（走坐席辅助引擎单一编排路径）"""
     message = data.get("message", "")
     intent_str = data.get("intent", "faq")
     sentiment_str = data.get("sentiment", "neutral")
-    context = data.get("context", message)
 
     try:
         intent = IntentLabel(intent_str)
-        sentiment = SentimentLabel(sentiment_str)
     except ValueError:
         intent = IntentLabel.FAQ
+    try:
+        sentiment = SentimentLabel(sentiment_str)
+    except ValueError:
         sentiment = SentimentLabel.NEUTRAL
 
-    variables = data.get("variables", {})
-
     t0 = time.monotonic()
-    push_msg = await orchestrator.process(  # type: ignore[attr-defined]
+    push_data = await _run_assist_engine(
+        app,
         session_id=session_id,
         message=message,
         intent=intent,
+        confidence=0.8,
         sentiment=sentiment,
-        sentiment_history=sentiment_history,
-        context=context,
-        variables=variables,
     )
     elapsed_ms = (time.monotonic() - t0) * 1000
 
@@ -1189,12 +1069,12 @@ async def _process_customer_message(
     if len(sentiment_history) > 20:
         del sentiment_history[:-20]
 
-    has_critical = any(a.level == "critical" for a in push_msg.payload.alerts)
-    if has_critical or not orchestrator.should_throttle(session_id):  # type: ignore[attr-defined]
-        await websocket.send_json(push_msg.model_dump(mode="json"))
+    if push_data:
+        # 风控 critical 告警强制推送；其余由引擎内 PushTracker 决定是否返回 payload
+        await websocket.send_json(push_data)
         logger.debug("推送至 session=%s, elapsed=%.1fms", session_id, elapsed_ms)
     else:
-        logger.debug("节流跳过 session=%s", session_id)
+        logger.debug("节流跳过或引擎无输出: session=%s", session_id)
 
 
 def _infer_feedback(app, session_id: str, agent_content: str) -> None:
