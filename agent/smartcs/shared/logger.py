@@ -31,6 +31,22 @@ class PIIMaskFilter(logging.Filter):
         return True
 
 
+class TraceContextFilter(logging.Filter):
+    """将当前活跃 span 的 trace_id/span_id 注入日志记录
+
+    有活跃 span 时在 record 上设置 ``trace_id``/``span_id``，供 JSONFormatter 输出，
+    实现「日志 ↔ 链路」关联；无 span 或 tracing 关闭时不设置任何字段（零噪声）。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from smartcs.shared.tracing import get_trace_context
+
+        ctx = get_trace_context()
+        if ctx is not None:
+            record.trace_id, record.span_id = ctx
+        return True
+
+
 class JSONFormatter(logging.Formatter):
     """JSON 结构化日志格式器"""
 
@@ -44,6 +60,11 @@ class JSONFormatter(logging.Formatter):
             "function": record.funcName,
             "line": record.lineno,
         }
+        # 链路关联字段（仅在有活跃 span 时出现）
+        trace_id = getattr(record, "trace_id", None)
+        if trace_id:
+            log_entry["trace_id"] = trace_id
+            log_entry["span_id"] = getattr(record, "span_id", "")
         if record.exc_info and record.exc_info[0] is not None:
             log_entry["exception"] = self.formatException(record.exc_info)
         # 合并 extra 字段（如 logger.info("msg", extra={"request_id": "..."})）
@@ -74,6 +95,7 @@ def setup_logger(name: str, level: str = "INFO", *, json_format: bool = False) -
 
     handler = logging.StreamHandler(sys.stdout)
     handler.addFilter(PIIMaskFilter())
+    handler.addFilter(TraceContextFilter())
     if json_format:
         handler.setFormatter(JSONFormatter())
     else:

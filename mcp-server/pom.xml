@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.smartcs</groupId>
+    <artifactId>smartcs-mcp-server</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    <name>smartcs-mcp-server</name>
+    <description>SmartCS 银行信用卡智能客服 MCP 工具服务（Spring AI MCP Server，streamable/SSE，22 个常用信用卡工具）</description>
+
+    <!-- 独立顶层工程：不挂到 star-connection 聚合 pom 下，直接继承 Spring Boot 父 pom -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.5</version>
+        <relativePath/>
+    </parent>
+
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Spring AI 1.0.x GA 与 Spring Boot 3.4.x 兼容；MCP Server 通过官方 starter 暴露 @Tool -->
+        <spring-ai.version>1.0.9</spring-ai.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Spring AI MCP Server（WebMVC 传输）：自动装配 MCP 服务端 + 暴露 ToolCallbackProvider 中的工具 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+
+        <!-- 入参校验：@NotBlank / @Positive 等 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- AOP：工具调用可观测切面（计数/计时 + MDC） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
+        <!-- 健康检查 + Prometheus 指标，对齐平台可观测规范 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- 全链路追踪：micrometer-tracing 桥接 OTel + OTLP 导出。
+             Spring Boot Observation 自动抽取入站 traceparent 建 server span，
+             与上游 Python 客户端 span 串成同一条链路（导出到 Jaeger OTLP :4318）。 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+
+        <!-- Nacos 客户端：仅 profile=nacos 时用于将本 MCP Server 注册到 Nacos（供 Higress 发现）。
+             使用原生 SDK 而非 Spring Cloud，避免引入 Spring Cloud 版本兼容校验，保证默认构建零影响。 -->
+        <dependency>
+            <groupId>com.alibaba.nacos</groupId>
+            <artifactId>nacos-client</artifactId>
+            <version>2.4.3</version>
+        </dependency>
+
+        <!-- 测试 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>smartcs-mcp-server</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- 覆盖率：mvn verify 阶段生成报告并校验行覆盖率阈值 -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <configuration>
+                    <!-- 排除引导类、纯数据 DTO、Nacos 注册与演示数据常量等无业务分支的样板代码 -->
+                    <excludes>
+                        <exclude>com/smartcs/mcp/McpServerApplication.class</exclude>
+                        <exclude>com/smartcs/mcp/model/**</exclude>
+                        <exclude>com/smartcs/mcp/nacos/**</exclude>
+                        <exclude>com/smartcs/mcp/adapter/mock/DemoCards.class</exclude>
+                        <exclude>com/smartcs/mcp/adapter/mock/MockDataSeeder.class</exclude>
+                        <exclude>com/smartcs/mcp/config/CreditCardProperties.class</exclude>
+                        <exclude>com/smartcs/mcp/config/SecurityProperties.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

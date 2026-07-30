@@ -1,0 +1,77 @@
+# SmartCS 告警规则
+# 覆盖：服务下线、工具错误率、LLM 延迟、会话超时激增、LLM 降级（熔断）。
+# 加载方式：prometheus.yml 的 rule_files 引用本文件。默认无 Alertmanager 也可在
+# Prometheus UI 的 Alerts 页查看触发状态；如需通知可 opt-in 启动 Alertmanager。
+groups:
+  - name: smartcs-availability
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"bot-service|assist-service|mcp-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "服务 {{ $labels.job }} 不可达"
+          description: "{{ $labels.job }}（{{ $labels.instance }}）已下线超过 1 分钟。"
+
+  - name: smartcs-tools
+    rules:
+      # Java MCP 工具错误率 > 10%（5 分钟窗口）
+      - alert: MCPToolErrorRateHigh
+        expr: >-
+          sum(rate(mcp_tool_calls_total{outcome="error"}[5m]))
+          /
+          clamp_min(sum(rate(mcp_tool_calls_total[5m])), 1e-9) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MCP 工具错误率偏高"
+          description: "近 5 分钟 MCP 工具错误率超过 10%。"
+
+      # Python 侧工具调用错误率 > 10%
+      - alert: PyToolErrorRateHigh
+        expr: >-
+          sum(rate(tool_calls_total{status="error"}[5m]))
+          /
+          clamp_min(sum(rate(tool_calls_total[5m])), 1e-9) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "编排层工具调用错误率偏高"
+          description: "近 5 分钟编排层 MCP 工具调用错误率超过 10%。"
+
+  - name: smartcs-latency
+    rules:
+      # LLM 调用 p99 > 15s
+      - alert: LLMLatencyP99High
+        expr: histogram_quantile(0.99, sum(rate(llm_call_duration_seconds_bucket[5m])) by (le)) > 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM 调用延迟 p99 偏高"
+          description: "近 5 分钟 LLM 调用 p99 延迟超过 15 秒。"
+
+      # HTTP 请求 p99 > 5s
+      - alert: HTTPLatencyP99High
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 请求延迟 p99 偏高"
+          description: "近 5 分钟 HTTP 请求 p99 延迟超过 5 秒。"
+
+  - name: smartcs-sessions
+    rules:
+      # 会话超时激增：每秒超时事件 > 1
+      - alert: SessionTimeoutSpike
+        expr: sum(rate(session_timeouts_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "会话超时事件激增"
+          description: "近 5 分钟会话超时速率超过 1 次/秒，可能存在坐席/处理瓶颈。"

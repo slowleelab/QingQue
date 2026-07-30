@@ -63,6 +63,9 @@ services:
       SERVICE: bot
       SMARTCS_ENVIRONMENT: ${SMARTCS_ENVIRONMENT:-development}
       SMARTCS_LOG_LEVEL: ${SMARTCS_LOG_LEVEL:-INFO}
+      # 全链路追踪：向主 compose 的 Jaeger 导出 span（SMARTCS_TRACING_ENABLED=false 可关）
+      SMARTCS_TRACING_ENABLED: ${SMARTCS_TRACING_ENABLED:-true}
+      JAEGER_HOST: jaeger
       POSTGRES_HOST: smartcs-postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: smartcs
@@ -111,6 +114,9 @@ services:
       SERVICE: assist
       SMARTCS_ENVIRONMENT: ${SMARTCS_ENVIRONMENT:-development}
       SMARTCS_LOG_LEVEL: ${SMARTCS_LOG_LEVEL:-INFO}
+      # 全链路追踪：向主 compose 的 Jaeger 导出 span（SMARTCS_TRACING_ENABLED=false 可关）
+      SMARTCS_TRACING_ENABLED: ${SMARTCS_TRACING_ENABLED:-true}
+      JAEGER_HOST: jaeger
       POSTGRES_HOST: smartcs-postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: smartcs

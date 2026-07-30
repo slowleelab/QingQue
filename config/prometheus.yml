@@ -3,6 +3,10 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# 告警规则（容器内路径，由 compose 挂载 config/prometheus/rules）
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
 scrape_configs:
   # ── 应用服务 ──
   - job_name: "bot-service"
@@ -16,6 +20,14 @@ scrape_configs:
     static_configs:
       - targets: ["host.docker.internal:8001"]
     scrape_interval: 10s
+
+  # Java MCP Server（Spring Boot Actuator / Micrometer）
+  # 仅 gateway profile 拉起；未启动时该 target 显示 down，不影响其余采集。
+  - job_name: "mcp-server"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8090"]
+    scrape_interval: 15s
 
   # ── 中间件 Exporter ──
   - job_name: "redis"

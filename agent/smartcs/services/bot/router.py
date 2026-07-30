@@ -36,8 +36,17 @@ from smartcs.services.common.deps import (
 )
 from smartcs.services.common.retrieval import retrieve
 from smartcs.services.common.rule_loader import RuleLoader
+from smartcs.shared.auth import CurrentUser
 from smartcs.shared.config import get_settings
 from smartcs.shared.exceptions import DocumentFormatError
+from smartcs.shared.metrics import (
+    BOT_ACTIVE_WORKERS,
+    BOT_AGENT_RESPONSES,
+    BOT_FAST_REPLY,
+    BOT_SEMAPHORE_UTILIZATION,
+    BOT_STREAM_LENGTH,
+    BOT_STREAM_PENDING,
+)
 from smartcs.shared.models import (
     ChatSendRequest,
     ChatSendResponse,
@@ -47,7 +56,6 @@ from smartcs.shared.models import (
     SessionSubPhase,
 )
 from smartcs.shared.orm_models import ChatMessageStatus, KbDocStatus, KbDocument, KbSourceType
-from smartcs.shared.auth import CurrentUser
 
 if TYPE_CHECKING:
     pass
@@ -382,6 +390,7 @@ async def _session_worker(
                     await _finish_message(redis_client, session_id, reply, intent=intent_hint, source="fast_reply")
                     await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
                     _metrics["fr"] += 1
+                    BOT_FAST_REPLY.inc()
                     if _db_session_factory and client_message_id:
                         duration = int((asyncio.get_event_loop().time() - processing_start) * 1000)
                         await update_chat_message(
@@ -554,6 +563,7 @@ async def _run_agent(
     reply = result.get("response", "抱歉，我暂时无法处理您的请求。")
     source = result.get("response_source", "fallback")
     entities = result.get("entities", [])
+    BOT_AGENT_RESPONSES.labels(source=source).inc()
 
     # ── 保存对话历史（客户消息 + Bot 回复）──
     from uuid import uuid4 as _uuid4
@@ -796,6 +806,12 @@ async def _monitoring_loop(redis_client) -> None:
                 _metrics["su"] = round(1.0 - (_agent_semaphore._value / max_slots), 2)
             else:
                 _metrics["su"] = 0.0
+
+            # 同步至 Prometheus 运行时 Gauge（与 /health 快照同源）
+            BOT_STREAM_PENDING.set(_metrics["p"])
+            BOT_STREAM_LENGTH.set(_metrics["sl"])
+            BOT_ACTIVE_WORKERS.set(_metrics["as"])
+            BOT_SEMAPHORE_UTILIZATION.set(_metrics["su"])
 
             logger.debug(
                 "Bot 指标: pel=%d stream_len=%d active_workers=%d sem_util=%.2f fast_reply=%d timeout=%d",

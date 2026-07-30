@@ -240,6 +240,7 @@ services:
       - "9090:9090"
     volumes:
       - ../config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../config/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     depends_on:
       - postgres
@@ -267,6 +268,19 @@ services:
       - ../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+    networks:
+      - smartcs-net
+
+  # ── Jaeger（全链路追踪后端：OTLP 采集 + UI） ──────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: smartcs-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP over HTTP（Python/Java 导出入口）
     networks:
       - smartcs-net
 
@@ -332,6 +346,100 @@ services:
     networks:
       - smartcs-net
 
+  # ── Nacos：服务注册 + MCP Registry（仅 gateway profile 启用）─────
+  # 启动：make gateway-up（= docker compose --profile gateway up -d）
+  # 默认 make up 不会拉起本服务，开发主流程零影响。
+  nacos:
+    image: nacos/nacos-server:v2.4.3
+    container_name: smartcs-nacos
+    profiles: ["gateway"]
+    restart: unless-stopped
+    environment:
+      - MODE=standalone
+      - NACOS_AUTH_ENABLE=${NACOS_AUTH_ENABLE:-false}
+      - JVM_XMS=512m
+      - JVM_XMX=512m
+      - JVM_XMN=256m
+    ports:
+      - "8848:8848"   # 控制台 / OpenAPI
+      - "9848:9848"   # gRPC（客户端长连接）
+    volumes:
+      - nacos_data:/home/nacos/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8848/nacos/v1/console/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - smartcs-net
+
+  # ── Higress AI 网关：单工具平面 + 统一治理（仅 gateway profile 启用）──
+  # 以外部 Nacos 作为服务发现与配置存储；对上游 Python 大脑暴露统一 MCP 入口（streamable-http）。
+  # 数据面路由与 MCP Server 通过控制台/OpenAPI 或 deploy/higress/ 参考配置下发。
+  higress:
+    image: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/all-in-one:2.1.5
+    container_name: smartcs-higress
+    profiles: ["gateway"]
+    restart: unless-stopped
+    environment:
+      - MODE=standalone
+      # 复用上面的 Nacos 作为配置与注册中心
+      - NACOS_SERVER_URL=http://nacos:8848
+      - CONFIG_STORAGE=nacos
+      # 允许网关通过宿主机访问以 make mcp-server-run 方式运行的 Java MCP Server(:8090)
+      - HIGRESS_CONSOLE_PORT=8080
+    ports:
+      - "10000:80"     # 网关数据面：Python 大脑经此调用 MCP（/mcp/...）
+      - "8443:443"     # 网关数据面（HTTPS）
+      - "18080:8080"   # Higress 控制台
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      nacos:
+        condition: service_healthy
+    volumes:
+      - higress_data:/data
+    networks:
+      - smartcs-net
+
+  # ── Java MCP Server：信用卡工具平面（仅 gateway profile 启用）──────
+  # 红线：仅 mock 构造数据，绝不连接真实银行核心系统。
+  # 以 prod,nacos profile 启动：优雅停机 + 暴露面收敛 + 注册到 Nacos，
+  # 由 Higress 经服务发现路由（SSE↔streamable-http 桥接）。
+  # 默认 make up 不会拉起本服务；make gateway-up 时随网关一并启动。
+  mcp-server:
+    build:
+      context: ../mcp-server
+      dockerfile: Dockerfile
+    image: smartcs-mcp-server:1.0.0
+    container_name: smartcs-mcp-server
+    profiles: ["gateway"]
+    restart: unless-stopped
+    environment:
+      # prod：优雅停机 + 暴露面收敛；nacos：向 Nacos 注册实例
+      - SPRING_PROFILES_ACTIVE=prod,nacos
+      - SMARTCS_NACOS_SERVER_ADDR=nacos:8848
+      - SMARTCS_NACOS_SERVICE_NAME=smartcs-mcp-server
+      # 注册到 Nacos 的实例 IP 用容器服务名，便于 Higress 经网络路由
+      - SMARTCS_NACOS_INSTANCE_IP=mcp-server
+      # 全链路追踪：向 Jaeger 导出 span（缺省关，设端点即启用）
+      - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=${MCP_TRACING_SAMPLE:-0.1}
+      - MANAGEMENT_OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
+    ports:
+      - "8090:8090"   # MCP SSE 端点（/sse、/mcp/message）
+    depends_on:
+      nacos:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8090/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - smartcs-net
+
 # ── 数据卷 ──────────────────────────────────────────
 volumes:
   postgres_data:
@@ -343,6 +451,8 @@ volumes:
   kafka_data:
   prometheus_data:
   grafana_data:
+  nacos_data:
+  higress_data:
 
 # ── 网络 ────────────────────────────────────────────
 networks:

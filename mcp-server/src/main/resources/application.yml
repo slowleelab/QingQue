@@ -1,0 +1,46 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: smartcs-mcp-server
+  ai:
+    mcp:
+      server:
+        # MCP 服务端标识（暴露给客户端的 serverInfo）
+        name: smartcs-credit-card-mcp
+        version: 1.0.0
+        # 同步服务端：与 ToolCallbackProvider 中的同步 @Tool 方法配套
+        type: SYNC
+        instructions: >-
+          SmartCS 信用卡智能客服工具集。提供账单、额度、积分、交易、分期等查询能力，
+          以及账单分期、还款、临时提额、卡片挂失等办理能力。查询类工具可直接调用；
+          办理类（写）工具为敏感操作，须由编排层完成用户显式确认与授权后方可执行。
+        # WebMVC 传输默认 SSE 端点：/sse（建立连接）、/mcp/message（消息通道）
+        # 生产环境由 Higress AI 网关在前置层完成鉴权、限流与传输桥接
+
+# 健康检查与 Prometheus 指标
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  # 全链路追踪：默认低采样（prod 建议 0.1），入站 traceparent 由 Observation 自动抽取。
+  # 未部署 Jaeger 时导出静默失败，不影响工具主链路。
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:0.1}
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  level:
+    root: INFO
+    com.smartcs.mcp: INFO
+    # MCP 服务端建连日志（排障时可调 DEBUG）
+    io.modelcontextprotocol: INFO
+    org.springframework.ai.mcp: INFO

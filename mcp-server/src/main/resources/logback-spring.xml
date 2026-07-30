@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  日志 ↔ 链路关联配置。
+  micrometer-tracing 会自动把 traceId/spanId 写入 MDC；ToolCallAspect 另写入 mcpTool/mcpCallId。
+  这里在控制台 pattern 中输出 [traceId,spanId] 与工具上下文，便于按链路排障。
+  未接入 tracing（无 span）时占位符回落为空，不影响日志输出。
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-},%X{spanId:-}] [%X{mcpTool:-},%X{mcpCallId:-}] %logger{36} - %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

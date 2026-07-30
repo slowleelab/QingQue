@@ -13,15 +13,45 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from openai import AsyncOpenAI
 
 from smartcs.shared.config import LLMSettings, get_settings
 from smartcs.shared.exceptions import LLMInferenceError, LLMTimeoutError
+from smartcs.shared.metrics import LLM_CALL_DURATION
 from smartcs.shared.tracing import traced
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ToolCall:
+    """LLM 请求的单次工具调用"""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass
+class ToolCallResult:
+    """``chat_with_tools`` 返回结构
+
+    区分两种终态：
+    - ``tool_calls`` 非空 → 模型请求调用工具（需执行后回喂）
+    - ``tool_calls`` 为空 → 模型给出最终文本答复（``content``）
+    """
+
+    content: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    # 原始 assistant message（含 tool_calls），回喂 LLM 时需原样带上
+    raw_message: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def has_tool_calls(self) -> bool:
+        return bool(self.tool_calls)
 
 
 class LLMCircuitBreaker:
@@ -141,6 +171,7 @@ class LLMClient:
                 content = response.choices[0].message.content or ""
                 self._breaker.record_success()
                 elapsed = time.monotonic() - _start
+                LLM_CALL_DURATION.labels(model=kwargs["model"], method="chat").observe(elapsed)
                 logger.debug(
                     "LLM call succeeded: model=%s, latency_ms=%d, tokens=%d",
                     kwargs["model"],
@@ -160,6 +191,110 @@ class LLMClient:
 
         self._breaker.record_failure()
         raise LLMTimeoutError(f"LLM 调用失败: {last_error}") from last_error
+
+    @traced("Agent: llm_tool_calling")
+    async def chat_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+    ) -> ToolCallResult:
+        """调用支持 function-calling 的 ChatCompletion 接口
+
+        与 ``chat()`` 并存、互不影响。传入 OpenAI 格式的 ``tools``，
+        由模型自主决定是否调用工具（``tool_choice="auto"``）。
+
+        Args:
+            messages: 消息列表（可含 role=tool 的工具返回消息）
+            tools: OpenAI 格式工具列表 [{"type": "function", "function": {...}}]
+            model: 模型名称，None 时使用 primary_model
+            temperature: 采样温度
+            max_tokens: 最大生成 token 数
+            timeout: 单次调用超时时间（秒）
+
+        Returns:
+            ToolCallResult：含最终文本或待执行的 tool_calls
+
+        Raises:
+            LLMTimeoutError: 调用超时或失败
+            LLMInferenceError: 熔断器打开
+        """
+        if not self._breaker.is_available:
+            raise LLMInferenceError("LLM 熔断器已打开，服务暂时不可用")
+
+        kwargs: dict[str, Any] = {
+            "model": model or self._settings.primary_model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self._settings.temperature,
+            "max_tokens": max_tokens or self._settings.max_tokens,
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+
+        _start = time.monotonic()
+        last_error: Exception | None = None
+        max_retries = 2  # 1 次初始 + 1 次重试
+
+        for attempt in range(max_retries):
+            try:
+                response = await self._client.chat.completions.create(**kwargs)
+                message = response.choices[0].message
+                self._breaker.record_success()
+                elapsed = time.monotonic() - _start
+                LLM_CALL_DURATION.labels(model=kwargs["model"], method="chat_with_tools").observe(elapsed)
+                result = self._parse_tool_message(message)
+                logger.debug(
+                    "LLM tool-calling succeeded: model=%s, latency_ms=%d, tool_calls=%d",
+                    kwargs["model"],
+                    int(elapsed * 1000),
+                    len(result.tool_calls),
+                )
+                return result
+            except TimeoutError as exc:
+                last_error = exc
+                logger.warning("LLM tool-calling 超时 (attempt %d/%d)", attempt + 1, max_retries)
+            except Exception as exc:
+                last_error = exc
+                logger.warning("LLM tool-calling 异常 (attempt %d/%d): %s", attempt + 1, max_retries, exc)
+
+            if attempt < max_retries - 1:
+                await asyncio.sleep(0.5 * (2**attempt))
+
+        self._breaker.record_failure()
+        raise LLMTimeoutError(f"LLM tool-calling 调用失败: {last_error}") from last_error
+
+    @staticmethod
+    def _parse_tool_message(message: Any) -> ToolCallResult:
+        """解析 ChatCompletion message → ToolCallResult"""
+        raw_tool_calls = getattr(message, "tool_calls", None) or []
+        tool_calls: list[ToolCall] = []
+        raw_message: dict[str, Any] = {"role": "assistant", "content": message.content or ""}
+
+        if raw_tool_calls:
+            raw_message["tool_calls"] = []
+            for tc in raw_tool_calls:
+                raw_args = tc.function.arguments or "{}"
+                try:
+                    parsed_args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                except json.JSONDecodeError:
+                    logger.warning("工具参数 JSON 解析失败，按空参数处理: %s", raw_args)
+                    parsed_args = {}
+                tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=parsed_args))
+                raw_message["tool_calls"].append(
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": raw_args},
+                    }
+                )
+
+        return ToolCallResult(content=message.content or "", tool_calls=tool_calls, raw_message=raw_message)
 
     async def chat_json(
         self,

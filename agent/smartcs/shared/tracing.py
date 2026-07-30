@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 import os
@@ -58,11 +59,15 @@ def instrument_app(app, app_name: str) -> None:
         from opentelemetry.instrumentation.redis import RedisInstrumentor
 
         FastAPIInstrumentor.instrument_app(app)
-        try:
+        with contextlib.suppress(Exception):
             RedisInstrumentor().instrument()
-        except Exception:
-            pass
-        logger.info("✅ FastAPI + Redis 探针已安装: %s", app_name)
+        # HTTPX 探针：MCP streamable-http 每次出站 POST 自动注入 W3C traceparent，
+        # 使 Python 客户端 span 与下游 Java server span 串成同一条链路。
+        with contextlib.suppress(Exception):
+            from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+            HTTPXClientInstrumentor().instrument()
+        logger.info("✅ FastAPI + Redis + HTTPX 探针已安装: %s", app_name)
     except Exception as e:
         logger.debug("探针安装跳过: %s", e)
 
@@ -128,3 +133,22 @@ def get_trace_id() -> str:
     except Exception:
         pass
     return "no-trace"
+
+
+def get_trace_context() -> tuple[str, str] | None:
+    """获取当前活跃 span 的 (trace_id, span_id)（十六进制）。
+
+    无活跃 span、tracing 未启用或依赖缺失时返回 ``None``——
+    调用方据此省略日志中的追踪字段，实现零开销/零噪声。
+    """
+    if not _TRACING_ENABLED:
+        return None
+    try:
+        from opentelemetry import trace
+
+        ctx = trace.get_current_span().get_span_context()
+        if ctx.is_valid:
+            return format(ctx.trace_id, "032x"), format(ctx.span_id, "016x")
+    except Exception:
+        pass
+    return None
