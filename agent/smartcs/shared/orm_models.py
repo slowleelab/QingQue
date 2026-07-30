@@ -126,6 +126,49 @@ def _uuid_v7() -> uuid_utils.UUID:
     return uuid_utils.uuid7()
 
 
+# ── UserAccount（多用户 RBAC）──
+
+
+class UserStatus(StrEnum):
+    """用户状态"""
+
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+
+class UserAccount(Base):
+    """用户账号表 - 多用户 RBAC 基础
+
+    替代单 admin 密码环境变量方案：
+    - 密码使用 PBKDF2-HMAC-SHA256 哈希存储（Django 兼容格式）
+    - 角色与 JWT claim 对齐：customer / agent / admin / service
+    - 首次启动时通过 SMARTCS_ADMIN_PASSWORD 初始化默认 admin
+    """
+
+    __tablename__ = "user_account"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False),
+        primary_key=True,
+        default=_uuid_v7,
+    )
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="customer")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    display_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=datetime.now,
+        server_default=text("now()"),
+        onupdate=datetime.now,
+    )
+
+
 # ── KbDocument ──
 
 

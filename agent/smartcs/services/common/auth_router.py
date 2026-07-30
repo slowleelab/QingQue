@@ -1,12 +1,16 @@
 """认证与管理 API 路由
 
 提供:
-- POST /auth/login — 登录获取 JWT token
-- GET /auth/me — 获取当前用户信息
-- POST /admin/rules/reload — 触发规则热加载
-- GET/PUT /admin/sensitive-words — 敏感词管理
-- GET /admin/stats — 业务统计
-- GET /admin/dead-letter — 死信队列查看
+- POST /auth/login - 登录获取 JWT token（多用户，查 user_account 表）
+- GET /auth/me - 获取当前用户信息
+- GET /auth/users - 用户列表（admin）
+- POST /auth/users - 创建用户（admin）
+- PUT /auth/users/{id} - 更新用户（admin）
+- DELETE /auth/users/{id} - 禁用用户（admin）
+- POST /admin/rules/reload - 触发规则热加载
+- GET/PUT /admin/sensitive-words - 敏感词管理
+- GET /admin/stats - 业务统计
+- GET /admin/dead-letter - 死信队列查看
 """
 
 from __future__ import annotations
@@ -16,7 +20,8 @@ import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from smartcs.shared.auth import (
     AuthUser,
@@ -25,6 +30,8 @@ from smartcs.shared.auth import (
     create_access_token,
 )
 from smartcs.shared.exceptions import SmartCSError
+from smartcs.shared.orm_models import UserAccount, UserStatus
+from smartcs.shared.password import hash_password, verify_password
 from smartcs.shared.safety import safety_filter
 
 logger = logging.getLogger(__name__)
@@ -38,9 +45,8 @@ router = APIRouter(tags=["auth"])
 class LoginRequest(BaseModel):
     """登录请求"""
 
-    user_id: str
-    role: Role = "customer"
-    password: str = ""  # 预留：生产环境对接统一身份认证
+    username: str
+    password: str
 
 
 class LoginResponse(BaseModel):
@@ -49,39 +55,248 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user_id: str
-    role: Role
+    username: str
+    role: str  # 来自 DB 的已校验角色字符串
+    display_name: str | None = None
 
 
-@router.post("/auth/login", response_model=LoginResponse)
-async def login(body: LoginRequest):
-    """用户登录，返回 JWT token
+async def _ensure_default_admin(request: Request) -> None:
+    """首次启动时初始化默认 admin 用户
 
-    开发环境（未设置 SMARTCS_ADMIN_PASSWORD）接受任何密码；
-    生产环境需设置环境变量 SMARTCS_ADMIN_PASSWORD 作为管理员密码，
-    并接入银行统一身份认证（LDAP/SSO）替换此实现。
+    若 user_account 表无 admin 用户，且设置了 SMARTCS_ADMIN_PASSWORD，
+    则创建 username=admin 的默认管理员。
     """
     import os
 
-    required_password = os.getenv("SMARTCS_ADMIN_PASSWORD", "")
-    if required_password:
-        if body.password != required_password:
-            raise SmartCSError(code=3001, message="密码错误")
-    elif body.role in ("admin",):
-        # 管理员角色在未设置密码时记录警告
-        logger.warning("admin 登录未验证密码（未设置 SMARTCS_ADMIN_PASSWORD）")
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if not session_factory:
+        return
 
-    token = create_access_token(body.user_id, body.role)
-    return LoginResponse(
-        access_token=token,
-        user_id=body.user_id,
-        role=body.role,
-    )
+    async with session_factory() as session:
+        result = await session.execute(select(UserAccount).where(UserAccount.role == "admin").limit(1))
+        if result.scalar_one_or_none():
+            return  # 已有 admin
+
+        admin_password = os.getenv("SMARTCS_ADMIN_PASSWORD", "")
+        if not admin_password:
+            logger.warning(
+                "首次启动: 无 admin 用户且未设置 SMARTCS_ADMIN_PASSWORD，" "请在配置后通过 init 脚本创建管理员"
+            )
+            return
+
+        admin = UserAccount(
+            username="admin",
+            password_hash=hash_password(admin_password),
+            role="admin",
+            display_name="默认管理员",
+        )
+        session.add(admin)
+        await session.commit()
+        logger.info("首次启动: 已创建默认 admin 用户（username=admin）")
+
+
+@router.post("/auth/login", response_model=LoginResponse)
+async def login(body: LoginRequest, request: Request) -> LoginResponse:
+    """用户登录，返回 JWT token
+
+    多用户模式：查 user_account 表验证用户名+密码哈希。
+    首次调用会自动初始化默认 admin（若 SMARTCS_ADMIN_PASSWORD 已设置）。
+    """
+    await _ensure_default_admin(request)
+
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if not session_factory:
+        raise SmartCSError(code=5001, message="数据库未就绪，无法验证用户")
+
+    async with session_factory() as session:
+        result = await session.execute(select(UserAccount).where(UserAccount.username == body.username))
+        user = result.scalar_one_or_none()
+
+        if not user or not verify_password(body.password, user.password_hash):
+            raise SmartCSError(code=3001, message="用户名或密码错误")
+
+        if user.status == UserStatus.DISABLED.value:
+            raise SmartCSError(code=3002, message="账号已禁用")
+
+        token = create_access_token(str(user.id), user.role)
+        return LoginResponse(
+            access_token=token,
+            user_id=str(user.id),
+            username=user.username,
+            role=user.role,
+            display_name=user.display_name,
+        )
 
 
 @router.get("/auth/me")
 async def get_me(user: CurrentUser):
     """获取当前登录用户信息"""
     return {"user_id": user.user_id, "role": user.role, "session_id": user.session_id}
+
+
+# ── 用户管理（admin）──
+
+
+class UserCreateRequest(BaseModel):
+    """创建用户请求"""
+
+    username: str = Field(..., min_length=3, max_length=64)
+    password: str = Field(..., min_length=6, max_length=128)
+    role: Role = "customer"
+    display_name: str | None = None
+
+
+class UserUpdateRequest(BaseModel):
+    """更新用户请求"""
+
+    password: str | None = Field(None, min_length=6, max_length=128)
+    role: Role | None = None
+    status: str | None = None
+    display_name: str | None = None
+
+
+class UserResponse(BaseModel):
+    """用户信息响应（不含密码）"""
+
+    id: str
+    username: str
+    role: str  # 来自 DB 的已校验角色字符串
+    status: str
+    display_name: str | None
+    created_at: str | None = None
+
+
+@router.get("/auth/users", response_model=list[UserResponse])
+async def list_users(request: Request, user: CurrentUser) -> list[UserResponse]:
+    """用户列表（仅 admin）"""
+    if user.role != "admin":
+        raise SmartCSError(code=1003, message="权限不足，需要 admin 角色")
+
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if not session_factory:
+        raise SmartCSError(code=5001, message="数据库未就绪")
+
+    async with session_factory() as session:
+        result = await session.execute(select(UserAccount).order_by(UserAccount.created_at))
+        users = result.scalars().all()
+
+    return [
+        UserResponse(
+            id=str(u.id),
+            username=u.username,
+            role=u.role,
+            status=u.status,
+            display_name=u.display_name,
+            created_at=u.created_at.isoformat() if u.created_at else None,
+        )
+        for u in users
+    ]
+
+
+@router.post("/auth/users", response_model=UserResponse, status_code=201)
+async def create_user(body: UserCreateRequest, request: Request, user: CurrentUser) -> UserResponse:
+    """创建用户（仅 admin）"""
+    if user.role != "admin":
+        raise SmartCSError(code=1003, message="权限不足，需要 admin 角色")
+
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if not session_factory:
+        raise SmartCSError(code=5001, message="数据库未就绪")
+
+    async with session_factory() as session:
+        # 检查用户名唯一
+        existing = await session.execute(select(UserAccount).where(UserAccount.username == body.username))
+        if existing.scalar_one_or_none():
+            raise SmartCSError(code=3003, message=f"用户名已存在: {body.username}")
+
+        new_user = UserAccount(
+            username=body.username,
+            password_hash=hash_password(body.password),
+            role=body.role,
+            display_name=body.display_name,
+        )
+        session.add(new_user)
+        await session.commit()
+        await session.refresh(new_user)
+
+    logger.info("用户创建: %s role=%s by=%s", body.username, body.role, user.user_id)
+    return UserResponse(
+        id=str(new_user.id),
+        username=new_user.username,
+        role=new_user.role,
+        status=new_user.status,
+        display_name=new_user.display_name,
+        created_at=new_user.created_at.isoformat() if new_user.created_at else None,
+    )
+
+
+@router.put("/auth/users/{user_id}", response_model=UserResponse)
+async def update_user(user_id: str, body: UserUpdateRequest, request: Request, current: CurrentUser) -> UserResponse:
+    """更新用户（仅 admin）"""
+    if current.role != "admin":
+        raise SmartCSError(code=1003, message="权限不足，需要 admin 角色")
+
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if not session_factory:
+        raise SmartCSError(code=5001, message="数据库未就绪")
+
+    async with session_factory() as session:
+        result = await session.execute(select(UserAccount).where(UserAccount.id == user_id))
+        target = result.scalar_one_or_none()
+        if not target:
+            raise SmartCSError(code=2001, message=f"用户不存在: {user_id}")
+
+        if body.password:
+            target.password_hash = hash_password(body.password)
+        if body.role:
+            target.role = body.role
+        if body.status:
+            if body.status not in (UserStatus.ACTIVE.value, UserStatus.DISABLED.value):
+                raise SmartCSError(code=2001, message=f"无效状态: {body.status}")
+            target.status = body.status
+        if body.display_name is not None:
+            target.display_name = body.display_name
+
+        await session.commit()
+        await session.refresh(target)
+
+    logger.info("用户更新: %s by=%s", user_id, current.user_id)
+    return UserResponse(
+        id=str(target.id),
+        username=target.username,
+        role=target.role,
+        status=target.status,
+        display_name=target.display_name,
+        created_at=target.created_at.isoformat() if target.created_at else None,
+    )
+
+
+@router.delete("/auth/users/{user_id}")
+async def delete_user(user_id: str, request: Request, current: CurrentUser) -> dict[str, str]:
+    """禁用用户（软删除，仅 admin）
+
+    不物理删除以保留审计关联。管理员不能禁用自己。
+    """
+    if current.role != "admin":
+        raise SmartCSError(code=1003, message="权限不足，需要 admin 角色")
+    if user_id == current.user_id:
+        raise SmartCSError(code=3004, message="不能禁用当前登录用户")
+
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if not session_factory:
+        raise SmartCSError(code=5001, message="数据库未就绪")
+
+    async with session_factory() as session:
+        result = await session.execute(select(UserAccount).where(UserAccount.id == user_id))
+        target = result.scalar_one_or_none()
+        if not target:
+            raise SmartCSError(code=2001, message=f"用户不存在: {user_id}")
+
+        target.status = UserStatus.DISABLED.value
+        await session.commit()
+
+    logger.info("用户禁用: %s by=%s", user_id, current.user_id)
+    return {"result": "ok", "user_id": user_id, "status": "disabled"}
 
 
 # ── 敏感词管理 ──
