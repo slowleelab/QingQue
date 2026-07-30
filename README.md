@@ -222,8 +222,8 @@ make verify-ollama # 验证 Ollama + Qwen2.5-7B
 make dev  # 启动 bot(:8000) + assist(:8001)
 
 # 或手动启动
-poetry run uvicorn smartcs.main:bot_app --reload --port 8000
-poetry run uvicorn smartcs.main:assist_app --reload --port 8001
+poetry run uvicorn lumio.main:bot_app --reload --port 8000
+poetry run uvicorn lumio.main:assist_app --reload --port 8001
 ```
 
 #### 7. 运行测试
@@ -236,9 +236,9 @@ make test-cov   # 运行测试并生成覆盖率报告
 ## 项目结构
 
 ```
-smartcs/
+lumio/
 ├── src/
-│   └── smartcs/            # Python 包（src layout）
+│   └── lumio/               # Python 包（重命名自 smartcs，2026-07-30）
 │       ├── __init__.py     # 包初始化，定义 __version__
 │       ├── py.typed        # PEP 561 类型标记
 │       ├── main.py         # FastAPI 应用入口
@@ -266,6 +266,8 @@ smartcs/
 ├── Makefile                # 标准化开发命令
 └── .pre-commit-config.yaml # pre-commit 钩子
 ```
+
+> 注：项目已从 `src/smartcs/` 迁移到 `src/lumio/`，主包路径为 `agent/lumio/`，详见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/architecture.md](docs/architecture.md)。
 
 ## 开发命令速查
 
@@ -318,7 +320,8 @@ make clean        # 清理缓存
 | Sprint 2 | RAG 核心 + 知识库 | ✅ 已完成 |
 | Sprint 3 | Agent 编排 + 机器人 MVP | ✅ 已完成 |
 | Sprint 4 | 大模型集成 + 降级策略 | ✅ 已完成 |
-| Sprint 5 | 坐席辅助服务 + 坐席辅助引擎 | ⬜ 待开始 |
+| Sprint 5 | 坐席辅助服务 + 坐席辅助引擎 | ✅ 已完成 |
+| Sprint 6 | star-connection 集成 + 超级图 | ✅ 已完成 |
 
 ## 文档
 
@@ -334,7 +337,7 @@ make clean        # 清理缓存
 
 | 目录 | 说明 | 文档 |
 |------|------|------|
-| `agent/` | SmartCS 核心（Bot + Assist 编排服务） | 见上方文档 |
+| `agent/` | 灵智（Lumio）核心（Bot + Assist 编排服务） | 见上方文档 |
 | `mcp-server/` | 信用卡工具服务（Java / Spring AI MCP Server，22 个工具，mock 数据） | [README](mcp-server/README.md) |
 | `knowledge-platform/` | 知识数据微服务（ES 原生 RRF） | [README](knowledge-platform/README.md) |
 | `star-connection/` | 在线客服接入系统（Java） | [README](star-connection/README.md) · [DESIGN](star-connection/DESIGN.md) |

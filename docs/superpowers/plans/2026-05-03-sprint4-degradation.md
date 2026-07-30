@@ -1,3 +1,5 @@
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
 # Sprint 4 Degradation Strategy Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -15,8 +17,8 @@
 ### Task 1: Add DegradationLevel enum and LLMSettings fields
 
 **Files:**
-- Modify: `src/smartcs/shared/models.py` — add `DegradationLevel` enum
-- Modify: `src/smartcs/shared/config.py` — add health probe fields to `LLMSettings`
+- Modify: `src/lumio/shared/models.py` — add `DegradationLevel` enum
+- Modify: `src/lumio/shared/config.py` — add health probe fields to `LLMSettings`
 
 - [ ] **Step 1: Add DegradationLevel enum to models.py**
 
@@ -57,7 +59,7 @@ Expected: All existing tests pass.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/smartcs/shared/models.py src/smartcs/shared/config.py
+git add src/lumio/shared/models.py src/lumio/shared/config.py
 git commit -m "feat: add DegradationLevel enum and LLM health probe config fields"
 ```
 
@@ -79,14 +81,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from smartcs.shared.models import DegradationLevel
-from smartcs.services.common.degradation import (
+from lumio.shared.models import DegradationLevel
+from lumio.services.common.degradation import (
     ContentDegrader,
     DegradationManager,
     GenerateResult,
     HealthMonitor,
 )
-from smartcs.shared.models import IntentLabel
+from lumio.shared.models import IntentLabel
 
 
 # ── DegradationLevel ──
@@ -435,7 +437,7 @@ async def test_degradation_manager_level_property(mock_llm_client, mock_health_m
 
 - [ ] **Step 2: Create minimal stub in degradation.py so tests can be imported**
 
-Create `src/smartcs/services/common/degradation.py` with stubs:
+Create `src/lumio/services/common/degradation.py` with stubs:
 
 ```python
 """降级策略管理模块"""
@@ -445,7 +447,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
-from smartcs.shared.models import DegradationLevel, IntentLabel
+from lumio.shared.models import DegradationLevel, IntentLabel
 
 logger = logging.getLogger(__name__)
 
@@ -600,7 +602,7 @@ Expected: 17 passed.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add tests/test_degradation.py src/smartcs/services/common/degradation.py
+git add tests/test_degradation.py src/lumio/services/common/degradation.py
 git commit -m "feat: add degradation module with HealthMonitor, DegradationManager, ContentDegrader"
 ```
 
@@ -609,11 +611,11 @@ git commit -m "feat: add degradation module with HealthMonitor, DegradationManag
 ### Task 3: Enhance LLMClient with per-call timeout and observability
 
 **Files:**
-- Modify: `src/smartcs/services/common/llm.py` — `chat()` per-call timeout, observability logging
+- Modify: `src/lumio/services/common/llm.py` — `chat()` per-call timeout, observability logging
 
 - [ ] **Step 1: Update `chat()` method to accept optional `timeout` parameter**
 
-In `src/smartcs/services/common/llm.py`, modify the `chat()` method signature and call:
+In `src/lumio/services/common/llm.py`, modify the `chat()` method signature and call:
 
 ```python
 async def chat(
@@ -671,7 +673,7 @@ Expected: All 9 LLM tests pass.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/smartcs/services/common/llm.py
+git add src/lumio/services/common/llm.py
 git commit -m "feat: add per-call timeout and observability logging to LLMClient"
 ```
 
@@ -680,11 +682,11 @@ git commit -m "feat: add per-call timeout and observability logging to LLMClient
 ### Task 4: Integrate LLM degradation into IntentClassifier
 
 **Files:**
-- Modify: `src/smartcs/services/common/classifier.py` — `classify()` uses `llm_client.breaker` for degrade decision
+- Modify: `src/lumio/services/common/classifier.py` — `classify()` uses `llm_client.breaker` for degrade decision
 
 - [ ] **Step 1: Update `IntentClassifier.classify()` to check breaker before LLM call**
 
-In `src/smartcs/services/common/classifier.py`, modify the Slow Path section of `IntentClassifier.classify()` (lines ~308-323):
+In `src/lumio/services/common/classifier.py`, modify the Slow Path section of `IntentClassifier.classify()` (lines ~308-323):
 
 ```python
     # Slow Path
@@ -745,7 +747,7 @@ Expected: All 15 classifier tests pass.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/smartcs/services/common/classifier.py src/smartcs/services/common/llm.py
+git add src/lumio/services/common/classifier.py src/lumio/services/common/llm.py
 git commit -m "feat: integrate breaker check into IntentClassifier Slow Path"
 ```
 
@@ -754,14 +756,14 @@ git commit -m "feat: integrate breaker check into IntentClassifier Slow Path"
 ### Task 5: Add init/close/DI for degradation components in deps.py
 
 **Files:**
-- Modify: `src/smartcs/services/common/deps.py`
+- Modify: `src/lumio/services/common/deps.py`
 
 - [ ] **Step 1: Add import for degradation components**
 
 At the top of deps.py, add:
 
 ```python
-from smartcs.services.common.degradation import (
+from lumio.services.common.degradation import (
     ContentDegrader,
     DegradationManager,
     HealthMonitor,
@@ -858,7 +860,7 @@ Expected: No import errors.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/smartcs/services/common/deps.py
+git add src/lumio/services/common/deps.py
 git commit -m "feat: add HealthMonitor and DegradationManager to DI container"
 ```
 
@@ -867,14 +869,14 @@ git commit -m "feat: add HealthMonitor and DegradationManager to DI container"
 ### Task 6: Update bot lifespan in main.py
 
 **Files:**
-- Modify: `src/smartcs/main.py`
+- Modify: `src/lumio/main.py`
 
 - [ ] **Step 1: Import new init/close functions**
 
 Add to imports in main.py:
 
 ```python
-from smartcs.services.common.deps import (
+from lumio.services.common.deps import (
     # ... existing imports ...
     close_health_monitor,
     close_degradation_manager,
@@ -904,7 +906,7 @@ In shutdown, before `close_agent(app)`:
 - [ ] **Step 3: Verify app imports cleanly**
 
 ```bash
-cd /Users/qiangli/CodeBuddy/agent_project && poetry run python -c "from smartcs.main import bot_app; print('OK')"
+cd /Users/qiangli/CodeBuddy/agent_project && poetry run python -c "from lumio.main import bot_app; print('OK')"
 ```
 
 Expected: "OK", no errors.
@@ -912,7 +914,7 @@ Expected: "OK", no errors.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/smartcs/main.py
+git add src/lumio/main.py
 git commit -m "feat: initialize HealthMonitor and DegradationManager in bot lifespan"
 ```
 
@@ -921,7 +923,7 @@ git commit -m "feat: initialize HealthMonitor and DegradationManager in bot life
 ### Task 7: Update Agent nodes to use DegradationManager
 
 **Files:**
-- Modify: `src/smartcs/services/bot/agent.py`
+- Modify: `src/lumio/services/bot/agent.py`
 
 - [ ] **Step 1: Add `response_source` to AgentState**
 
@@ -942,7 +944,7 @@ And in `_initial_state()`, add:
 Add at top:
 
 ```python
-from smartcs.services.common.degradation import DegradationManager, GenerateResult
+from lumio.services.common.degradation import DegradationManager, GenerateResult
 ```
 
 - [ ] **Step 3: Update `knowledge_agent_node` to use DegradationManager**
@@ -958,8 +960,8 @@ async def knowledge_agent_node(
     milvus_collection: Collection | None,
     embedding_breaker: EmbeddingCircuitBreaker | None,
 ) -> AgentState:
-    from smartcs.services.common.retrieval import retrieve as do_retrieve
-    from smartcs.shared.models import DegradationLevel
+    from lumio.services.common.retrieval import retrieve as do_retrieve
+    from lumio.shared.models import DegradationLevel
 
     settings = get_settings()
     user_input = state["user_input"]
@@ -1066,10 +1068,10 @@ async def fallback_agent_node(
     return state
 ```
 
-- [ ] **Step 6: Update SmartCSAgent constructor to receive and pass DegradationManager**
+- [ ] **Step 6: Update LumioAgent constructor to receive and pass DegradationManager**
 
 ```python
-class SmartCSAgent:
+class LumioAgent:
     def __init__(
         self,
         classifier: IntentClassifier,
@@ -1115,14 +1117,14 @@ In `init_agent()`:
 
 ```python
 async def init_agent(app) -> None:
-    from smartcs.services.bot.agent import SmartCSAgent
+    from lumio.services.bot.agent import LumioAgent
 
     classifier = app.state.classifier
     degradation_mgr = app.state.degradation_manager  # NEW
     transfer_checker = app.state.transfer_checker
     session_manager = app.state.session_manager
 
-    agent = SmartCSAgent(
+    agent = LumioAgent(
         classifier=classifier,
         degradation_mgr=degradation_mgr,  # NEW
         transfer_checker=transfer_checker,
@@ -1161,7 +1163,7 @@ Expected: Tests pass with degradation_mgr mock.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/smartcs/services/bot/agent.py src/smartcs/services/common/deps.py src/smartcs/services/bot/router.py
+git add src/lumio/services/bot/agent.py src/lumio/services/common/deps.py src/lumio/services/bot/router.py
 git commit -m "feat: integrate DegradationManager into Agent nodes"
 ```
 
@@ -1183,8 +1185,8 @@ def mock_degradation_mgr():
     """模拟降级管理器"""
     from unittest.mock import MagicMock
 
-    from smartcs.services.common.degradation import GenerateResult
-    from smartcs.shared.models import DegradationLevel
+    from lumio.services.common.degradation import GenerateResult
+    from lumio.shared.models import DegradationLevel
 
     mgr = MagicMock()
     mgr.level = DegradationLevel.NORMAL
@@ -1195,7 +1197,7 @@ def mock_degradation_mgr():
     return mgr
 ```
 
-Update all test cases that construct `SmartCSAgent` to pass `degradation_mgr` instead of `llm_client`.
+Update all test cases that construct `LumioAgent` to pass `degradation_mgr` instead of `llm_client`.
 
 - [ ] **Step 2: Update LLM test for timeout parameter**
 

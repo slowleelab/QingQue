@@ -20,8 +20,8 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: lumio_pass
-          POSTGRES_USER: smartcs
-          POSTGRES_DB: smartcs
+          POSTGRES_USER: lumio
+          POSTGRES_DB: lumio
         ports: ["5432:5432"]
     env:
       REDIS_HOST: localhost
@@ -106,7 +106,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
-          name: SmartCS ${{ steps.version.outputs.VERSION }}
+          name: Lumio / 灵智 ${{ steps.version.outputs.VERSION }}
           body: |
             ${{ steps.notes.outputs.notes }}
 

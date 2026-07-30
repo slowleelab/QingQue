@@ -1,3 +1,5 @@
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
 # Super-Diagram Skill Design Spec
 
 Fuses fireworks-tech-graph (diagram knowledge) with drawio MCP (interactive canvas) into one unified skill.

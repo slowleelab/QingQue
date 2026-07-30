@@ -1,3 +1,5 @@
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
 # AI辅助功能架构升级 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -16,16 +18,16 @@
 
 | File | Responsibility |
 |------|---------------|
-| `agent/smartcs/services/common/circuit_breaker.py` | 通用熔断器（已有，Task 1 已完成） |
-| `agent/smartcs/services/common/state_manager.py` | CAS 乐观锁状态管理器（Redis Lua 脚本、覆写规则） |
-| `agent/smartcs/workflows/__init__.py` | Temporal workflows 包 |
-| `agent/smartcs/workflows/orchestration_workflow.py` | OE Temporal Workflow（状态机驱动） |
-| `agent/smartcs/workflows/activities.py` | 6 个 Temporal Activity（D1/D2/D3 评估 + E1/E2/E3 执行） |
-| `agent/smartcs/workflows/shared.py` | Workflow/Activity 共享数据模型 |
-| `agent/smartcs/services/assist/ai_executor_dag.py` | E1 LangGraph DAG（快速/深度双通路 + 合规防火墙） |
-| `agent/smartcs/services/assist/arbitrator.py` | 全局仲裁器（优先级融合 + PII 脱敏） |
-| `agent/smartcs/workflows/worker.py` | Temporal Worker 启动入口 |
-| `agent/smartcs/workflows/temporal_client.py` | Temporal Client 连接管理 |
+| `agent/lumio/services/common/circuit_breaker.py` | 通用熔断器（已有，Task 1 已完成） |
+| `agent/lumio/services/common/state_manager.py` | CAS 乐观锁状态管理器（Redis Lua 脚本、覆写规则） |
+| `agent/lumio/workflows/__init__.py` | Temporal workflows 包 |
+| `agent/lumio/workflows/orchestration_workflow.py` | OE Temporal Workflow（状态机驱动） |
+| `agent/lumio/workflows/activities.py` | 6 个 Temporal Activity（D1/D2/D3 评估 + E1/E2/E3 执行） |
+| `agent/lumio/workflows/shared.py` | Workflow/Activity 共享数据模型 |
+| `agent/lumio/services/assist/ai_executor_dag.py` | E1 LangGraph DAG（快速/深度双通路 + 合规防火墙） |
+| `agent/lumio/services/assist/arbitrator.py` | 全局仲裁器（优先级融合 + PII 脱敏） |
+| `agent/lumio/workflows/worker.py` | Temporal Worker 启动入口 |
+| `agent/lumio/workflows/temporal_client.py` | Temporal Client 连接管理 |
 | `agent/tests/test_state_manager.py` | State manager 单元测试 |
 | `agent/tests/test_ai_executor_dag.py` | LangGraph DAG 单元测试 |
 | `agent/tests/test_arbitrator.py` | 仲裁器单元测试 |
@@ -35,13 +37,13 @@
 
 | File | Changes |
 |------|---------|
-| `agent/smartcs/shared/models.py` | 新增 EmotionVector, ExecutorResult, ArbitrationResult, OrchestrationState, FeedbackSignal, RiskActionEnum, OEState；扩展 SessionState |
-| `agent/smartcs/shared/config.py` | 新增 OrchestrationSettings, TemporalSettings, CircuitBreakerConfigSettings |
-| `agent/smartcs/shared/exceptions.py` | 新增 CircuitBreakerOpenError(4020), StateConflictError(5003), OrchestrationTimeoutError(5004) |
-| `agent/smartcs/shared/orm_models.py` | 新增 OrchestrationLog, FeedbackLog ORM 模型 |
-| `agent/smartcs/services/common/deps.py` | 新增 StateManager, TemporalClient, Worker 的 init/close/get |
-| `agent/smartcs/services/assist/router.py` | 替换为 Temporal Workflow 触发，新增 /feedback 端点 |
-| `agent/smartcs/main.py` | 更新 assist 启动步骤，加入 Temporal 初始化 |
+| `agent/lumio/shared/models.py` | 新增 EmotionVector, ExecutorResult, ArbitrationResult, OrchestrationState, FeedbackSignal, RiskActionEnum, OEState；扩展 SessionState |
+| `agent/lumio/shared/config.py` | 新增 OrchestrationSettings, TemporalSettings, CircuitBreakerConfigSettings |
+| `agent/lumio/shared/exceptions.py` | 新增 CircuitBreakerOpenError(4020), StateConflictError(5003), OrchestrationTimeoutError(5004) |
+| `agent/lumio/shared/orm_models.py` | 新增 OrchestrationLog, FeedbackLog ORM 模型 |
+| `agent/lumio/services/common/deps.py` | 新增 StateManager, TemporalClient, Worker 的 init/close/get |
+| `agent/lumio/services/assist/router.py` | 替换为 Temporal Workflow 触发，新增 /feedback 端点 |
+| `agent/lumio/main.py` | 更新 assist 启动步骤，加入 Temporal 初始化 |
 | `agent/pyproject.toml` | 新增 temporalio 依赖 |
 | `deploy/docker-compose.yml` | 新增 Temporal Server + UI 服务 |
 
@@ -49,17 +51,17 @@
 
 ## Task 1: Generic Circuit Breaker ✅ COMPLETED
 
-已实现 `agent/smartcs/services/common/circuit_breaker.py` + `CircuitBreakerOpenError`(4020)。36 个测试全部通过。
+已实现 `agent/lumio/services/common/circuit_breaker.py` + `CircuitBreakerOpenError`(4020)。36 个测试全部通过。
 
 ---
 
 ## Task 2: Extended State Models + Configuration
 
 **Files:**
-- Modify: `agent/smartcs/shared/models.py`
-- Modify: `agent/smartcs/shared/orm_models.py`
-- Modify: `agent/smartcs/shared/config.py`
-- Modify: `agent/smartcs/shared/exceptions.py`
+- Modify: `agent/lumio/shared/models.py`
+- Modify: `agent/lumio/shared/orm_models.py`
+- Modify: `agent/lumio/shared/config.py`
+- Modify: `agent/lumio/shared/exceptions.py`
 - Test: `agent/tests/test_state_models.py` (new)
 - Test: `agent/tests/test_config_extensions.py` (new)
 
@@ -92,7 +94,7 @@ Add to orm_models.py:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agent/smartcs/shared/ agent/tests/test_state_models.py agent/tests/test_config_extensions.py
+git add agent/lumio/shared/ agent/tests/test_state_models.py agent/tests/test_config_extensions.py
 git commit -m "feat: add orchestration state models, Temporal config, and extended session state"
 ```
 
@@ -101,7 +103,7 @@ git commit -m "feat: add orchestration state models, Temporal config, and extend
 ## Task 3: CAS State Manager
 
 **Files:**
-- Create: `agent/smartcs/services/common/state_manager.py`
+- Create: `agent/lumio/services/common/state_manager.py`
 - Test: `agent/tests/test_state_manager.py`
 
 严格按照文档 §3.2 实现：
@@ -148,7 +150,7 @@ EVALSHA cas_write.lua
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agent/smartcs/services/common/state_manager.py agent/tests/test_state_manager.py
+git add agent/lumio/services/common/state_manager.py agent/tests/test_state_manager.py
 git commit -m "feat: add CAS optimistic lock state manager with merge rules per spec"
 ```
 
@@ -159,10 +161,10 @@ git commit -m "feat: add CAS optimistic lock state manager with merge rules per 
 **Files:**
 - Modify: `agent/pyproject.toml` (add temporalio)
 - Modify: `deploy/docker-compose.yml` (add Temporal Server + UI)
-- Create: `agent/smartcs/workflows/__init__.py`
-- Create: `agent/smartcs/workflows/shared.py` (shared data models for workflow/activity)
-- Create: `agent/smartcs/workflows/temporal_client.py` (Temporal Client connection management)
-- Create: `agent/smartcs/workflows/worker.py` (Worker startup)
+- Create: `agent/lumio/workflows/__init__.py`
+- Create: `agent/lumio/workflows/shared.py` (shared data models for workflow/activity)
+- Create: `agent/lumio/workflows/temporal_client.py` (Temporal Client connection management)
+- Create: `agent/lumio/workflows/worker.py` (Worker startup)
 - Test: `agent/tests/test_temporal_client.py`
 
 - [ ] **Step 1: Add temporalio dependency**
@@ -177,13 +179,13 @@ cd agent && poetry add temporalio
   # ── Temporal Server ─────────────────────────────────
   temporal:
     image: temporalio/auto-setup:latest
-    container_name: smartcs-temporal
+    container_name: lumio-temporal
     restart: unless-stopped
     environment:
       - DB=postgresql
       - DB_PORT=5432
-      - POSTGRES_USER=smartcs
-      - POSTGRES_PWD=${POSTGRES_PASSWORD_DOCKER:-smartcs_pass}
+      - POSTGRES_USER=lumio
+      - POSTGRES_PWD=${POSTGRES_PASSWORD_DOCKER:-lumio_pass}
       - POSTGRES_SEEDS=postgres
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     ports:
@@ -192,11 +194,11 @@ cd agent && poetry add temporalio
       postgres:
         condition: service_healthy
     networks:
-      - smartcs-net
+      - lumio-net
 
   temporal-ui:
     image: temporalio/ui:latest
-    container_name: smartcs-temporal-ui
+    container_name: lumio-temporal-ui
     restart: unless-stopped
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
@@ -206,13 +208,13 @@ cd agent && poetry add temporalio
     depends_on:
       - temporal
     networks:
-      - smartcs-net
+      - lumio-net
 ```
 
 - [ ] **Step 3: Create shared workflow data models**
 
 ```python
-# agent/smartcs/workflows/shared.py
+# agent/lumio/workflows/shared.py
 """Temporal Workflow/Activity 共享数据模型"""
 
 from __future__ import annotations
@@ -221,7 +223,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from smartcs.shared.models import RiskActionEnum
+from lumio.shared.models import RiskActionEnum
 
 
 @dataclass
@@ -292,7 +294,7 @@ class OrchestrationResult:
 - [ ] **Step 4: Create Temporal client management**
 
 ```python
-# agent/smartcs/workflows/temporal_client.py
+# agent/lumio/workflows/temporal_client.py
 """Temporal Client 连接管理"""
 
 from __future__ import annotations
@@ -302,7 +304,7 @@ from typing import Any
 
 from temporalio.client import Client
 
-from smartcs.shared.config import get_settings
+from lumio.shared.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +335,7 @@ async def close_temporal_client() -> None:
 - [ ] **Step 5: Create Worker startup**
 
 ```python
-# agent/smartcs/workflows/worker.py
+# agent/lumio/workflows/worker.py
 """Temporal Worker 启动"""
 
 from __future__ import annotations
@@ -343,8 +345,8 @@ import logging
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from smartcs.shared.config import get_settings
-from smartcs.workflows.activities import (
+from lumio.shared.config import get_settings
+from lumio.workflows.activities import (
     evaluate_d1_service,
     evaluate_d2_marketing,
     evaluate_d3_risk,
@@ -352,7 +354,7 @@ from smartcs.workflows.activities import (
     execute_e2_marketing,
     execute_e3_risk,
 )
-from smartcs.workflows.orchestration_workflow import OrchestrationWorkflow
+from lumio.workflows.orchestration_workflow import OrchestrationWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -393,7 +395,7 @@ async def stop_worker() -> None:
 - [ ] **Step 7: Commit**
 
 ```bash
-git add agent/pyproject.toml deploy/docker-compose.yml agent/smartcs/workflows/ agent/tests/test_temporal_client.py
+git add agent/pyproject.toml deploy/docker-compose.yml agent/lumio/workflows/ agent/tests/test_temporal_client.py
 git commit -m "feat: add Temporal infrastructure - docker, client, worker, shared models"
 ```
 
@@ -402,7 +404,7 @@ git commit -m "feat: add Temporal infrastructure - docker, client, worker, share
 ## Task 5: LangGraph DAG — AI 服务执行器 (E1)
 
 **Files:**
-- Create: `agent/smartcs/services/assist/ai_executor_dag.py`
+- Create: `agent/lumio/services/assist/ai_executor_dag.py`
 - Test: `agent/tests/test_ai_executor_dag.py`
 
 严格按照文档 §2 实现 LangGraph DAG：
@@ -489,7 +491,7 @@ class TestAIExecutorDAG:
 - [ ] **Step 3: Implement LangGraph DAG**
 
 ```python
-# agent/smartcs/services/assist/ai_executor_dag.py
+# agent/lumio/services/assist/ai_executor_dag.py
 """AI 服务执行器 — LangGraph DAG
 
 实现快速/深度双通路推理，严格按照设计文档 §2。
@@ -503,8 +505,8 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from smartcs.services.assist.script_service import ScriptService
-from smartcs.shared.models import IntentLabel, SentimentLabel
+from lumio.services.assist.script_service import ScriptService
+from lumio.shared.models import IntentLabel, SentimentLabel
 
 logger = logging.getLogger(__name__)
 
@@ -651,8 +653,8 @@ class AIExecutorDAG:
         if not self._es_client:
             return {"rag_candidates": []}
         try:
-            from smartcs.services.common.retrieval import retrieve
-            from smartcs.shared.models import RetrieveRequest
+            from lumio.services.common.retrieval import retrieve
+            from lumio.shared.models import RetrieveRequest
 
             embedding_ok = (
                 self._embedding is not None
@@ -738,7 +740,7 @@ class AIExecutorDAG:
 
     async def _fallback(self, state: DAGState) -> dict:
         """降级安全兜底话术"""
-        from smartcs.services.common.degradation import ContentDegrader
+        from lumio.services.common.degradation import ContentDegrader
         degrader = ContentDegrader()
         intent = IntentLabel(state.get("intent", "faq"))
         fallback = degrader.get_template(intent)
@@ -812,7 +814,7 @@ class AIExecutorDAG:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agent/smartcs/services/assist/ai_executor_dag.py agent/tests/test_ai_executor_dag.py
+git add agent/lumio/services/assist/ai_executor_dag.py agent/tests/test_ai_executor_dag.py
 git commit -m "feat: implement E1 AI executor as LangGraph DAG with fast/deep dual path"
 ```
 
@@ -821,7 +823,7 @@ git commit -m "feat: implement E1 AI executor as LangGraph DAG with fast/deep du
 ## Task 6: Temporal Activities (D1/D2/D3 + E1/E2/E3)
 
 **Files:**
-- Create: `agent/smartcs/workflows/activities.py`
+- Create: `agent/lumio/workflows/activities.py`
 - Test: `agent/tests/test_activities.py`
 
 严格按照文档 §3.3 + §3.4 实现：
@@ -844,7 +846,7 @@ git commit -m "feat: implement E1 AI executor as LangGraph DAG with fast/deep du
 - [ ] **Step 3: Implement 6 Activities**
 
 ```python
-# agent/smartcs/workflows/activities.py
+# agent/lumio/workflows/activities.py
 """Temporal Activities
 
 三路评估器 (D1/D2/D3) + 三路执行器 (E1/E2/E3)
@@ -858,9 +860,9 @@ from datetime import datetime
 
 from temporalio import activity
 
-from smartcs.services.common.circuit_breaker import CircuitBreaker, CircuitState
-from smartcs.shared.config import get_settings
-from smartcs.workflows.shared import EvaluatorInput, EvaluatorOutput, ExecutorInput, ExecutorOutput
+from lumio.services.common.circuit_breaker import CircuitBreaker, CircuitState
+from lumio.shared.config import get_settings
+from lumio.workflows.shared import EvaluatorInput, EvaluatorOutput, ExecutorInput, ExecutorOutput
 
 logger = logging.getLogger(__name__)
 
@@ -1053,7 +1055,7 @@ async def execute_e3_risk(input: ExecutorInput) -> ExecutorOutput:
         elapsed = int((time.monotonic() - t0) * 1000)
         breaker.record_success(elapsed=elapsed / 1000)
 
-        from smartcs.shared.models import AlertLevel
+        from lumio.shared.models import AlertLevel
         has_critical = any(a.level == AlertLevel.CRITICAL for a in alerts)
         has_warning = any(a.level == AlertLevel.WARNING for a in alerts)
 
@@ -1095,7 +1097,7 @@ async def execute_e3_risk(input: ExecutorInput) -> ExecutorOutput:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agent/smartcs/workflows/activities.py agent/tests/test_activities.py
+git add agent/lumio/workflows/activities.py agent/tests/test_activities.py
 git commit -m "feat: implement 6 Temporal Activities (D1/D2/D3 evaluators + E1/E2/E3 executors)"
 ```
 
@@ -1104,7 +1106,7 @@ git commit -m "feat: implement 6 Temporal Activities (D1/D2/D3 evaluators + E1/E
 ## Task 7: Temporal Orchestration Workflow
 
 **Files:**
-- Create: `agent/smartcs/workflows/orchestration_workflow.py`
+- Create: `agent/lumio/workflows/orchestration_workflow.py`
 - Test: `agent/tests/test_workflow.py`
 
 严格按照文档 §3.3 OE 状态机 + 编排策略矩阵实现：
@@ -1124,7 +1126,7 @@ git commit -m "feat: implement 6 Temporal Activities (D1/D2/D3 evaluators + E1/E
 - [ ] **Step 3: Implement OrchestrationWorkflow**
 
 ```python
-# agent/smartcs/workflows/orchestration_workflow.py
+# agent/lumio/workflows/orchestration_workflow.py
 """编排引擎 Temporal Workflow
 
 OE 状态机: IDLE → EVALUATING → DISPATCHING → WAITING_RESULTS → COMPLETED
@@ -1140,14 +1142,14 @@ from datetime import timedelta
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from smartcs.workflows.shared import (
+from lumio.workflows.shared import (
     EvaluatorInput,
     EvaluatorOutput,
     ExecutorInput,
     ExecutorOutput,
     OrchestrationResult,
 )
-from smartcs.workflows.activities import (
+from lumio.workflows.activities import (
     evaluate_d1_service,
     evaluate_d2_marketing,
     evaluate_d3_risk,
@@ -1301,7 +1303,7 @@ class OrchestrationWorkflow:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agent/smartcs/workflows/orchestration_workflow.py agent/tests/test_workflow.py
+git add agent/lumio/workflows/orchestration_workflow.py agent/tests/test_workflow.py
 git commit -m "feat: implement Temporal OrchestrationWorkflow with OE state machine and policy matrix"
 ```
 
@@ -1310,7 +1312,7 @@ git commit -m "feat: implement Temporal OrchestrationWorkflow with OE state mach
 ## Task 8: Global Arbitrator (PII 脱敏 + 合规短语过滤)
 
 **Files:**
-- Create: `agent/smartcs/services/assist/arbitrator.py`
+- Create: `agent/lumio/services/assist/arbitrator.py`
 - Test: `agent/tests/test_arbitrator.py`
 
 严格按照文档 §3.5 实现：
@@ -1336,7 +1338,7 @@ _PII_PATTERNS = [
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agent/smartcs/services/assist/arbitrator.py agent/tests/test_arbitrator.py
+git add agent/lumio/services/assist/arbitrator.py agent/tests/test_arbitrator.py
 git commit -m "feat: add global arbitrator with priority fusion rules and PII masking"
 ```
 
@@ -1345,8 +1347,8 @@ git commit -m "feat: add global arbitrator with priority fusion rules and PII ma
 ## Task 9: DI Wiring + Main.py Integration
 
 **Files:**
-- Modify: `agent/smartcs/services/common/deps.py`
-- Modify: `agent/smartcs/main.py`
+- Modify: `agent/lumio/services/common/deps.py`
+- Modify: `agent/lumio/main.py`
 
 更新 assist 服务启动步骤：
 1. init_db
@@ -1372,7 +1374,7 @@ git commit -m "feat: add global arbitrator with priority fusion rules and PII ma
 - [ ] **Step 4: Commit**
 
 ```bash
-git add agent/smartcs/services/common/deps.py agent/smartcs/main.py
+git add agent/lumio/services/common/deps.py agent/lumio/main.py
 git commit -m "feat: wire Temporal client, worker, and state manager into assist service"
 ```
 
@@ -1381,7 +1383,7 @@ git commit -m "feat: wire Temporal client, worker, and state manager into assist
 ## Task 10: Router Integration — Temporal Workflow Trigger
 
 **Files:**
-- Modify: `agent/smartcs/services/assist/router.py`
+- Modify: `agent/lumio/services/assist/router.py`
 
 替换 /analyze 端点为触发 Temporal Workflow：
 1. 意图分类
@@ -1407,7 +1409,7 @@ git commit -m "feat: wire Temporal client, worker, and state manager into assist
 - [ ] **Step 4: Commit**
 
 ```bash
-git add agent/smartcs/services/assist/router.py
+git add agent/lumio/services/assist/router.py
 git commit -m "feat: integrate Temporal Workflow into analyze endpoint, add feedback endpoint"
 ```
 

@@ -1,3 +1,5 @@
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
 # Sprint 4 设计文档：LLM 集成 + 系统化降级策略
 
 > 日期：2026-05-03
@@ -229,16 +231,16 @@ health_probe_success_threshold: int = 2      # 连续成功恢复阈值
 
 ```
 新增:
-  src/smartcs/services/common/degradation.py   # HealthMonitor + DegradationManager + ContentDegrader
+  src/lumio/services/common/degradation.py   # HealthMonitor + DegradationManager + ContentDegrader
   tests/test_degradation.py                    # 20 测试
 
 修改:
-  src/smartcs/services/common/llm.py           # per-call timeout, observability 日志
-  src/smartcs/services/common/classifier.py    # classify() 内聚 LLM 降级
-  src/smartcs/services/bot/agent.py            # AgentState + response_source, 调用 degradation_mgr
-  src/smartcs/services/common/deps.py          # init/close/DI
-  src/smartcs/main.py                          # bot_lifespan
-  src/smartcs/shared/config.py                 # LLMSettings 扩展
+  src/lumio/services/common/llm.py           # per-call timeout, observability 日志
+  src/lumio/services/common/classifier.py    # classify() 内聚 LLM 降级
+  src/lumio/services/bot/agent.py            # AgentState + response_source, 调用 degradation_mgr
+  src/lumio/services/common/deps.py          # init/close/DI
+  src/lumio/main.py                          # bot_lifespan
+  src/lumio/shared/config.py                 # LLMSettings 扩展
   tests/test_agent.py                          # 适配新依赖
   tests/test_llm.py                            # 适配 per-call timeout
 ```

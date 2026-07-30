@@ -1,4 +1,6 @@
-# star-connection 集成到 SmartCS 在线客服系统 — 完整设计方案
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
+# star-connection 集成到 灵智（Lumio） 在线客服系统 — 完整设计方案
 
 > 日期：2026-05-04
 > 状态：待审批
@@ -8,7 +10,7 @@
 
 ## 1. 目标
 
-将 star-connection（Java/Spring Boot/Netty/ZooKeeper 星型长连接在线客服系统）嵌入到 SmartCS 项目中，作为人工客服系统，与 SmartCS Bot（AI 应答）和 SmartCS Assist（AI 坐席辅助）对接，形成**全链路智能客服闭环**。
+将 star-connection（Java/Spring Boot/Netty/ZooKeeper 星型长连接在线客服系统）嵌入到 灵智（Lumio） 项目中，作为人工客服系统，与 灵智（Lumio） Bot（AI 应答）和 灵智（Lumio） Assist（AI 坐席辅助）对接，形成**全链路智能客服闭环**。
 
 ---
 
@@ -19,7 +21,7 @@
      │
      ▼  HTTP 长轮询
 ┌──────────────────────┐
-│   SmartCS Bot :8000   │  AI 应答层
+│   灵智（Lumio） Bot :8000   │  AI 应答层
 │   POST /api/chat/send │  发消息 → 入队 → 异步处理
 │   GET  /api/chat/poll │  长轮询 → 读 Redis → 返回结果
 └──────┬───────────────┘
@@ -35,7 +37,7 @@
        │ 旁路监听
        ▼  WS
 ┌──────────────────────┐
-│   SmartCS Assist :8001│  AI 辅助层
+│   灵智（Lumio） Assist :8001│  AI 辅助层
 │   WS /api/ws/{sid}    │  话术 + 知识 + 告警
 └──────────────────────┘
 ```
@@ -55,7 +57,7 @@
 
 所有客户端 ↔ 服务端交互统一使用 HTTP 长轮询。
 
-### 3.1 Bot 阶段（SmartCS）
+### 3.1 Bot 阶段（灵智（Lumio））
 
 ```
 POST /api/chat/send
@@ -69,7 +71,7 @@ Response:
   转人工:   {has_message: true, is_transfer: true, transfer_url: "http://...", transfer_reason: "complaint"}
 ```
 
-后端：消息入 Redis 队列 → async Agent 处理 → 结果写入 `smartcs:response:{session_id}` → poll 时读取。
+后端：消息入 Redis 队列 → async Agent 处理 → 结果写入 `lumio:response:{session_id}` → poll 时读取。
 
 ### 3.2 人工客服阶段（star-connection）
 
@@ -107,7 +109,7 @@ Response:
 
 ## 4. 会话状态管理
 
-**单一真相源：SmartCS Redis 的 `SessionState`。**
+**单一真相源：灵智（Lumio） Redis 的 `SessionState`。**
 
 star-connection 复用同一个 `session_id`，不单独维护对话历史。
 
@@ -119,8 +121,8 @@ BOT  →  HANDOFF  →  ASSIST  →  ENDED
 
 | 阶段 | 负责方 | 说明 |
 |------|--------|------|
-| `BOT` | SmartCS Bot | AI 对话中 |
-| `HANDOFF` | SmartCS → star-connection | 转人工进行中（创建会话、分配坐席） |
+| `BOT` | 灵智（Lumio） Bot | AI 对话中 |
+| `HANDOFF` | 灵智（Lumio） → star-connection | 转人工进行中（创建会话、分配坐席） |
 | `ASSIST` | star-connection | 坐席接管，AI 辅助旁路 |
 | `ENDED` | star-connection | 坐席结束会话 |
 
@@ -137,20 +139,20 @@ BOT  →  HANDOFF  →  ASSIST  →  ENDED
 2. star-connection 分配坐席成功 → 会话 ACTIVE
    → 回调 POST http://localhost:8001/api/session/update
       {session_id, phase: "ASSIST", agent_id: "agent-3"}
-   → SmartCS Redis 更新 phase=ASSIST, agent_id="agent-3"
+   → 灵智（Lumio） Redis 更新 phase=ASSIST, agent_id="agent-3"
    → start Assist WS 监听
 
 3. 坐席结束会话
    → 回调 POST /api/session/update
       {session_id, phase: "ENDED"}
-   → SmartCS Redis 更新 phase=ENDED
+   → 灵智（Lumio） Redis 更新 phase=ENDED
    → 清理 Assist WS 连接
 ```
 
 ### 4.3 新增端点
 
 ```
-SmartCS 新增:
+灵智（Lumio） 新增:
   POST /api/session/update  接收 star-connection 的状态回调
   Request:  {session_id, phase, agent_id?}
   Response: {status: "ok"}
@@ -165,7 +167,7 @@ star-connection 新增:
 
 ## 5. AI 辅助旁路
 
-star-connection agent-server 在会话进入 ASSIST 阶段后，内部连接 SmartCS Assist WebSocket。
+star-connection agent-server 在会话进入 ASSIST 阶段后，内部连接 灵智（Lumio） Assist WebSocket。
 
 ```
 agent-server 会话 ACTIVE
@@ -195,7 +197,7 @@ agent_project/
 │   └── start.sh
 ├── deploy/
 │   └── docker-compose.yml          # +zookeeper 服务
-├── src/smartcs/
+├── src/lumio/
 │   ├── services/bot/router.py      # 改: /api/chat → /api/chat/send + /api/chat/poll
 │   └── services/common/
 │       └── deps.py                 # +star_connection client
@@ -225,17 +227,17 @@ zookeeper:
 
 ## 8. 改造清单
 
-### SmartCS 后端（Python）
+### 灵智（Lumio） 后端（Python）
 
 | 任务 | 文件 | 内容 |
 |------|------|------|
 | Bot 改为长轮询 | `bot/router.py` | `POST /api/chat/send` + `GET /api/chat/poll` |
-| 轮询响应存储 | `common/redis_client.py` | `smartcs:response:{sid}` 键操作 |
+| 轮询响应存储 | `common/redis_client.py` | `lumio:response:{sid}` 键操作 |
 | 转人工桥接 | `bot/router.py` | `POST star-connection/api/sessions` 获取 poll_url |
 | 会话回调端点 | 新建或在现有路由 | `POST /api/session/update` |
 | star-connection client | `common/star_client.py` | HTTP client 封装 |
 
-### SmartCS 前端（Vue）
+### 灵智（Lumio） 前端（Vue）
 
 | 任务 | 文件 | 内容 |
 |------|------|------|
@@ -248,7 +250,7 @@ zookeeper:
 | 任务 | 文件 | 内容 |
 |------|------|------|
 | 转人工入口 API | `customer-server/.../TransferController.java` | `POST /api/sessions` 创建会话 |
-| Assist WS 客户端 | `agent-server/.../AssistClient.java` | 连接 SmartCS Assist WebSocket |
+| Assist WS 客户端 | `agent-server/.../AssistClient.java` | 连接 灵智（Lumio） Assist WebSocket |
 | 会话状态回调 | `agent-server/.../SessionCallback.java` | 回调 `POST /api/session/update` |
 
 ### 基础设施

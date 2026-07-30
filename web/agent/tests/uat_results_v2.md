@@ -1,4 +1,4 @@
-# SmartCS v2.3 UAT 测试报告
+# 灵智（Lumio）v2.4 UAT 测试报告
 
 **测试日期**: 2026-05-24
 **测试环境**: Bot (localhost:8000), Assist (localhost:8001), star-conn CF (localhost:8080)
@@ -157,7 +157,7 @@
 - **严重程度**: P0 / High
 - **现象**: 任何对 `/api/session/update` 的有效请求均返回 `{"error":{"code":5000,"message":"系统内部错误","type":"ValueError"}}` HTTP 500
 - **定位**: `router.py:275` 调用 `session_manager.transition_phase()` 触发 ValueError 未捕获
-- **根因推测**: Bot 服务通过 `/api/chat/send` 创建的会话存储在 Redis (`smartcs:session:*:meta`)，但 Assist 服务的 `SessionManager` 可能使用不同的 key 前缀或 session 初始化流程，导致 `get_session()` 成功但 `transition_phase()` 触发内部验证失败
+- **根因推测**: Bot 服务通过 `/api/chat/send` 创建的会话存储在 Redis (`lumio:session:*:meta`)，但 Assist 服务的 `SessionManager` 可能使用不同的 key 前缀或 session 初始化流程，导致 `get_session()` 成功但 `transition_phase()` 触发内部验证失败
 - **影响**: 阻塞 star-connection 回调的会话状态同步，Hold/Resume/Review 等后续流程均无法测试
 
 ### 需关注

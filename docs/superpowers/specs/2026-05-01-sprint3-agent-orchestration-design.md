@@ -1,3 +1,5 @@
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
 # Sprint 3 设计文档：Agent 编排 + Bot 对话 MVP
 
 > 日期：2026-05-01
@@ -43,8 +45,8 @@ Sprint 3 在 Sprint 1（基础设施骨架）和 Sprint 2（RAG 核心 + 知识�
                    │ 读写
 ┌──────────────────▼──────────────────────────────┐
 │  Redis                                           │
-│  · smartcs:session:{id}:meta    (会话元信息)       │
-│  · smartcs:session:{id}:history (对话历史 List)    │
+│  · lumio:session:{id}:meta    (会话元信息)       │
+│  · lumio:session:{id}:history (对话历史 List)    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -60,7 +62,7 @@ Sprint 3 在 Sprint 1（基础设施骨架）和 Sprint 2（RAG 核心 + 知识�
 
 ### 新增模块
 
-- `src/smartcs/services/common/session.py` — SessionManager
+- `src/lumio/services/common/session.py` — SessionManager
 
 ## 3. 双通道意图分类
 
@@ -94,8 +96,8 @@ Sprint 3 在 Sprint 1（基础设施骨架）和 Sprint 2（RAG 核心 + 知识�
 
 ### 新增模块
 
-- `src/smartcs/services/common/classifier.py` — RuleClassifier, LLMClassifier, IntentClassifier
-- `src/smartcs/services/common/llm.py` — LLMClient, LLMCircuitBreaker
+- `src/lumio/services/common/classifier.py` — RuleClassifier, LLMClassifier, IntentClassifier
+- `src/lumio/services/common/llm.py` — LLMClient, LLMCircuitBreaker
 
 ## 4. LangGraph Agent 编排图
 
@@ -179,8 +181,8 @@ LLM 生成 → 检索摘要 → 预设模板回复 → "请稍后重试"
 
 ### 新增模块
 
-- `src/smartcs/services/bot/agent.py` — SmartCSAgent, 节点函数
-- `src/smartcs/services/bot/prompts.py` — Prompt 模板
+- `src/lumio/services/bot/agent.py` — LumioAgent, 节点函数
+- `src/lumio/services/bot/prompts.py` — Prompt 模板
 
 ## 5. 转人工机制
 
@@ -196,7 +198,7 @@ LLM 生成 → 检索摘要 → 预设模板回复 → "请稍后重试"
 
 ### 新增模块
 
-- `src/smartcs/services/common/transfer.py` — TransferChecker
+- `src/lumio/services/common/transfer.py` — TransferChecker
 - `config/transfer_keywords.txt` — 转人工关键词表
 
 ## 6. /api/chat 端点改造
@@ -217,13 +219,13 @@ async def chat(request: ChatRequest, agent: AgentDep, session_manager: SessionMa
 ## 7. 新增文件清单
 
 ```
-src/smartcs/services/common/
+src/lumio/services/common/
   ├── llm.py              # LLM 调用封装（结构化输出 + 熔断 + 降级）
   ├── classifier.py       # 双通道分类器（Rule + LLM）
   ├── session.py          # 会话状态管理
   └── transfer.py         # 转人工判断逻辑
 
-src/smartcs/services/bot/
+src/lumio/services/bot/
   ├── agent.py            # LangGraph 状态图定义 + 节点函数
   └── prompts.py          # LLM Prompt 模板
 
@@ -242,9 +244,9 @@ tests/
 
 | 文件 | 修改内容 |
 |------|---------|
-| `src/smartcs/services/common/deps.py` | 新增 LLM/Session/Classifier/Transfer/Agent 的 init/close/DI 函数 |
-| `src/smartcs/services/bot/router.py` | /api/chat stub 替换为真实 Agent 调用 |
-| `src/smartcs/main.py` | bot_lifespan 增加 LLM/Session/Classifier/Transfer/Agent 初始化 |
+| `src/lumio/services/common/deps.py` | 新增 LLM/Session/Classifier/Transfer/Agent 的 init/close/DI 函数 |
+| `src/lumio/services/bot/router.py` | /api/chat stub 替换为真实 Agent 调用 |
+| `src/lumio/main.py` | bot_lifespan 增加 LLM/Session/Classifier/Transfer/Agent 初始化 |
 | `tests/test_bot_api.py` | chat 测试适配新的 Agent 依赖 |
 
 ## 9. 测试结果

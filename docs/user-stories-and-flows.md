@@ -1,6 +1,6 @@
-# SmartCS 用户故事与交互流程
+# 灵智（Lumio）用户故事与交互流程
 
-> 版本: v2.3 | 日期: 2026-05-22 | 状态: 待评审
+> 版本: v2.4 | 日期: 2026-07-29 | 状态: 文档已重命名
 
 ---
 
@@ -11,7 +11,7 @@
 | 客户 | CU | 信用卡持卡人，通过 Web/App/微信/电话 咨询信用卡相关问题 |
 | 坐席 | AG | 银行客服代表，在 Agent Workbench 接听客户来电 |
 | 运营 | OP | 知识库管理员，上传/维护知识文档和质检规则 |
-| 系统 | SYS | SmartCS 平台自动行为，无需人工介入 |
+| 系统 | SYS | 灵智（Lumio）平台自动行为，无需人工介入 |
 
 ---
 
@@ -296,7 +296,7 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
    │                   │                            │               │               │
    │◀──"正在为您转接" + poll_url ─────│                            │               │
    │                   │                            │               │               │
-   │ ═══ Step 2: 等待+接听 (star-conn 内部路由, SmartCS 不感知) ═══════════════│
+   │ ═══ Step 2: 等待+接听 (star-conn 内部路由, 灵智不感知) ═══════════════│
    │                   │                            │               │               │
    │                   │                   ┌────────┴────────┐      │               │
    │                   │                   │ 坐席负载均衡      │      │               │
@@ -744,7 +744,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 ```
 客户消息 → CF(SessionManager.routeMessage) → Netty → AB → 坐席UI 显示
                                        │
-                              SmartcsClient.notifyAssist()
+                              LumioClient.notifyAssist()
                                        │
                               POST /api/notify {session_id, event: "customer_msg"}
                                        │

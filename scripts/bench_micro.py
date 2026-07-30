@@ -1,4 +1,4 @@
-"""SmartCS 微基准测试脚本
+"""灵智（Lumio）微基准测试脚本
 
 测量纯计算路径的性能（不依赖外部服务）。
 用法: poetry run python ../scripts/bench_micro.py
@@ -37,12 +37,12 @@ def bench(name: str, fn, iterations: int = 1000, is_async: bool = False) -> None
 
 
 def main() -> None:
-    from smartcs.services.common.assist_engine import (
+    from lumio.services.common.assist_engine import (
         evaluate_d1_service,
         evaluate_d2_marketing,
         evaluate_d3_risk,
     )
-    from smartcs.services.common.decision import detect_scene
+    from lumio.services.common.decision import detect_scene
 
     state = {
         "last_confidence": 0.85,
@@ -53,7 +53,7 @@ def main() -> None:
     }
 
     print("=" * 80)
-    print("SmartCS 微基准测试 (Apple M4, Python 3.11)")
+    print("灵智（Lumio）微基准测试 (Apple M4, Python 3.11)")
     print("=" * 80)
 
     # 评估器
@@ -67,7 +67,7 @@ def main() -> None:
         bench(f"场景检测({msg})", lambda m=msg: detect_scene(m), iterations=200)
 
     # 意图分类（async）
-    from smartcs.services.common.classifier import IntentClassifier
+    from lumio.services.common.classifier import IntentClassifier
 
     classifier = IntentClassifier()
     queries = ["信用卡年费怎么减免", "这个月账单什么时候出", "我的额度能提升吗"]

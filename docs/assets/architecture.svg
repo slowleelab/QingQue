@@ -7,7 +7,7 @@
   </defs>
 
   <!-- Title -->
-  <text x="550" y="36" text-anchor="middle" fill="#f1f5f9" font-size="20" font-weight="bold" letter-spacing="1">SmartCS 系统架构</text>
+  <text x="550" y="36" text-anchor="middle" fill="#f1f5f9" font-size="20" font-weight="bold" letter-spacing="1">灵智（Lumio）系统架构</text>
 
   <!-- ===== LEFT SIDEBAR ===== -->
   <!-- Observability -->

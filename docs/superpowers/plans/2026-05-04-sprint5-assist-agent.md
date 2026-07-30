@@ -1,3 +1,5 @@
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
 # Sprint 5: 坐席辅助 — 话术推荐 + 知识推送
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -13,7 +15,7 @@
 ## File Structure Map
 
 ```
-src/smartcs/
+src/lumio/
   shared/
     config.py              # +AssistSettings
     orm_models.py          # +ScriptTemplate, ScriptUsageLog, AlertRule, AlertLog
@@ -45,7 +47,7 @@ tests/
 ### Task 1: AssistSettings 配置
 
 **Files:**
-- Modify: `src/smartcs/shared/config.py` (add class after existing settings)
+- Modify: `src/lumio/shared/config.py` (add class after existing settings)
 
 - [ ] **Step 1: Add AssistSettings class**
 
@@ -90,14 +92,14 @@ assist: AssistSettings = Field(default_factory=AssistSettings)
 - [ ] **Step 2: Verify**
 
 ```bash
-poetry run python -c "from smartcs.shared.config import get_settings; s = get_settings(); print(s.assist.script_timeout_ms)"
+poetry run python -c "from lumio.shared.config import get_settings; s = get_settings(); print(s.assist.script_timeout_ms)"
 ```
 Expected: `500`
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/smartcs/shared/config.py
+git add src/lumio/shared/config.py
 git commit -m "feat: add AssistSettings configuration"
 ```
 
@@ -106,7 +108,7 @@ git commit -m "feat: add AssistSettings configuration"
 ### Task 2: ORM 模型 — ScriptTemplate
 
 **Files:**
-- Modify: `src/smartcs/shared/orm_models.py` (append at end)
+- Modify: `src/lumio/shared/orm_models.py` (append at end)
 
 - [ ] **Step 1: Add ScriptTemplate and ScriptUsageLog ORM models**
 
@@ -186,13 +188,13 @@ Ensure `JSON` is already imported from sqlalchemy (check top of file — it shou
 - [ ] **Step 3: Verify**
 
 ```bash
-poetry run python -c "from smartcs.shared.orm_models import ScriptTemplate, ScriptUsageLog; print('OK')"
+poetry run python -c "from lumio.shared.orm_models import ScriptTemplate, ScriptUsageLog; print('OK')"
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/smartcs/shared/orm_models.py
+git add src/lumio/shared/orm_models.py
 git commit -m "feat: add ScriptTemplate and ScriptUsageLog ORM models"
 ```
 
@@ -201,7 +203,7 @@ git commit -m "feat: add ScriptTemplate and ScriptUsageLog ORM models"
 ### Task 3: ORM 模型 — AlertRule + AlertLog
 
 **Files:**
-- Modify: `src/smartcs/shared/orm_models.py` (append after Task 2 models)
+- Modify: `src/lumio/shared/orm_models.py` (append after Task 2 models)
 
 - [ ] **Step 1: Add AlertRule and AlertLog ORM models**
 
@@ -282,13 +284,13 @@ class AlertLog(Base):
 - [ ] **Step 2: Verify**
 
 ```bash
-poetry run python -c "from smartcs.shared.orm_models import AlertRule, AlertLog; print('OK')"
+poetry run python -c "from lumio.shared.orm_models import AlertRule, AlertLog; print('OK')"
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/smartcs/shared/orm_models.py
+git add src/lumio/shared/orm_models.py
 git commit -m "feat: add AlertRule and AlertLog ORM models"
 ```
 
@@ -319,7 +321,7 @@ Expected: migrations applied successfully.
 - [ ] **Step 4: Verify in PG**
 
 ```bash
-docker exec smartcs-postgres psql -U smartcs -d smartcs -c "\dt script_*" && docker exec smartcs-postgres psql -U smartcs -d smartcs -c "\dt alert_*"
+docker exec lumio-postgres psql -U lumio -d lumio -c "\dt script_*" && docker exec lumio-postgres psql -U lumio -d lumio -c "\dt alert_*"
 ```
 Expected: list both tables.
 
@@ -335,7 +337,7 @@ git commit -m "chore: add migration for script_template, alert_rule tables"
 ### Task 5: ProductCatalog — 产品目录 + 匹配推荐
 
 **Files:**
-- Create: `src/smartcs/services/assist/product_catalog.py`
+- Create: `src/lumio/services/assist/product_catalog.py`
 - Test: `tests/test_product_catalog.py`
 
 - [ ] **Step 1: Write failing test**
@@ -345,8 +347,8 @@ git commit -m "chore: add migration for script_template, alert_rule tables"
 from __future__ import annotations
 
 import pytest
-from smartcs.services.assist.product_catalog import Product, ProductCatalog
-from smartcs.shared.models import IntentLabel
+from lumio.services.assist.product_catalog import Product, ProductCatalog
+from lumio.shared.models import IntentLabel
 
 
 @pytest.fixture
@@ -379,7 +381,7 @@ Expected: FAIL (module not found)
 - [ ] **Step 3: Implement ProductCatalog**
 
 ```python
-# src/smartcs/services/assist/product_catalog.py
+# src/lumio/services/assist/product_catalog.py
 """产品目录与匹配推荐"""
 
 from __future__ import annotations
@@ -387,7 +389,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from smartcs.shared.models import IntentLabel
+from lumio.shared.models import IntentLabel
 
 logger = logging.getLogger(__name__)
 
@@ -480,7 +482,7 @@ Expected: 3 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/smartcs/services/assist/product_catalog.py tests/test_product_catalog.py
+git add src/lumio/services/assist/product_catalog.py tests/test_product_catalog.py
 git commit -m "feat: add ProductCatalog with seed data and intent-based matching"
 ```
 
@@ -489,7 +491,7 @@ git commit -m "feat: add ProductCatalog with seed data and intent-based matching
 ### Task 6: ScriptService — 话术加载与检索
 
 **Files:**
-- Create: `src/smartcs/services/assist/script_service.py`
+- Create: `src/lumio/services/assist/script_service.py`
 - Test: `tests/test_script_service.py`
 
 - [ ] **Step 1: Write failing test**
@@ -499,8 +501,8 @@ git commit -m "feat: add ProductCatalog with seed data and intent-based matching
 from __future__ import annotations
 
 import pytest
-from smartcs.services.assist.script_service import ScriptService
-from smartcs.shared.models import IntentLabel
+from lumio.services.assist.script_service import ScriptService
+from lumio.shared.models import IntentLabel
 
 
 @pytest.fixture
@@ -544,7 +546,7 @@ Expected: FAIL
 - [ ] **Step 3: Implement ScriptService (load + retrieve)**
 
 ```python
-# src/smartcs/services/assist/script_service.py
+# src/lumio/services/assist/script_service.py
 """话术模板管理与检索"""
 
 from __future__ import annotations
@@ -553,7 +555,7 @@ import logging
 import time
 from typing import Any
 
-from smartcs.shared.models import IntentLabel
+from lumio.shared.models import IntentLabel
 
 logger = logging.getLogger(__name__)
 
@@ -641,7 +643,7 @@ class ScriptService:
     async def load_from_db(self, db_session) -> None:
         """从数据库加载 ACTIVE 话术（生产模式）"""
         from sqlalchemy import select
-        from smartcs.shared.orm_models import ScriptTemplate, ScriptStatus
+        from lumio.shared.orm_models import ScriptTemplate, ScriptStatus
 
         result = await db_session.execute(
             select(ScriptTemplate).where(ScriptTemplate.status == ScriptStatus.ACTIVE)
@@ -717,7 +719,7 @@ Expected: 4 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/smartcs/services/assist/script_service.py tests/test_script_service.py
+git add src/lumio/services/assist/script_service.py tests/test_script_service.py
 git commit -m "feat: add ScriptService with memory loading and intent-based retrieval"
 ```
 
@@ -726,7 +728,7 @@ git commit -m "feat: add ScriptService with memory loading and intent-based retr
 ### Task 7: ScriptService — LLM 润色 + 变量解析
 
 **Files:**
-- Modify: `src/smartcs/services/assist/script_service.py` (add methods)
+- Modify: `src/lumio/services/assist/script_service.py` (add methods)
 - Modify: `tests/test_script_service.py` (add tests)
 
 - [ ] **Step 1: Write failing test**
@@ -827,7 +829,7 @@ Expected: all pass
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/smartcs/services/assist/script_service.py tests/test_script_service.py
+git add src/lumio/services/assist/script_service.py tests/test_script_service.py
 git commit -m "feat: add script variable resolution and LLM polishing"
 ```
 
@@ -836,7 +838,7 @@ git commit -m "feat: add script variable resolution and LLM polishing"
 ### Task 8: AlertEngine — 合规+情绪+趋势
 
 **Files:**
-- Create: `src/smartcs/services/assist/alert_engine.py`
+- Create: `src/lumio/services/assist/alert_engine.py`
 - Test: `tests/test_alert_engine.py`
 
 - [ ] **Step 1: Write failing test**
@@ -846,8 +848,8 @@ git commit -m "feat: add script variable resolution and LLM polishing"
 from __future__ import annotations
 
 import pytest
-from smartcs.services.assist.alert_engine import AlertEngine
-from smartcs.shared.models import SentimentLabel, AlertLevel, AlertCategory
+from lumio.services.assist.alert_engine import AlertEngine
+from lumio.shared.models import SentimentLabel, AlertLevel, AlertCategory
 
 
 @pytest.fixture
@@ -913,7 +915,7 @@ Expected: FAIL
 - [ ] **Step 3: Implement AlertEngine**
 
 ```python
-# src/smartcs/services/assist/alert_engine.py
+# src/lumio/services/assist/alert_engine.py
 """质检告警引擎
 
 合规检查 + 情绪检测 + 趋势分析 + 告警聚合。
@@ -925,7 +927,7 @@ import logging
 import re
 from typing import Any
 
-from smartcs.shared.models import AlertCategory, AlertLevel, SentimentLabel
+from lumio.shared.models import AlertCategory, AlertLevel, SentimentLabel
 
 logger = logging.getLogger(__name__)
 
@@ -989,7 +991,7 @@ class AlertEngine:
 
     async def load_from_db(self, db_session) -> None:
         from sqlalchemy import select
-        from smartcs.shared.orm_models import AlertRule, ScriptStatus
+        from lumio.shared.orm_models import AlertRule, ScriptStatus
 
         result = await db_session.execute(
             select(AlertRule).where(AlertRule.status == ScriptStatus.ACTIVE)
@@ -1088,7 +1090,7 @@ Expected: 7 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/smartcs/services/assist/alert_engine.py tests/test_alert_engine.py
+git add src/lumio/services/assist/alert_engine.py tests/test_alert_engine.py
 git commit -m "feat: add AlertEngine with compliance, sentiment, and trend detection"
 ```
 
@@ -1097,7 +1099,7 @@ git commit -m "feat: add AlertEngine with compliance, sentiment, and trend detec
 ### Task 9: AssistOrchestrator — 并行编排
 
 **Files:**
-- Create: `src/smartcs/services/assist/agent.py`
+- Create: `src/lumio/services/assist/agent.py`
 - Test: `tests/test_assist_agent.py`
 
 - [ ] **Step 1: Write failing test**
@@ -1107,11 +1109,11 @@ git commit -m "feat: add AlertEngine with compliance, sentiment, and trend detec
 from __future__ import annotations
 
 import pytest
-from smartcs.services.assist.agent import AssistOrchestrator
-from smartcs.services.assist.script_service import ScriptService
-from smartcs.services.assist.alert_engine import AlertEngine
-from smartcs.services.assist.product_catalog import ProductCatalog
-from smartcs.shared.models import AssistPushMessage, SentimentLabel, IntentLabel
+from lumio.services.assist.agent import AssistOrchestrator
+from lumio.services.assist.script_service import ScriptService
+from lumio.services.assist.alert_engine import AlertEngine
+from lumio.services.assist.product_catalog import ProductCatalog
+from lumio.shared.models import AssistPushMessage, SentimentLabel, IntentLabel
 
 
 @pytest.fixture
@@ -1181,7 +1183,7 @@ Expected: FAIL
 - [ ] **Step 3: Implement AssistOrchestrator**
 
 ```python
-# src/smartcs/services/assist/agent.py
+# src/lumio/services/assist/agent.py
 """坐席辅助编排器
 
 接收客户消息 → 并行分发(话术/知识/质检/产品) → 汇聚 → 节流 → 推送。
@@ -1195,11 +1197,11 @@ import logging
 import time
 from datetime import datetime
 
-from smartcs.services.assist.alert_engine import AlertEngine
-from smartcs.services.assist.product_catalog import ProductCatalog
-from smartcs.services.assist.script_service import ScriptService
-from smartcs.shared.config import get_settings
-from smartcs.shared.models import (
+from lumio.services.assist.alert_engine import AlertEngine
+from lumio.services.assist.product_catalog import ProductCatalog
+from lumio.services.assist.script_service import ScriptService
+from lumio.shared.config import get_settings
+from lumio.shared.models import (
     AlertObject,
     AssistPushMessage,
     AssistPushPayload,
@@ -1337,8 +1339,8 @@ class AssistOrchestrator:
         if not self._es_client:
             return []
         try:
-            from smartcs.shared.models import RetrieveRequest
-            from smartcs.services.common.retrieval import retrieve
+            from lumio.shared.models import RetrieveRequest
+            from lumio.services.common.retrieval import retrieve
 
             req = RetrieveRequest(query=message, top_k=self._settings.max_knowledge_per_push, rerank=True)
             resp = await retrieve(
@@ -1429,7 +1431,7 @@ Expected: 3 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/smartcs/services/assist/agent.py tests/test_assist_agent.py
+git add src/lumio/services/assist/agent.py tests/test_assist_agent.py
 git commit -m "feat: add AssistOrchestrator with parallel dispatch and per-branch timeout"
 ```
 
@@ -1438,7 +1440,7 @@ git commit -m "feat: add AssistOrchestrator with parallel dispatch and per-branc
 ### Task 10: WebSocket Router 重写
 
 **Files:**
-- Modify: `src/smartcs/services/assist/router.py`
+- Modify: `src/lumio/services/assist/router.py`
 
 - [ ] **Step 1: Rewrite router.py**
 
@@ -1454,7 +1456,7 @@ import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from smartcs.shared.models import (
+from lumio.shared.models import (
     AssistPushMessage,
     IntentLabel,
     SentimentLabel,
@@ -1590,13 +1592,13 @@ async def _heartbeat(websocket: WebSocket, interval: float = 15.0):
 - [ ] **Step 2: Verify imports work**
 
 ```bash
-poetry run python -c "from smartcs.services.assist.router import router; print('OK')"
+poetry run python -c "from lumio.services.assist.router import router; print('OK')"
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/smartcs/services/assist/router.py
+git add src/lumio/services/assist/router.py
 git commit -m "feat: rewrite assist WebSocket with orchestration, heartbeat, and throttle"
 ```
 
@@ -1605,8 +1607,8 @@ git commit -m "feat: rewrite assist WebSocket with orchestration, heartbeat, and
 ### Task 11: 依赖注入 + Lifespan 集成
 
 **Files:**
-- Modify: `src/smartcs/services/common/deps.py`
-- Modify: `src/smartcs/main.py`
+- Modify: `src/lumio/services/common/deps.py`
+- Modify: `src/lumio/main.py`
 
 - [ ] **Step 1: Add init/close functions in deps.py**
 
@@ -1618,10 +1620,10 @@ Add these after the existing `init_agent` / `close_agent` functions:
 
 async def init_assist_orchestrator(app) -> None:
     """初始化坐席辅助编排器"""
-    from smartcs.services.assist.agent import AssistOrchestrator
-    from smartcs.services.assist.alert_engine import AlertEngine
-    from smartcs.services.assist.product_catalog import ProductCatalog
-    from smartcs.services.assist.script_service import ScriptService
+    from lumio.services.assist.agent import AssistOrchestrator
+    from lumio.services.assist.alert_engine import AlertEngine
+    from lumio.services.assist.product_catalog import ProductCatalog
+    from lumio.services.assist.script_service import ScriptService
 
     # 话术服务（从 DB 加载，fallback 到内存）
     script_service = ScriptService()
@@ -1681,7 +1683,7 @@ AssistOrchestratorDep = Annotated[Any, Depends(lambda r: r.app.state.assist_orch
 
 - [ ] **Step 2: Update main.py assist_lifespan**
 
-In `src/smartcs/main.py`, add to the import from `smartcs.services.common.deps`:
+In `src/lumio/main.py`, add to the import from `lumio.services.common.deps`:
 ```python
     init_assist_orchestrator,
     close_assist_orchestrator,
@@ -1712,7 +1714,7 @@ Expected: Both services start, "坐席辅助编排器初始化完成" in logs.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/smartcs/services/common/deps.py src/smartcs/main.py
+git add src/lumio/services/common/deps.py src/lumio/main.py
 git commit -m "feat: add assist orchestrator dependency injection and lifespan integration"
 ```
 
@@ -1766,7 +1768,7 @@ import asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from smartcs.shared.orm_models import (
+from lumio.shared.orm_models import (
     AlertRule,
     AlertRuleCategory,
     AlertRuleLevel,
@@ -1777,7 +1779,7 @@ from smartcs.shared.orm_models import (
 
 async def seed_scripts(db: AsyncSession) -> None:
     """导入话术种子数据"""
-    from smartcs.services.assist.script_service import _SEED_SCRIPTS
+    from lumio.services.assist.script_service import _SEED_SCRIPTS
 
     for s in _SEED_SCRIPTS:
         exists = await db.execute(
@@ -1803,7 +1805,7 @@ async def seed_scripts(db: AsyncSession) -> None:
 
 async def seed_rules(db: AsyncSession) -> None:
     """导入告警规则种子数据"""
-    from smartcs.services.assist.alert_engine import _SEED_RULES
+    from lumio.services.assist.alert_engine import _SEED_RULES
 
     for r in _SEED_RULES:
         exists = await db.execute(
@@ -1827,8 +1829,8 @@ async def seed_rules(db: AsyncSession) -> None:
 
 
 async def main():
-    from smartcs.services.common.database import _create_async_engine
-    from smartcs.shared.config import get_settings
+    from lumio.services.common.database import _create_async_engine
+    from lumio.shared.config import get_settings
 
     settings = get_settings()
     engine = _create_async_engine(settings.database.dsn)

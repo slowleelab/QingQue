@@ -1,10 +1,12 @@
-# star-connection 集成到 SmartCS — 实施计划
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
+# star-connection 集成到 灵智（Lumio） — 实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 star-connection (Java 在线客服系统) 嵌入 SmartCS，实现 Bot 先行 → 转人工 → 坐席接管 + AI 辅助旁路的全链路闭环。
+**Goal:** 将 star-connection (Java 在线客服系统) 嵌入 灵智（Lumio），实现 Bot 先行 → 转人工 → 坐席接管 + AI 辅助旁路的全链路闭环。
 
-**Architecture:** HTTP 长轮询统一客户端通信，SmartCS Redis 作为单一会话状态源，star-connection 通过新增 API 接收转人工请求，agent-server 内部连 Assist WebSocket 获取 AI 辅助。
+**Architecture:** HTTP 长轮询统一客户端通信，灵智（Lumio） Redis 作为单一会话状态源，star-connection 通过新增 API 接收转人工请求，agent-server 内部连 Assist WebSocket 获取 AI 辅助。
 
 **Tech Stack:** FastAPI (Python), Spring Boot 3 + Netty + ZooKeeper (Java 17), Vue 3 + TypeScript, Redis, Maven
 
@@ -22,7 +24,7 @@ agent_project/
 │   │   └── callback/SessionCallback.java # 新增: 会话状态回调
 ├── deploy/
 │   └── docker-compose.yml                # +zookeeper
-├── src/smartcs/
+├── src/lumio/
 │   ├── services/bot/
 │   │   └── router.py                     # 大改: send + poll 端点
 │   ├── services/assist/
@@ -83,7 +85,7 @@ cd star-connection && mvn clean compile -q && echo "BUILD OK"
 
 ```bash
 git add star-connection/ .gitignore
-git commit -m "chore: relocate star-connection project into SmartCS"
+git commit -m "chore: relocate star-connection project into 灵智（Lumio）"
 ```
 
 ---
@@ -102,7 +104,7 @@ Read `deploy/docker-compose.yml` first, then append after the existing services:
   # ── 在线客服系统 ──
   zookeeper:
     image: zookeeper:3.8
-    container_name: smartcs-zk
+    container_name: lumio-zk
     ports:
       - "2181:2181"
     environment:
@@ -138,7 +140,7 @@ star-down:
 
 ```bash
 make up  # restart with new ZK service
-docker exec smartcs-zk echo ruok | nc localhost 2181
+docker exec lumio-zk echo ruok | nc localhost 2181
 ```
 Expected: `imok`
 
@@ -151,10 +153,10 @@ git commit -m "chore: add ZooKeeper to Docker Compose and star-connection Makefi
 
 ---
 
-### Task 3: SmartCS 新增轮询模型
+### Task 3: 灵智（Lumio） 新增轮询模型
 
 **Files:**
-- Modify: `src/smartcs/shared/models.py` (append)
+- Modify: `src/lumio/shared/models.py` (append)
 
 - [ ] **Step 1: Add poll-related models**
 
@@ -206,13 +208,13 @@ class SessionUpdateResponse(BaseModel):
 - [ ] **Step 2: Verify**
 
 ```bash
-poetry run python -c "from smartcs.shared.models import ChatSendRequest, ChatSendResponse, PollResponse, SessionUpdateRequest; print('OK')"
+poetry run python -c "from lumio.shared.models import ChatSendRequest, ChatSendResponse, PollResponse, SessionUpdateRequest; print('OK')"
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/smartcs/shared/models.py
+git add src/lumio/shared/models.py
 git commit -m "feat: add long-poll request/response and session update models"
 ```
 
@@ -221,7 +223,7 @@ git commit -m "feat: add long-poll request/response and session update models"
 ### Task 4: Bot 长轮询端点
 
 **Files:**
-- Modify: `src/smartcs/services/bot/router.py`
+- Modify: `src/lumio/services/bot/router.py`
 - Create: `tests/test_chat_poll.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -232,7 +234,7 @@ from __future__ import annotations
 
 import pytest
 from httpx import AsyncClient, ASGITransport
-from smartcs.main import bot_app
+from lumio.main import bot_app
 
 
 @pytest.fixture
@@ -306,8 +308,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from smartcs.services.common.deps import AgentDep, SessionManagerDep
-from smartcs.shared.models import (
+from lumio.services.common.deps import AgentDep, SessionManagerDep
+from lumio.shared.models import (
     ChatRequest,
     ChatResponse,
     ChatSendRequest,
@@ -349,7 +351,7 @@ async def chat_send(
         "channel": body.channel.value,
         "message_id": message_id,
     }
-    await redis.lpush("smartcs:chat:queue", json.dumps(task_data))
+    await redis.lpush("lumio:chat:queue", json.dumps(task_data))
 
     return ChatSendResponse(
         accepted=True,
@@ -368,7 +370,7 @@ async def chat_poll(
     """长轮询 — 阻塞等待新消息，无消息则等 timeout 秒后返回空"""
     app = request.app
     redis = app.state.redis_client
-    response_key = f"smartcs:response:{session_id}"
+    response_key = f"lumio:response:{session_id}"
 
     # 轮询等待（最长 timeout 秒）
     poll_interval = 0.5
@@ -398,7 +400,7 @@ async def process_chat_queue(app):
 
     while True:
         try:
-            _, raw = await redis.brpop("smartcs:chat:queue", timeout=1)
+            _, raw = await redis.brpop("lumio:chat:queue", timeout=1)
             if raw is None:
                 continue
             task = json.loads(raw) if isinstance(raw, bytes) else json.loads(raw)
@@ -415,7 +417,7 @@ async def process_chat_queue(app):
             )
 
             # 写入响应
-            response_key = f"smartcs:response:{session_id}"
+            response_key = f"lumio:response:{session_id}"
             poll_data = {
                 "has_message": True,
                 "reply": result.get("reply", ""),
@@ -445,7 +447,7 @@ Expected: 3 passed (or at least the poll endpoint is reachable)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/smartcs/services/bot/router.py tests/test_chat_poll.py
+git add src/lumio/services/bot/router.py tests/test_chat_poll.py
 git commit -m "feat: implement Bot long-poll send+poll endpoints with Redis queue"
 ```
 
@@ -454,10 +456,10 @@ git commit -m "feat: implement Bot long-poll send+poll endpoints with Redis queu
 ### Task 5: star-connection HTTP 客户端 + 转人工桥接
 
 **Files:**
-- Create: `src/smartcs/services/common/star_client.py`
+- Create: `src/lumio/services/common/star_client.py`
 - Create: `tests/test_star_client.py`
-- Modify: `src/smartcs/services/common/deps.py`
-- Modify: `src/smartcs/services/bot/router.py` (transfer logic)
+- Modify: `src/lumio/services/common/deps.py`
+- Modify: `src/lumio/services/bot/router.py` (transfer logic)
 
 - [ ] **Step 1: Write failing test**
 
@@ -466,7 +468,7 @@ git commit -m "feat: implement Bot long-poll send+poll endpoints with Redis queu
 from __future__ import annotations
 
 import pytest
-from smartcs.services.common.star_client import StarConnectionClient
+from lumio.services.common.star_client import StarConnectionClient
 
 
 @pytest.fixture
@@ -502,7 +504,7 @@ poetry run pytest tests/test_star_client.py -v
 - [ ] **Step 3: Implement StarConnectionClient**
 
 ```python
-# src/smartcs/services/common/star_client.py
+# src/lumio/services/common/star_client.py
 """star-connection HTTP 客户端封装"""
 
 from __future__ import annotations
@@ -512,7 +514,7 @@ from typing import Any
 
 import httpx
 
-from smartcs.shared.config import get_settings
+from lumio.shared.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -556,7 +558,7 @@ class StarConnectionClient:
             return resp.json()
 
     async def update_session(self, session_id: str, phase: str, agent_id: str | None = None) -> dict[str, Any]:
-        """POST /api/session/update — 回调 SmartCS 更新会话状态"""
+        """POST /api/session/update — 回调 灵智（Lumio） 更新会话状态"""
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.post(
                 f"{self._base_url}/api/session/update",
@@ -597,16 +599,16 @@ Expected: 2 passed
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/smartcs/services/common/star_client.py tests/test_star_client.py src/smartcs/services/common/deps.py
+git add src/lumio/services/common/star_client.py tests/test_star_client.py src/lumio/services/common/deps.py
 git commit -m "feat: add StarConnectionClient for transfer and session callback"
 ```
 
 ---
 
-### Task 6: SmartCS session/update 回调端点
+### Task 6: 灵智（Lumio） session/update 回调端点
 
 **Files:**
-- Modify: `src/smartcs/services/assist/router.py` (append endpoint)
+- Modify: `src/lumio/services/assist/router.py` (append endpoint)
 - Modify: `tests/test_assist_ws.py` (or reuse existing assist test)
 
 - [ ] **Step 1: Add callback endpoint to assist router**
@@ -636,7 +638,7 @@ async def session_update(body: SessionUpdateRequest, request: Request):
 
 Add imports:
 ```python
-from smartcs.shared.models import (
+from lumio.shared.models import (
     SessionUpdateRequest,
     SessionUpdateResponse,
     SessionPhase,
@@ -656,7 +658,7 @@ Expected: `{"status":"ok"}`
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/smartcs/services/assist/router.py
+git add src/lumio/services/assist/router.py
 git commit -m "feat: add session/update callback endpoint for star-connection"
 ```
 
@@ -665,8 +667,8 @@ git commit -m "feat: add session/update callback endpoint for star-connection"
 ### Task 7: Bot 转人工桥接集成
 
 **Files:**
-- Modify: `src/smartcs/services/bot/router.py` (update `process_chat_queue` to call star-connection on transfer)
-- Modify: `src/smartcs/main.py` (lifespan adds `process_chat_queue` task)
+- Modify: `src/lumio/services/bot/router.py` (update `process_chat_queue` to call star-connection on transfer)
+- Modify: `src/lumio/main.py` (lifespan adds `process_chat_queue` task)
 
 - [ ] **Step 1: Update process_chat_queue to handle transfer**
 
@@ -686,7 +688,7 @@ async def process_chat_queue(app):
 
     while True:
         try:
-            _, raw = await redis.brpop("smartcs:chat:queue", timeout=1)
+            _, raw = await redis.brpop("lumio:chat:queue", timeout=1)
             if raw is None:
                 continue
             task = json.loads(raw) if isinstance(raw, bytes) else json.loads(raw)
@@ -738,7 +740,7 @@ async def process_chat_queue(app):
                 except Exception as e:
                     logger.warning("转人工调用 star-connection 失败: %s", e)
 
-            response_key = f"smartcs:response:{session_id}"
+            response_key = f"lumio:response:{session_id}"
             await redis.set(response_key, json.dumps(poll_data, default=str), ex=120)
 
         except asyncio.CancelledError:
@@ -770,7 +772,7 @@ In shutdown (after `yield`), add:
 
 Also add imports to main.py:
 ```python
-from smartcs.services.bot.router import process_chat_queue
+from lumio.services.bot.router import process_chat_queue
 import asyncio
 ```
 
@@ -790,7 +792,7 @@ curl -s http://localhost:8001/api/health && echo " Assist OK"
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/smartcs/services/bot/router.py src/smartcs/main.py
+git add src/lumio/services/bot/router.py src/lumio/main.py
 git commit -m "feat: add transfer bridge from Bot to star-connection"
 ```
 
@@ -1163,7 +1165,7 @@ cd star-connection && mvn clean compile -q && echo "COMPILE OK"
 
 ```bash
 git add star-connection/agent-server/src/main/java/com/example/agentserver/assist/AssistClient.java
-git commit -m "feat: add AssistClient for connecting to SmartCS Assist WebSocket"
+git commit -m "feat: add AssistClient for connecting to 灵智（Lumio） Assist WebSocket"
 ```
 
 ---
@@ -1175,9 +1177,9 @@ git commit -m "feat: add AssistClient for connecting to SmartCS Assist WebSocket
 ```bash
 # Terminal 1: 中间件
 make up
-docker exec smartcs-zk echo ruok | nc localhost 2181  # expected: imok
+docker exec lumio-zk echo ruok | nc localhost 2181  # expected: imok
 
-# Terminal 2: SmartCS 后端
+# Terminal 2: 灵智（Lumio） 后端
 make dev
 
 # Terminal 3: star-connection

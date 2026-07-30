@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [Unreleased] - 2026-07-30
+
+### Changed
+- **重命名：SmartCS → Lumio / 灵智**（跨 3 个 commit）
+  - `4be1d67` — Python 包 `smartcs` → `lumio`，异常类 `SmartCSError` → `LumioError`（24 子类同改）
+  - `0908f82` — 资源 / 容器 / 镜像 / Java mcp-server / star-connection / proto / web 前端重命名；Java groupId `com.smartcs` → `com.lumio`
+  - (本 commit) — docs / history / UAT / blog 全部重写
+
+### Migration
+- env var: `SMARTCS_*` → `LUMIO_*`（16 个变量 + pydantic env_prefix）
+- PG db/user: `smartcs` → `lumio`，pass: `smartcs_pass` → `lumio_pass`
+- Redis key namespace: `smartcs:*` → `lumio:*`（旧数据需 RENAME 或重建）
+- Prometheus metric: `smartcs_*` → `lumio_*`（历史数据分裂，可加 alias）
+- Grafana dashboard: `smartcs-{overview,dashboard}.json` → `lumio-*`
+- web localStorage: `smartcs_token` → `lumio_token`（含自动迁移 shim）
+- K8s manifest: `deploy/k8s/smartcs.yaml` → `lumio.yaml`
+- Java class: `SmartcsClient` → `LumioClient`，`SmartcsSessionListener` → `LumioSessionListener`
+- 异常类: `SmartCSError` → `LumioError`
+
 ## [Unreleased]
 
 ### Changed

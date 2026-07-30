@@ -1,4 +1,4 @@
-# SmartCS 开发指南
+# 灵智（Lumio）开发指南
 
 > 本地开发环境、代码规范、测试与工作流。
 
@@ -29,7 +29,7 @@ make up && make init
 make pre-commit
 ```
 
-> ⚠️ **Python 版本**：项目要求 `^3.11`。若 Poetry 误选了更高版本，请先 `poetry env use python3.11` 再 `make install`。
+> 注意：项目要求 `^3.11`。若 Poetry 误选了更高版本，请先 `poetry env use python3.11` 再 `make install`。
 
 ## 常用命令
 
@@ -38,17 +38,23 @@ make pre-commit
 | `make install` | 安装依赖（Poetry） |
 | `make dev` | 启动 Bot(:8000) + Assist(:8001)，--reload |
 | `make test` | 运行 pytest |
-| `make test-cov` | 覆盖率测试（≥60%） |
+| `make test-cov` | 覆盖率测试（≥60%，source = `lumio`） |
 | `make lint` | Ruff 检查并自动修复 |
 | `make format` | Ruff 格式化 |
-| `make type-check` | mypy 类型检查 |
+| `make type-check` | mypy 类型检查（src = `lumio`） |
 | `make pre-commit` | 安装并运行 pre-commit |
 | `make up` / `make down` | 启停中间件 |
 | `make init` | 初始化 Milvus / ES / Kafka |
 | `make verify` | 校验中间件连通性 |
-| `make proto` | 编译 gRPC proto |
+| `make proto` | 编译 gRPC proto（package `lumio`） |
 | `make migrate` | 数据库迁移 |
 | `make migrate-create msg="..."` | 新建迁移 |
+| `make mcp-ref` | 启动参考 MCP Server（`lumio.services.tools.reference_server`） |
+| `make mcp-server-run` | 启动 Java MCP Server（端口 8090，profile=dev） |
+| `make mcp-server-build` | 构建 Java MCP Server 镜像 |
+| `make gateway-up` | 拉起 Higress + Nacos + Java MCP（gateway profile） |
+| `make bench` / `make bench-micro` | 跑 Locust 压测 / 微基准（`scripts/bench_micro.py`） |
+| `make verify-mcp-e2e` | MCP 工具工程联调 harness |
 
 > 所有 Python 命令经 Poetry 运行：`poetry run <cmd>`。
 
@@ -60,10 +66,11 @@ make pre-commit
 | Python | 3.11 |
 | 引号 | 双引号 |
 | Ruff 规则 | E, W, F, I, N, UP, B, A, SIM, RUF |
-| isort | `known-first-party = ["smartcs"]` |
-| mypy | 源码 `disallow_untyped_defs = true`（测试放宽） |
+| isort | `known-first-party = ["lumio"]` |
+| mypy | 源码 `disallow_untyped_defs = true`（测试放宽）；`mypy_path = $MYPY_CONFIG_FILE_DIR/src` |
 | 模块头 | 每个模块以 `from __future__ import annotations` 开头 |
 | 语言 | 用户可见字符串与 docstring 用**中文**；标识符用英文 |
+| 异常基类 | `LumioError`（24 个子类，统一错误码） |
 
 **Pre-commit** 会自动执行：ruff（fix）、ruff-format、mypy，以及通用检查（行尾空白、YAML/JSON 校验、大文件、合并冲突、私钥检测）。提交前请确保通过。
 
@@ -71,11 +78,13 @@ make pre-commit
 
 - **框架**：pytest + pytest-asyncio（`asyncio_mode = "auto"`）
 - **Fixtures**：`bot_client` / `assist_client`（httpx.AsyncClient），见 `agent/tests/conftest.py`
-- **覆盖率**：≥60%，启用分支覆盖，source = `smartcs`
+- **覆盖率**：≥60%，启用分支覆盖，source = `lumio`
+- **测试规模**：当前 728 条测试（其中 688 通过、40 跳过）
 
 ```bash
 make test                 # 单元/集成测试（不依赖真实中间件的部分）
 poetry run pytest tests/test_integration.py -v   # 指定文件
+poetry run pytest -q      # 全部（CI 模式）
 ```
 
 > 部分 E2E/API 测试需要真实中间件（端口可达）。未启动中间件时会以"服务启动超时"标记为 error，属预期；可先 `make up` 再跑。
@@ -83,21 +92,24 @@ poetry run pytest tests/test_integration.py -v   # 指定文件
 ## 项目结构
 
 ```
-agent/smartcs/            # 主包
-  main.py                 # App 工厂 + lifespan
-  shared/                 # 横切模块（config/exceptions/logger/middleware/models/orm）
+agent/lumio/              # 主包（原 smartcs，重命名后）
+  main.py                 # App 工厂 + lifespan（bot_app / assist_app）
+  shared/                 # 横切模块（config/exceptions/logger/middleware/models/orm/metrics）
   services/
-    bot/                  # Bot 自助服务（app/router/prompts/bot_agent/knowledge_graph）
-    assist/               # 坐席辅助（app/router/agent/arbitrator/executors/...）
-    common/               # 共享基础设施（retrieval/embedding/reranker/session/
-                          #   degradation/circuit_breaker/audit/pii/auth_router/...）
-agent/proto/              # gRPC 定义
-agent/scripts/            # 初始化/验证脚本
-agent/alembic/            # DB 迁移
-agent/tests/              # pytest
-config/                   # Prometheus/Grafana（监控单一事实源）
-deploy/                   # Docker/nginx/k8s
-docs/                     # 技术文档
+    bot/                  # Bot 自助服务（app/router/prompts/bot_agent/tool_executor/tool_guard）
+    assist/               # 坐席辅助（app/router/ai_executor/summary/alert_engine）
+    common/               # 共享基础设施（session/retrieval/ingestion/classifier/
+                          #   auth_router/database/deps/...）
+    tools/                # reference_server.py（FastMCP mock）
+  alembic/                # DB 迁移
+  scripts/                # 初始化/验证脚本（init_milvus/elasticsearch/kafka/minio/temporal, verify_*）
+  tests/                  # pytest（728 条）
+mcp-server/               # Java Spring AI MCP Server（com.lumio.mcp, 22 tools, mock）
+star-connection/          # Java 客户/坐席长连接（customer-server :8080 / agent-server :8081）
+web/                      # Vue 3 + TS 前端（/、/agent、/admin、/login）
+deploy/                   # docker-compose / Dockerfile / k8s/lumio.yaml / higress/
+config/                   # prometheus / grafana（单一事实源）
+docs/                     # 技术文档（本目录）
 ```
 
 ## 开发工作流
@@ -117,4 +129,4 @@ docs/                     # 技术文档
 
 ## 相关文档
 
-- [架构](./architecture.md) ｜ [API](./api-reference.md) ｜ [部署](./deployment.md) ｜ [配置](./configuration.md)
+- [架构](./architecture.md) ｜ [API](./api-reference.md) ｜ [部署](./deployment.md) ｜ [配置](./configuration.md) ｜ [基准](./benchmark.md)

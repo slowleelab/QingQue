@@ -1,6 +1,6 @@
-# SmartCS 部署指南
+# 灵智（Lumio）部署指南
 
-> 中间件（Docker Compose）与编排服务的启动、初始化与验证。
+> 中间件（Docker Compose）、Kubernetes 与 AI 网关（Higress + Nacos）的启动、初始化与验证。
 
 ## 目录
 
@@ -10,6 +10,8 @@
 - [中间件清单与端口](#中间件清单与端口)
 - [初始化](#初始化)
 - [启动编排服务](#启动编排服务)
+- [Kubernetes 部署](#kubernetes-部署)
+- [AI 网关（Higress + Nacos，可选）](#ai-网关higress--nacos可选)
 - [验证](#验证)
 - [监控](#监控)
 - [常见问题](#常见问题)
@@ -21,9 +23,10 @@
 | 依赖 | 版本 | 用途 |
 |------|------|------|
 | Docker / Docker Compose | 24+ | 全部中间件 |
-| Python | 3.11 | 编排服务（agent / knowledge-platform） |
+| Python | 3.11 | 编排服务（`agent/`） |
 | Poetry | 1.7+ | Python 依赖管理 |
-| Node / pnpm | 20+ / 9+ | 前端（web/，可选） |
+| Node / pnpm | 20+ / 9+ | 前端（`web/`，可选） |
+| Java / Maven | 21+ / 3.9+ | `mcp-server` 与 `star-connection` 构建 |
 | Ollama | 最新 | 本地 LLM（Qwen2.5-7B），可选 |
 
 ## 一键 Demo
@@ -55,7 +58,7 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 ```bash
 # 1. 克隆后配置环境变量
-cp .env.example .env          # 按需修改
+cp .env.example .env          # 按需修改（默认指向 lumio-postgres 等容器名）
 
 # 2. 启动全部中间件
 make up                        # = docker compose -f deploy/docker-compose.yml up -d
@@ -70,34 +73,33 @@ make dev
 
 ## 中间件清单与端口
 
-`deploy/docker-compose.yml` 编排以下服务：
+`deploy/docker-compose.yml` 编排以下服务（重命名后全部容器以 `lumio-` 为前缀）：
 
-| 服务 | 镜像 | 端口（宿主机:容器） | 用途 |
-|------|------|---------------------|------|
-| postgres | postgres:16 | 5432:5432 | 业务真相源 |
-| redis | redis:7.2-alpine | 6379:6379 | 会话/缓存/Pub-Sub |
-| elasticsearch | smartcs/elasticsearch-ik:8.19.9 | 9200:9200, 9300:9300 | 全文检索（IK 分词） |
-| etcd | quay.io/coreos/etcd:v3.5.5 | — | Milvus 元数据 |
-| minio | minio/minio | 9000:9000, 9001:9001 | 对象存储（9001 控制台） |
-| milvus | milvusdb/milvus:v2.4.0 | 19530:19530, 9091:9091 | 向量检索 |
-| kafka | apache/kafka:3.7.0 | 9092:9092, 9094:9094 | 消息队列（KRaft） |
-| zookeeper | zookeeper:3.8 | 2182:2181 | Kafka 协调 |
-| temporal | — | — | 工作流引擎 |
-| redis-exporter | oliver006/redis_exporter | 9121:9121 | Redis 指标 |
-| postgres-exporter | postgres-exporter | 9187:9187 | PG 指标 |
-| kafka-exporter | danielqsj/kafka-exporter | 9308:9308 | Kafka 指标 |
-| prometheus | prom/prometheus:v2.50.0 | 9090:9090 | 指标聚合 |
-| grafana | grafana/grafana:10.4.0 | **3001**:3000 | 监控看板 |
-| nginx | nginx:1.25-alpine | 8080:80 | 接入层 |
-| nacos | nacos/nacos-server:v2.4.3 | 8848:8848, 9848:9848 | 服务发现 + MCP Registry（`gateway` profile，默认不启动） |
-| higress | higress/all-in-one:2.1.5 | 10000:80, 8443:443, 18080:8080 | AI 网关统一 MCP 数据面 + 控制台（`gateway` profile，默认不启动） |
-| mcp-server | lumio-mcp-server:1.0.0（本地构建） | 8090:8090 | Java 信用卡 MCP 工具服务（mock 数据，`gateway` profile，默认不启动） |
+| 容器名 | 镜像 | 宿主机:容器 | 用途 |
+|--------|------|-------------|------|
+| `lumio-postgres` | `postgres:16` (+ PostGIS 3.4) | 5432:5432 | 业务真相源 |
+| `lumio-redis` | `redis:7.2-alpine` | 6379:6379 | 会话/缓存/Pub-Sub |
+| `lumio-elasticsearch` | `lumio/elasticsearch-ik:8.19.9` | 9200:9200, 9300:9300 | 全文检索（IK 分词） |
+| `lumio-etcd` | `quay.io/coreos/etcd:v3.5.5` | — | Milvus 元数据 |
+| `lumio-minio` | `minio/minio` | 9000:9000, 9001:9001 | 对象存储（9001 控制台） |
+| `lumio-milvus` | `milvusdb/milvus:v2.4.0` | 19530:19530, 9091:9091 | 向量检索 |
+| `lumio-kafka` | `apache/kafka:3.7.0` | 9092:9092, 9094:9094 | 消息队列（KRaft 模式） |
+| `lumio-redis-exporter` | `oliver006/redis_exporter` | 9121:9121 | Redis 指标 |
+| `lumio-postgres-exporter` | postgres-exporter | 9187:9187 | PG 指标 |
+| `lumio-kafka-exporter` | `danielqsj/kafka-exporter` | 9308:9308 | Kafka 指标 |
+| `lumio-prometheus` | `prom/prometheus:v2.50.0` | 9090:9090 | 指标聚合 |
+| `lumio-grafana` | `grafana/grafana:10.4.0` | **3001**:3000 | 监控看板 |
+| `lumio-nginx` | `nginx:1.25-alpine` | 8080:80 | 接入层 |
+| `lumio-nacos` | `nacos/nacos-server:v2.4.3` | 8848:8848, 9848:9848 | 服务发现 + MCP Registry（`gateway` profile） |
+| `lumio-higress` | `higress/all-in-one:2.1.5` | 10000:80, 8443:443, 18080:8080 | AI 网关统一 MCP 数据面（`gateway` profile） |
+| `mcp-server` | `lumio-mcp-server:1.0.0`（本地构建） | 8090:8090 | Java 信用卡 MCP 工具服务（`gateway` profile） |
 
 > **Grafana 宿主机端口为 3001**（避免与常见 3000 冲突），容器内仍是 3000。
+> 全部容器加入 `lumio-net` 网络，镜像 registry 统一为 `docker.io/slowleelab/...`。
 
 ## AI 网关（Higress + Nacos，可选）
 
-`nacos`、`higress` 与 `mcp-server` 归入 Docker Compose 的 `gateway` profile，**默认 `make up` 不启动**，对现有部署零回归。仅当启用 MCP 工具层（`MCP_ENABLED=true`）、需要经统一治理平面调用信用卡工具时才拉起：
+`lumio-nacos`、`lumio-higress` 与 `mcp-server` 归入 Docker Compose 的 `gateway` profile，**默认 `make up` 不启动**，对现有部署零回归。仅当启用 MCP 工具层（`MCP_ENABLED=true`）、需要经统一治理平面调用信用卡工具时才拉起：
 
 ```bash
 # 1. 启动 Higress + Nacos + Java MCP Server（opt-in profile，mcp-server 随之构建并注册到 Nacos）
@@ -111,12 +113,12 @@ cd mcp-server && mvn spring-boot:run -Dspring-boot.run.profiles=nacos
 make verify
 ```
 
-> `gateway` profile 下的 `mcp-server` 服务以 `prod,nacos` profile 启动：优雅停机 + actuator 暴露面收敛 + 注册到 Nacos（实例 IP = 容器服务名 `mcp-server`），由 Higress 经服务发现路由。镜像来自 `mcp-server/Dockerfile`（多阶段、非 root、健康探针），首次 `make gateway-up` 会自动构建。
+> `gateway` profile 下的 `mcp-server` 服务以 `prod,nacos` profile 启动：优雅停机 + actuator 暴露面收敛 + 注册到 Nacos（实例 IP = 容器服务名 `mcp-server`），由 Higress 经服务发现路由。镜像来自 `mcp-server/Dockerfile`（多阶段、非 root、健康探针），首次 `make gateway-up` 会自动构建。Java groupId `com.lumio:mcp-server`、artifactId `lumio-mcp-server`、Nacos service `lumio-mcp-server`。
 
 架构（单平面·单治理）：
 
 ```
-Python 编排大脑（bot_agent → ToolCallingExecutor → MCPToolClient）
+Python 编排大脑（bot_agent → ToolCallingExecutor → LumioToolClient）
         │ streamable-http  MCP_ENDPOINT=http://localhost:10000/mcp/credit-card
         ▼
    Higress AI 网关（限流 / 鉴权 / 工具审计；SSE ↔ streamable-http 桥接）
@@ -132,14 +134,14 @@ Python 编排大脑（bot_agent → ToolCallingExecutor → MCPToolClient）
 | Higress MCP 入口 | 10000 | Python 客户端统一 MCP 数据面（streamable-http） |
 | Higress 控制台 | 18080 | 路由 / 治理策略管理 |
 
-> 传输差异：Spring AI 1.0.x 的 WebMVC MCP Server 走 **SSE**（`/sse` + `/mcp/message`），Python `MCPToolClient` 走 **streamable-http**，两者由 Higress 桥接。路由参考配置见 `deploy/higress/mcp-credit-card.yaml`，治理与红线说明见 `deploy/higress/README.md`。
+> 传输差异：Spring AI 1.0.x 的 WebMVC MCP Server 走 **SSE**（`/sse` + `/mcp/message`），Python `LumioToolClient` 走 **streamable-http**，两者由 Higress 桥接。路由参考配置见 `deploy/higress/mcp-credit-card.yaml`，治理与红线说明见 `deploy/higress/README.md`。
 
 ### 端到端联调验证（不依赖 Higress / Docker）
 
 `make verify-mcp-e2e`（脚本 `agent/scripts/verify_mcp_e2e.py`）用两条互补链路验证 MCP 工具工程可用性：
 
 1. **阶段 1 — Java 直连**：Python `mcp` SSE 客户端直连 `http://localhost:8090/sse`，断言 **22 个工具**并跑只读 / 写 / 幂等 / 业务错误代表性用例。
-2. **阶段 2 — 渐进式暴露**：参考 MCP Server（进程内内存传输）↔ `MCPToolClient` ↔ `ToolCallingExecutor`，开启渐进式暴露后按意图裁剪工具子集，交真实 LLM 自主调用。
+2. **阶段 2 — 渐进式暴露**：参考 MCP Server（进程内内存传输）↔ `LumioToolClient` ↔ `ToolCallingExecutor`，开启渐进式暴露后按意图裁剪工具子集，交真实 LLM 自主调用。
 3. **阶段 0 — 静态一致性**：校验 `intent_tool_map` 引用的工具名都存在于工具目录。
 
 harness **友好降级**：缺 live Java（:8090）或本地 LLM（Ollama :11434）时相关阶段判定为 SKIP 并给出启动指引，仅硬性契约（工具数、幂等、错误、渐进式裁剪）失败才以非零码退出；全程仅连接 mock / 参考工具，绝不触达真实银行系统。
@@ -158,17 +160,18 @@ make verify-mcp-e2e                            # 运行联调 harness
 
 ### 路由模式：多 MCP 后端
 
-`MCPToolClient` 支持连接多个 MCP 后端并在 host 侧合并工具目录：每个后端按 `prefix` 生成域命名空间工具名（如 `card.query_card_bill`）防撞名，并建立 `name→(server, raw_name)` 分发索引，调用时去前缀后派发到对应后端。经 `MCP_BACKENDS`（JSON 数组）配置：
+`LumioToolClient` 支持连接多个 MCP 后端并在 host 侧合并工具目录：每个后端按 `prefix` 生成域命名空间工具名（如 `card.query_card_bill`）防撞名，并建立 `name→(server, raw_name)` 分发索引，调用时去前缀后派发到对应后端。经 `MCP_BACKENDS`（JSON 数组）配置：
 
 ```
                        ┌─ 后端 A（prefix "card."）→ 账单/额度/分期…
-MCPToolClient ─合并目录─┤
+LumioToolClient ─合并目录─┤
    (name→server 分发)   └─ 后端 B（prefix "pts.")  → 积分/权益…
 ```
 
 - **优雅降级**：某后端连接或列举失败时仅其工具缺席，其余后端与主链路不受影响；对应意图自然回落知识问答或转人工。
 - **零回归**：`MCP_BACKENDS` 留空 → 退回单后端（用 `MCP_ENDPOINT`、空前缀、工具名与 schema 契约不变）。
 
+---
 
 ## 初始化
 
@@ -178,9 +181,9 @@ make init
 
 执行 `agent/scripts/` 下的初始化脚本：
 
-- `init_elasticsearch.py` — 创建 ES 索引（IK 分词映射）
-- `init_milvus.py` — 创建 Milvus 集合与向量索引
-- Kafka topic 创建
+- `init_elasticsearch.py` — 创建 ES 索引（IK 分词映射），索引名 `lumio_documents` / `lumio_faq`
+- `init_milvus.py` — 创建 Milvus 集合 `lumio_chunks` 与向量索引
+- Kafka topic 创建（`lumio.chat.queue`）
 - `init_temporal.py` — Temporal namespace / 工作流注册
 
 数据库表结构迁移：
@@ -196,12 +199,54 @@ make migrate-create msg="..."  # 新建迁移
 make dev        # 同时启动 Bot(:8000) + Assist(:8001)，--reload 热重载
 ```
 
+`make dev` 内部执行：
+
+```bash
+poetry run uvicorn lumio.main:bot_app    --host 0.0.0.0 --port 8000 --reload
+poetry run uvicorn lumio.main:assist_app --host 0.0.0.0 --port 8001 --reload
+```
+
 或分别启动（在 `agent/` 目录）：
 
 ```bash
-poetry run uvicorn smartcs.main:create_bot_app --factory --port 8000 --reload
-poetry run uvicorn smartcs.main:create_assist_app --factory --port 8001 --reload
+poetry run uvicorn lumio.main:bot_app    --host 0.0.0.0 --port 8000 --reload
+poetry run uvicorn lumio.main:assist_app --host 0.0.0.0 --port 8001 --reload
 ```
+
+### 本地启动 Java 工具服务
+
+```bash
+make mcp-server-build   # mvn -B package
+make mcp-server-run     # 另开终端：mvn spring-boot:run（端口 8090）
+```
+
+## Kubernetes 部署
+
+K8s 清单在 `deploy/k8s/lumio.yaml`（重命名后从 `smartcs.yaml` 改为 `lumio.yaml`），包含两个核心工作负载：
+
+| 资源 | 说明 |
+|------|------|
+| `Deployment lumio-bot` + `Service` + `HPA` | Bot 编排服务（端口 8000） |
+| `Deployment lumio-assist` + `Service` + `HPA` | Assist 编排服务（端口 8001） |
+
+```bash
+# 应用清单
+kubectl apply -f deploy/k8s/lumio.yaml -n lumio
+
+# 准备命名空间
+kubectl create namespace lumio
+
+# 配置 ConfigMap / Secret（建议从 .env 转换）
+kubectl -n lumio create secret generic lumio-secrets \
+  --from-literal=LUMIO_JWT_SECRET=... \
+  --from-literal=POSTGRES_PASSWORD=...
+
+# 滚动升级
+kubectl -n lumio rollout restart deployment/lumio-bot
+kubectl -n lumio rollout restart deployment/lumio-assist
+```
+
+> 关键 env：`LUMIO_ENVIRONMENT`、`LUMIO_JWT_SECRET`。其他配置可通过 `ConfigMap` 注入或复用 `agent/.env.example`。
 
 ## 验证
 
@@ -212,20 +257,23 @@ make verify     # 校验各中间件连通性
 服务健康检查：
 
 ```bash
-curl http://localhost:8000/api/health    # Bot
-curl http://localhost:8001/api/health    # Assist
+curl http://localhost:8000/api/health        # Bot
+curl http://localhost:8001/api/health        # Assist
+curl http://localhost:8090/sse               # Java MCP Server（gateway profile）
 ```
 
 ## 监控
 
-- Prometheus：<http://localhost:9090>
-- Grafana：<http://localhost:3001>（默认账号见 `.env` 的 `GF_ADMIN_USER` / `GF_ADMIN_PASSWORD`）
-- 看板与数据源已 provisioning 自动加载，配置文件在 [`config/grafana/`](../config/grafana/)
+- Prometheus：<http://localhost:9090>（容器 `lumio-prometheus`）
+- Grafana：<http://localhost:3001>（容器 `lumio-grafana`，默认账号见 `.env` 的 `GF_ADMIN_USER` / `GF_ADMIN_PASSWORD`）
+- Jaeger：<http://localhost:16686>（容器 `lumio-jaeger`，opt-in profile）
+- 看板与数据源已 provisioning 自动加载，配置文件在 [`config/grafana/`](../config/grafana/)（`lumio-overview.json` / `lumio-dashboard.json`）
+- 日志位置：每个容器 stdout，可通过 `docker logs <container>` 或 `make demo-logs` 查看
 
 ## 常见问题
 
 **Q: ES 启动报分词器错误？**
-A: 必须使用带 IK 分词器的镜像 `smartcs/elasticsearch-ik`（由 `deploy/elasticsearch/Dockerfile` 构建）。
+A: 必须使用带 IK 分词器的镜像 `lumio/elasticsearch-ik:8.19.9`（由 `deploy/elasticsearch/Dockerfile` 构建）。
 
 **Q: Milvus 连接失败？**
 A: Milvus 依赖 etcd 与 MinIO，需等其依赖健康后再启动；`docker compose up` 已配置依赖顺序，个别机器首次启动较慢。
@@ -235,6 +283,9 @@ A: 配置 `LLM_BASE_URL` 指向兼容 OpenAI 的接口，或利用内置降级�
 
 **Q: 端口冲突？**
 A: 修改 `deploy/docker-compose.yml` 端口映射，或调整 `.env` 中对应 `*_PORT`。
+
+**Q: 从历史 `smartcs` 命名空间升级？**
+A: 旧 PG / Redis 数据可通过 `ALTER DATABASE smartcs RENAME TO lumio` 与 `RENAME` Redis key 前缀完成迁移；Prometheus 指标可加 `metric_relabel_configs` 做 alias。
 
 ---
 

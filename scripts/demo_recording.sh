@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SmartCS 一键 Demo 演示脚本（用于录制 README 首屏 GIF）
+# 灵智（Lumio）一键 Demo 演示脚本（用于录制 README 首屏 GIF）
 # 用法: 先 `make demo`，待 bot/assist healthy 后运行本脚本。
 set -uo pipefail
 
@@ -25,7 +25,7 @@ send_chat() {
 }
 
 printf '╭────────────────────────────────────────────╮\n'
-printf '│  SmartCS · 银行信用卡智能客服 · 一键 Demo   │\n'
+printf '│  灵智（Lumio）· 银行信用卡智能客服 · 一键 Demo   │\n'
 printf '╰────────────────────────────────────────────╯\n'
 sleep 1
 

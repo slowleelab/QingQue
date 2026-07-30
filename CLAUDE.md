@@ -46,10 +46,10 @@ make gateway-down     # Stop Higress + Nacos
 - **Python target**: 3.11
 - **Quotes**: double quotes
 - **Ruff rules**: E, W, F, I, N, UP, B, A, SIM, RUF
-- **isort**: `known-first-party = ["smartcs"]`
+- **isort**: `known-first-party = ["lumio"]`
 - **mypy**: `disallow_untyped_defs = true` on source, relaxed for tests
 - **Every module** starts with `from __future__ import annotations`
-- **Package layout**: package is `smartcs/` (directly under `agent/`)
+- **Package layout**: package is `lumio/` (directly under `agent/`, renamed from `smartcs/` in commit 4be1d67)
 - **Package manager**: Poetry — always use `poetry run` for commands
 - **Pre-commit**: runs ruff (fix), ruff-format, mypy, plus generic checks (trailing whitespace, YAML/JSON validation, large files, merge conflicts, private keys)
 
@@ -66,7 +66,7 @@ make gateway-down     # Stop Higress + Nacos
 ## Project Structure
 
 ```
-agent/smartcs/            # Main package
+agent/lumio/               # Main package (renamed from smartcs)
   main.py                 # App factories + lifespan managers
   shared/                 # Cross-cutting modules
     config.py             # Pydantic-settings (12 sub-configs)
@@ -102,7 +102,7 @@ agent/tests/              # pytest with httpx AsyncClient fixtures
 
 - **Framework**: pytest + pytest-asyncio (asyncio_mode = "auto")
 - **Fixtures**: `bot_client` and `assist_client` httpx.AsyncClient fixtures in `tests/conftest.py`
-- **Coverage**: 60% minimum, branch coverage enabled, source = `smartcs`
+- **Coverage**: 60% minimum, branch coverage enabled, source = `lumio`
 - **CI**: GitHub Actions — lint, type-check, test on every push
 
 ## Sprint Status

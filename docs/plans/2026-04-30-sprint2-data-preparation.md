@@ -1,8 +1,10 @@
+> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+
 # Sprint 2 数据准备实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 实现 SmartCS Sprint 2 的数据准备层——ORM 模型、Alembic 迁移、嵌入服务、文档处理管道、种子数据脚本和基础设施初始化。
+**Goal:** 实现 灵智（Lumio） Sprint 2 的数据准备层——ORM 模型、Alembic 迁移、嵌入服务、文档处理管道、种子数据脚本和基础设施初始化。
 
 **Architecture:** 按依赖顺序分 8 个任务：先建 ORM 模型和迁移（下游所有模块依赖），再建嵌入服务抽象层（管道依赖），然后实现 6 阶段文档处理管道，最后补充种子数据和基础设施脚本。每个任务产出可独立测试的模块。
 
@@ -14,15 +16,15 @@
 
 | File | Responsibility |
 |------|---------------|
-| `src/smartcs/shared/orm_models.py` | SQLAlchemy Base + 3 张知识库表 (kb_document, kb_chunk, kb_ingestion_log) + PG ENUM 类型 |
-| `src/smartcs/shared/models.py` | 新增 DocumentMetadata Pydantic 模型 + CategoryEnum |
-| `src/smartcs/shared/config.py` | RAGSettings 扩展新字段 |
-| `src/smartcs/shared/exceptions.py` | 新增 6 个异常类 |
-| `src/smartcs/services/common/embedding.py` | EmbeddingProvider Protocol + OllamaEmbedding + TEIEmbedding + 熔断器 |
-| `src/smartcs/services/common/reranker.py` | RerankerProvider Protocol + OllamaReranker + TEIReranker |
-| `src/smartcs/services/common/ingestion.py` | 6 阶段文档处理管道 (Parse→Clean→Chunk→Embed→DualWrite→Publish) |
-| `src/smartcs/services/common/deps.py` | 新增嵌入/重排依赖注入 |
-| `src/smartcs/main.py` | lifespan 增加嵌入/重排初始化 |
+| `src/lumio/shared/orm_models.py` | SQLAlchemy Base + 3 张知识库表 (kb_document, kb_chunk, kb_ingestion_log) + PG ENUM 类型 |
+| `src/lumio/shared/models.py` | 新增 DocumentMetadata Pydantic 模型 + CategoryEnum |
+| `src/lumio/shared/config.py` | RAGSettings 扩展新字段 |
+| `src/lumio/shared/exceptions.py` | 新增 6 个异常类 |
+| `src/lumio/services/common/embedding.py` | EmbeddingProvider Protocol + OllamaEmbedding + TEIEmbedding + 熔断器 |
+| `src/lumio/services/common/reranker.py` | RerankerProvider Protocol + OllamaReranker + TEIReranker |
+| `src/lumio/services/common/ingestion.py` | 6 阶段文档处理管道 (Parse→Clean→Chunk→Embed→DualWrite→Publish) |
+| `src/lumio/services/common/deps.py` | 新增嵌入/重排依赖注入 |
+| `src/lumio/main.py` | lifespan 增加嵌入/重排初始化 |
 | `alembic/env.py` | 修复 target_metadata + URL 动态化 |
 | `alembic/versions/001_create_kb_tables.py` | 初始迁移（由 autogenerate 生成后微调） |
 | `scripts/init_milvus.py` | 补齐过滤字段 + content VARCHAR(65535) |
@@ -37,7 +39,7 @@
 ### Task 1: ORM 模型 + PG ENUM 类型
 
 **Files:**
-- Create: `src/smartcs/shared/orm_models.py`
+- Create: `src/lumio/shared/orm_models.py`
 - Create: `tests/test_orm_models.py`
 
 - [ ] **Step 1: Write failing test for ORM models**
@@ -52,7 +54,7 @@ import uuid
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from smartcs.shared.orm_models import (
+from lumio.shared.orm_models import (
     Base,
     KbDocument,
     KbChunk,
@@ -201,11 +203,11 @@ def test_document_uuid_v7_ordered():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run pytest tests/test_orm_models.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'smartcs.shared.orm_models'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lumio.shared.orm_models'`
 
 - [ ] **Step 3: Write ORM models implementation**
 
-Create `src/smartcs/shared/orm_models.py`:
+Create `src/lumio/shared/orm_models.py`:
 
 ```python
 """知识库 ORM 模型
@@ -417,7 +419,7 @@ Expected: All 5 tests PASS
 
 ```bash
 cd /Users/qiangli/CodeBuddy/agent_project
-git add src/smartcs/shared/orm_models.py tests/test_orm_models.py
+git add src/lumio/shared/orm_models.py tests/test_orm_models.py
 git commit -m "feat: add ORM models for knowledge base (kb_document, kb_chunk, kb_ingestion_log)"
 ```
 
@@ -436,7 +438,7 @@ Replace lines 19-22 of `alembic/env.py`:
 
 ```python
 # 导入 Base metadata（需要根据实际模型路径调整）
-# from smartcs.shared.models import Base
+# from lumio.shared.models import Base
 # target_metadata = Base.metadata
 target_metadata = None
 ```
@@ -444,8 +446,8 @@ target_metadata = None
 with:
 
 ```python
-from smartcs.shared.orm_models import Base  # noqa: F401
-import smartcs.shared.orm_models  # noqa: F401 — 确保所有模型注册到 Base.metadata
+from lumio.shared.orm_models import Base  # noqa: F401
+import lumio.shared.orm_models  # noqa: F401 — 确保所有模型注册到 Base.metadata
 
 target_metadata = Base.metadata
 ```
@@ -470,7 +472,7 @@ Replace `run_async_migrations` function (lines 46-57) with:
 async def run_async_migrations() -> None:
     """在线模式：异步执行迁移"""
     # 从 DatabaseSettings 动态获取 URL，覆盖 alembic.ini 硬编码值
-    from smartcs.shared.config import get_settings
+    from lumio.shared.config import get_settings
     settings = get_settings()
     config.set_main_option("sqlalchemy.url", settings.database.dsn)
 
@@ -491,14 +493,14 @@ async def run_async_migrations() -> None:
 Replace line 5 of `alembic.ini`:
 
 ```
-sqlalchemy.url = postgresql+asyncpg://smartcs:smartcs_pass@localhost:5432/smartcs
+sqlalchemy.url = postgresql+asyncpg://lumio:lumio_pass@localhost:5432/lumio
 ```
 
 with:
 
 ```
 # URL 由 alembic/env.py 从 DatabaseSettings 动态获取，此值仅作 fallback
-sqlalchemy.url = postgresql+asyncpg://smartcs:smartcs_pass@localhost:5432/smartcs
+sqlalchemy.url = postgresql+asyncpg://lumio:lumio_pass@localhost:5432/lumio
 ```
 
 - [ ] **Step 3: Generate initial migration**
@@ -533,39 +535,39 @@ git commit -m "fix: repair alembic env.py, add initial kb_tables migration"
 ### Task 3: 异常类 + Pydantic 模型扩展 + 配置扩展
 
 **Files:**
-- Modify: `src/smartcs/shared/exceptions.py` (append after line 116)
-- Modify: `src/smartcs/shared/models.py` (append before `# ── API 请求/响应 ──`)
-- Modify: `src/smartcs/shared/config.py` (lines 127-148, RAGSettings)
+- Modify: `src/lumio/shared/exceptions.py` (append after line 116)
+- Modify: `src/lumio/shared/models.py` (append before `# ── API 请求/响应 ──`)
+- Modify: `src/lumio/shared/config.py` (lines 127-148, RAGSettings)
 
 - [ ] **Step 1: Add new exception classes**
 
-Append to `src/smartcs/shared/exceptions.py` after the `# ── 系统错误 5xxx ──` section, before the existing system error classes:
+Append to `src/lumio/shared/exceptions.py` after the `# ── 系统错误 5xxx ──` section, before the existing system error classes:
 
 After line 71 (`# ── 外部依赖错误 4xxx ──`), add after `VectorSearchError` (line 99):
 
 ```python
-class EmbeddingServiceError(SmartCSError):
+class EmbeddingServiceError(LumioError):
     """4005: 嵌入服务调用失败"""
 
     code = 4005
     message = "嵌入服务调用失败"
 
 
-class EmbeddingTimeoutError(SmartCSError):
+class EmbeddingTimeoutError(LumioError):
     """4006: 嵌入服务调用超时"""
 
     code = 4006
     message = "嵌入服务调用超时"
 
 
-class MinIOError(SmartCSError):
+class MinIOError(LumioError):
     """4010: 对象存储读写异常"""
 
     code = 4010
     message = "对象存储读写异常"
 
 
-class DualWriteError(SmartCSError):
+class DualWriteError(LumioError):
     """4012: 双写部分失败"""
 
     code = 4012
@@ -575,7 +577,7 @@ class DualWriteError(SmartCSError):
 After line 23 (`# ── 输入错误 2xxx ──`), add after `QueryOutOfRangeError` (line 44):
 
 ```python
-class DocumentFormatError(SmartCSError):
+class DocumentFormatError(LumioError):
     """2010: 不支持的文档格式"""
 
     code = 2010
@@ -585,7 +587,7 @@ class DocumentFormatError(SmartCSError):
 After line 47 (`# ── 业务错误 3xxx ──`), add after `HighRiskBlockedError` (line 69):
 
 ```python
-class IngestionConflictError(SmartCSError):
+class IngestionConflictError(LumioError):
     """3010: 文档正在被处理，拒绝并发写入"""
 
     code = 3010
@@ -594,7 +596,7 @@ class IngestionConflictError(SmartCSError):
 
 - [ ] **Step 2: Add DocumentMetadata + CategoryEnum to models.py**
 
-Insert before `# ── 检索结果 ──` (line 153) in `src/smartcs/shared/models.py`:
+Insert before `# ── 检索结果 ──` (line 153) in `src/lumio/shared/models.py`:
 
 ```python
 # ── 知识库元数据 ──
@@ -639,7 +641,7 @@ class RerankResult(BaseModel):
 
 - [ ] **Step 3: Extend RAGSettings in config.py**
 
-Replace lines 127-148 of `src/smartcs/shared/config.py` (the `RAGSettings` class) with:
+Replace lines 127-148 of `src/lumio/shared/config.py` (the `RAGSettings` class) with:
 
 ```python
 class RAGSettings(BaseSettings):
@@ -678,14 +680,14 @@ class RAGSettings(BaseSettings):
 
 - [ ] **Step 4: Run lint and existing tests to verify no breakage**
 
-Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run ruff check src/smartcs/shared/ --fix && poetry run pytest -v`
+Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run ruff check src/lumio/shared/ --fix && poetry run pytest -v`
 Expected: Lint passes, existing tests pass
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/qiangli/CodeBuddy/agent_project
-git add src/smartcs/shared/exceptions.py src/smartcs/shared/models.py src/smartcs/shared/config.py
+git add src/lumio/shared/exceptions.py src/lumio/shared/models.py src/lumio/shared/config.py
 git commit -m "feat: add exceptions, DocumentMetadata model, extend RAGSettings"
 ```
 
@@ -694,7 +696,7 @@ git commit -m "feat: add exceptions, DocumentMetadata model, extend RAGSettings"
 ### Task 4: 嵌入服务抽象层
 
 **Files:**
-- Create: `src/smartcs/services/common/embedding.py`
+- Create: `src/lumio/services/common/embedding.py`
 - Create: `tests/test_embedding.py`
 
 - [ ] **Step 1: Write failing test for embedding service**
@@ -707,7 +709,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from smartcs.services.common.embedding import OllamaEmbedding, TEIEmbedding
+from lumio.services.common.embedding import OllamaEmbedding, TEIEmbedding
 
 
 @pytest.mark.asyncio
@@ -773,11 +775,11 @@ def test_provider_properties():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run pytest tests/test_embedding.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'smartcs.services.common.embedding'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lumio.services.common.embedding'`
 
 - [ ] **Step 3: Write embedding service implementation**
 
-Create `src/smartcs/services/common/embedding.py`:
+Create `src/lumio/services/common/embedding.py`:
 
 ```python
 """嵌入服务抽象层
@@ -802,7 +804,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from smartcs.shared.exceptions import EmbeddingServiceError, EmbeddingTimeoutError
+from lumio.shared.exceptions import EmbeddingServiceError, EmbeddingTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -1090,7 +1092,7 @@ Expected: All tests PASS
 
 ```bash
 cd /Users/qiangli/CodeBuddy/agent_project
-git add src/smartcs/services/common/embedding.py tests/test_embedding.py
+git add src/lumio/services/common/embedding.py tests/test_embedding.py
 git commit -m "feat: add embedding service abstraction (Ollama + TEI + circuit breaker)"
 ```
 
@@ -1099,11 +1101,11 @@ git commit -m "feat: add embedding service abstraction (Ollama + TEI + circuit b
 ### Task 5: 重排服务抽象层
 
 **Files:**
-- Create: `src/smartcs/services/common/reranker.py`
+- Create: `src/lumio/services/common/reranker.py`
 
 - [ ] **Step 1: Write reranker service**
 
-Create `src/smartcs/services/common/reranker.py`:
+Create `src/lumio/services/common/reranker.py`:
 
 ```python
 """重排服务抽象层
@@ -1119,7 +1121,7 @@ from typing import Protocol, runtime_checkable
 
 import httpx
 
-from smartcs.shared.models import RerankResult
+from lumio.shared.models import RerankResult
 
 logger = logging.getLogger(__name__)
 
@@ -1260,14 +1262,14 @@ def create_reranker_provider(
 
 - [ ] **Step 2: Run lint**
 
-Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run ruff check src/smartcs/services/common/reranker.py --fix`
+Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run ruff check src/lumio/services/common/reranker.py --fix`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
 cd /Users/qiangli/CodeBuddy/agent_project
-git add src/smartcs/services/common/reranker.py
+git add src/lumio/services/common/reranker.py
 git commit -m "feat: add reranker service abstraction (Ollama + TEI)"
 ```
 
@@ -1276,20 +1278,20 @@ git commit -m "feat: add reranker service abstraction (Ollama + TEI)"
 ### Task 6: 依赖注入 + Lifespan 更新
 
 **Files:**
-- Modify: `src/smartcs/services/common/deps.py`
-- Modify: `src/smartcs/main.py`
+- Modify: `src/lumio/services/common/deps.py`
+- Modify: `src/lumio/main.py`
 
 - [ ] **Step 1: Add embedding/reranker init/close functions to deps.py**
 
-Append to `src/smartcs/services/common/deps.py`:
+Append to `src/lumio/services/common/deps.py`:
 
 ```python
-from smartcs.services.common.embedding import (
+from lumio.services.common.embedding import (
     EmbeddingCircuitBreaker,
     EmbeddingProvider,
     create_embedding_provider,
 )
-from smartcs.services.common.reranker import (
+from lumio.services.common.reranker import (
     RerankerProvider,
     create_reranker_provider,
 )
@@ -1374,23 +1376,23 @@ EmbeddingBreakerDep = Annotated[EmbeddingCircuitBreaker, Depends(get_embedding_b
 RerankerProviderDep = Annotated[RerankerProvider, Depends(get_reranker_provider)]
 ```
 
-Also add `from smartcs.shared.config import get_settings` to the imports.
+Also add `from lumio.shared.config import get_settings` to the imports.
 
 - [ ] **Step 2: Update main.py lifespans**
 
-Replace the `bot_lifespan` function in `src/smartcs/main.py` (lines 25-43) with:
+Replace the `bot_lifespan` function in `src/lumio/main.py` (lines 25-43) with:
 
 ```python
 @asynccontextmanager
 async def bot_lifespan(app: FastAPI):
     """机器人服务生命周期"""
     settings = get_settings()
-    logger = setup_logger("smartcs.bot", settings.log_level, json_format=settings.environment == "production")
+    logger = setup_logger("lumio.bot", settings.log_level, json_format=settings.environment == "production")
     logger.info("机器人服务启动中...")
 
     await init_db(app)
     await init_redis(app)
-    from smartcs.services.common.deps import init_embedding, close_embedding, init_reranker, close_reranker
+    from lumio.services.common.deps import init_embedding, close_embedding, init_reranker, close_reranker
     await init_embedding(app)
     await init_reranker(app)
     await init_grpc_channels(app)
@@ -1411,14 +1413,14 @@ Do the same for `assist_lifespan` (lines 46-64).
 
 - [ ] **Step 3: Run lint and existing tests**
 
-Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run ruff check src/smartcs/ --fix && poetry run pytest -v`
+Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run ruff check src/lumio/ --fix && poetry run pytest -v`
 Expected: Lint passes, existing health-check tests pass (embedding init may warn but won't fail hard)
 
 - [ ] **Step 4: Commit**
 
 ```bash
 cd /Users/qiangli/CodeBuddy/agent_project
-git add src/smartcs/services/common/deps.py src/smartcs/main.py
+git add src/lumio/services/common/deps.py src/lumio/main.py
 git commit -m "feat: add embedding/reranker DI and update lifespan"
 ```
 
@@ -1427,7 +1429,7 @@ git commit -m "feat: add embedding/reranker DI and update lifespan"
 ### Task 7: 文档处理管道
 
 **Files:**
-- Create: `src/smartcs/services/common/ingestion.py`
+- Create: `src/lumio/services/common/ingestion.py`
 - Create: `tests/test_ingestion.py`
 
 This is the largest task. The ingestion pipeline has 6 stages. We'll build it incrementally with TDD.
@@ -1441,7 +1443,7 @@ from __future__ import annotations
 
 import pytest
 
-from smartcs.services.common.ingestion import (
+from lumio.services.common.ingestion import (
     clean_text,
     chunk_text,
     parse_markdown,
@@ -1533,11 +1535,11 @@ def test_chunk_respects_chinese_sentence_boundary():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/qiangli/CodeBuddy/agent_project && poetry run pytest tests/test_ingestion.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'smartcs.services.common.ingestion'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lumio.services.common.ingestion'`
 
 - [ ] **Step 3: Write ingestion pipeline implementation**
 
-Create `src/smartcs/services/common/ingestion.py`:
+Create `src/lumio/services/common/ingestion.py`:
 
 ```python
 """文档处理管道
@@ -1556,10 +1558,10 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from smartcs.shared.models import DocumentMetadata
+from lumio.shared.models import DocumentMetadata
 
 if TYPE_CHECKING:
-    from smartcs.services.common.embedding import EmbeddingProvider
+    from lumio.services.common.embedding import EmbeddingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -1788,7 +1790,7 @@ async def embed_chunks(
 async def write_to_es(
     chunks: list[dict],
     es_client,
-    index_name: str = "smartcs_knowledge",
+    index_name: str = "lumio_knowledge",
 ) -> int:
     """写入 ES，返回成功条数"""
     success = 0
@@ -1842,7 +1844,7 @@ async def publish_kafka_event(
     chunk_count: int,
     status: str,
     kafka_producer,
-    topic: str = "smartcs.knowledge.update",
+    topic: str = "lumio.knowledge.update",
 ) -> bool:
     """发布 Kafka 知识更新事件"""
     try:
@@ -1879,7 +1881,7 @@ async def ingest_document(
 
     返回最终状态: COMPLETED / PARTIAL_ES_ONLY / KAFKA_PENDING / FAILED
     """
-    from smartcs.shared.orm_models import KbDocument, KbChunk, KbIngestionLog
+    from lumio.shared.orm_models import KbDocument, KbChunk, KbIngestionLog
 
     doc = db_session.get(KbDocument, uuid.UUID(doc_id))
     if not doc:
@@ -2023,7 +2025,7 @@ def _log_stage(
 ) -> None:
     """记录 ingestion_log"""
     import json
-    from smartcs.shared.orm_models import KbIngestionLog
+    from lumio.shared.orm_models import KbIngestionLog
     log = KbIngestionLog(
         document_id=doc_id,
         stage=stage,
@@ -2043,7 +2045,7 @@ Expected: All tests PASS
 
 ```bash
 cd /Users/qiangli/CodeBuddy/agent_project
-git add src/smartcs/services/common/ingestion.py tests/test_ingestion.py
+git add src/lumio/services/common/ingestion.py tests/test_ingestion.py
 git commit -m "feat: add 6-stage document ingestion pipeline (parse→clean→chunk→embed→dual-write→publish)"
 ```
 
@@ -2139,7 +2141,7 @@ Create `scripts/init_minio.py`:
 ```python
 """初始化 MinIO Bucket
 
-创建 smartcs-docs 桶（幂等操作），设置桶策略为 private。
+创建 lumio-docs 桶（幂等操作），设置桶策略为 private。
 
 使用方式:
     poetry run python scripts/init_minio.py
@@ -2164,7 +2166,7 @@ def init_minio():
         print("   请确保 MinIO 已启动: docker-compose up -d minio")
         sys.exit(1)
 
-    bucket_name = "smartcs-docs"
+    bucket_name = "lumio-docs"
 
     if client.bucket_exists(bucket_name):
         print(f"⚠️  Bucket '{bucket_name}' 已存在，跳过创建")
@@ -2269,7 +2271,7 @@ def scan_test_data(data_dir: str) -> list[dict]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SmartCS 种子知识数据入库")
+    parser = argparse.ArgumentParser(description="灵智（Lumio） 种子知识数据入库")
     parser.add_argument("--dir", default="test_data", help="测试数据目录")
     parser.add_argument("--dry-run", action="store_true", help="仅扫描不入库")
     args = parser.parse_args()
@@ -2292,10 +2294,10 @@ def main():
 
     try:
         from minio import Minio
-        from smartcs.shared.orm_models import KbDocument
+        from lumio.shared.orm_models import KbDocument
         from sqlalchemy import create_engine
         from sqlalchemy.orm import Session
-        from smartcs.shared.config import get_settings
+        from lumio.shared.config import get_settings
         import hashlib
 
         settings = get_settings()

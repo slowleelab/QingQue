@@ -1,10 +1,10 @@
-# 灵智（Lumio）：可私有化部署的银行信用卡智能客服参考实现
+# 灵智（Lumio）发布：银行信用卡智能客服参考实现，全链路私有化开源
 
-> 一句话：**灵智（Lumio）** 是一个可私有化部署的银行信用卡智能客服参考实现 —— Bot 自助问答 + AI 坐席辅助双引擎，RAG 检索增强、意图识别、合规过滤、熔断降级、22 个 MCP 工具、实时监控全配齐，`make demo` 一条命令即可体验。
+> 一句话：**灵智（Lumio）** 是一个可私有化部署的银行信用卡智能客服参考实现 —— Bot 自助问答 + AI 坐席辅助双引擎，RAG 检索增强、意图识别、合规过滤、熔断降级、实时监控全配齐，`make demo` 一条命令即可体验。
 >
 > 仓库：https://github.com/slowleelab/QingQue ｜ License：Apache 2.0
 
-![demo](https://raw.githubusercontent.com/slowleelab/QingQue/main/docs/assets/demo.gif)
+![demo](../assets/demo.gif)
 
 ## 为什么做这个
 
@@ -14,21 +14,26 @@
 - **合规可审计**：每句话要过敏感词/合规过滤，对话留痕满足银行 5-7 年审计要求
 - **高可用不能靠运气**：LLM 挂了、向量库挂了，服务不能跟着挂 —— 要有完整的熔断 + 多级降级链
 - **人机协同**：机器人搞不定的要平滑转人工，坐席通话中还要实时给话术建议
-- **工具可治理**：调用银行核心系统（账单/分期/挂失…）要走统一治理平面，不能让 Bot 直连
 
 没有现成方案同时满足这几点，于是我把整套系统搭了出来并开源。
 
-## 从 SmartCS 到灵智（Lumio）
+## 从 SmartCS 到灵智（Lumio）：一次品牌升级
 
-项目最初叫 SmartCS，6 个 Sprint 迭代后正式更名为 **灵智（Lumio）**。仓库名 `slowleelab/QingQue` 不变 —— 青雀是承载它的社区/组织。
+项目最初叫 **SmartCS**，经过 6 个 Sprint、728 条测试用例、22 个 Java MCP 信用卡工具的迭代后，我们决定给它一个更凝练、更中文友好的名字：**灵智（Lumio）**。
 
-重命名分 3 个 commit 完成，确保任何中间状态都可运行：
+> "灵"取自"灵机一动"的灵，"智"是智能客服的智。Lumio 读音接近 lumi（光），寓意"点亮服务"。
+
+重命名分 **3 个 commit** 完成，确保任何中间状态都可运行：
 
 | Commit | 范围 |
 |--------|------|
-| `4be1d67` | Python 包 `smartcs` → `lumio`，异常基类 `SmartCSError` → `LumioError`（24 子类同改） |
+| `4be1d67` | Python 包 `smartcs` → `lumio`，异常基类 `SmartCSError` → `LumioError`（24 个子类同改） |
 | `0908f82` | 资源 / 容器 / 镜像 / Java mcp-server / star-connection / proto / web 前端；Java groupId `com.smartcs` → `com.lumio` |
 | 本 commit | 文档 / 历史 / UAT / 博客 |
+
+完整迁移清单见 [CHANGELOG.md](../../CHANGELOG.md)；历史归档位于 [`docs/`](../../docs/)。
+
+> 仓库地址 `slowleelab/QingQue` 不变 —— 灵智是项目的新名字，"青雀"是承载它的社区/组织。
 
 ## 三层架构
 
@@ -51,7 +56,7 @@
 └─────────────────────────────────────────────┘
 ```
 
-设计上有几个值得展开的点：
+设计上几个值得展开的点：
 
 ### 1. 检索不是"向量一梭子"，而是混合检索 + RRF 融合
 
@@ -67,7 +72,7 @@ LLM 生成 → 检索摘要拼接 → 预置话术模板 → 兜底文案
 
 每一级都有 `CircuitBreaker`（失败率阈值 + 滑动窗口 + 恢复超时），配合健康监控。结果是：**哪怕 Ollama 整个宕机，Bot 依然能用模板给出合格回答**，只是"不够聪明"而非"直接报错"。这也是 `make demo` 敢宣称"无本地大模型也能跑"的底气。
 
-### 3. 会话生命周期：3 阶段 × 7 子状态 + Redis 反馈缓冲
+### 3. 会话生命周期：3 阶段 × 7 子状态
 
 会话不是无状态问答，而是 `bot → agent → ended` 的完整生命周期（agent 阶段下又分 queued / assigned / active / on_hold / reviewing 共 5 个子状态）。坐席对 AI 建议的"采纳/修改"反馈，用 **Redis 缓冲 + 3s 延迟提交**合并高频操作，避免每敲一个字都写一次库。
 
@@ -75,9 +80,9 @@ LLM 生成 → 检索摘要拼接 → 预置话术模板 → 兜底文案
 
 敏感词库支持热更新（改库即时生效，不用重启），用户输入先过安全过滤再进 Agent；所有对话落 `dialogue_log` 表，满足银行审计留存要求。
 
-### 5. MCP 工具层 + AI 网关（新增）
+### 5. 渐进式 MCP 工具暴露（新增）
 
-Java 端通过 Spring AI MCP Server 暴露 **22 个信用卡工具**（账单 / 卡服务 / 额度 / 分期 / 还款 / 积分 / 交易），全部 mock。Python 端经 **Higress AI 网关 + Nacos 服务发现**走 streamable-http 调用，统一做限流 / 鉴权 / 工具审计；Higress 桥接 Spring AI 1.0.x 的 SSE 与 Python 客户端的 streamable-http。开启 `MCP_PROGRESSIVE_DISCLOSURE_ENABLED=true` 后，Bot 仅在命中特定查询意图时按 `MCP_INTENT_TOOL_MAP` 暴露工具子集，降低 LLM 选择噪声。
+Java 端通过 Spring AI MCP Server 暴露 **22 个信用卡工具**（账单 / 卡服务 / 额度 / 分期 / 还款 / 积分 / 交易），全部 mock。Python 端经 Higress 网关 + Nacos 注册中心走 streamable-http 调用。开启 `MCP_PROGRESSIVE_DISCLOSURE_ENABLED=true` 后，Bot 仅在命中特定查询意图时按 `MCP_INTENT_TOOL_MAP` 暴露工具子集，降低 LLM 选择噪声。
 
 ## 5 分钟跑起来
 
@@ -115,8 +120,9 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 ## 接下来
 
-- 知识平台独立服务化（取代 Milvus 双写，统一用 ES dense_vector + RRF）
-- 更多 LLM 后端适配（vLLM / OpenAI 兼容）
-- Temporal 替换为内置 asyncio 调度
+- [ ] Temporal 替换为内置的 asyncio 调度（去重依赖）
+- [ ] 知识平台独立服务化（取代 Milvus 双写）
+- [ ] 更多 LLM 后端适配（vLLM / OpenAI 兼容）
+- [ ] 完善 Observability 端到端 trace 串联
 
-如果这个项目对你有帮助，欢迎 [Star](https://github.com/slowleelab/QingQue) ⭐；有问题去 [Discussions](https://github.com/slowleelab/QingQue/discussions) 聊，报 Bug 走 [Issues](https://github.com/slowleelab/QingQue/issues)。也欢迎 PR —— 先从[贡献指南](https://github.com/slowleelab/QingQue/blob/main/CONTRIBUTING.md)开始。
+如果这个项目对你有帮助，欢迎 [Star](https://github.com/slowleelab/QingQue) ⭐；有问题去 [Discussions](https://github.com/slowleelab/QingQue/discussions) 聊，报 Bug 走 [Issues](https://github.com/slowleelab/QingQue/issues)。也欢迎 PR —— 先从[贡献指南](../../CONTRIBUTING.md)开始。
