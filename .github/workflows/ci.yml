@@ -25,13 +25,13 @@ jobs:
         run: poetry install --no-interaction
       - name: Ruff check
         working-directory: agent
-        run: poetry run ruff check smartcs/ tests/
+        run: poetry run ruff check lumio/ tests/
       - name: Ruff format check
         working-directory: agent
-        run: poetry run ruff format --check smartcs/
+        run: poetry run ruff format --check lumio/
       - name: Mypy type check
         working-directory: agent
-        run: poetry run mypy smartcs/ || true
+        run: poetry run mypy lumio/ || true
 
   unit-tests:
     name: Unit Tests
@@ -49,8 +49,8 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: lumio_pass
-          POSTGRES_USER: smartcs
-          POSTGRES_DB: smartcs
+          POSTGRES_USER: lumio
+          POSTGRES_DB: lumio
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready
@@ -103,9 +103,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker image (context: agent/)
-        run: docker build -f deploy/Dockerfile -t smartcs:${{ github.sha }} agent/
+        run: docker build -f deploy/Dockerfile -t lumio:${{ github.sha }} agent/
       - name: Verify image
-        run: docker images smartcs
+        run: docker images lumio
 
   e2e-tests:
     name: E2E Smoke Tests
