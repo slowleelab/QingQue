@@ -9,8 +9,8 @@ Changes:
 - New table: kb_faq_search_log (search analytics)
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP
 
 revision = "004"

@@ -12,8 +12,8 @@ Changes:
 - New table: kb_document_approval (append-only audit trail)
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP
 
 revision = "003"

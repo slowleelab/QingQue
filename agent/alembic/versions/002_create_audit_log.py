@@ -5,8 +5,8 @@ Revises: 03a9cfea52ac（接在 hash 系迁移链头部，原假设的 001 初始
 Create Date: 2026-07-14
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP
 
 revision = "002"

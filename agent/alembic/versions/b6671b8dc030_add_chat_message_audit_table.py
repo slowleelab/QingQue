@@ -5,15 +5,15 @@ Revises: a918a6a3f1c8
 Create Date: 2026-05-31 23:10:00.881030
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision: str = 'b6671b8dc030'
-down_revision: Union[str, None] = 'a918a6a3f1c8'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'a918a6a3f1c8'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 _ENUM_SQL = "chat_message_status"
 _ENUM_VALUES = "'QUEUED', 'PROCESSING', 'DONE', 'SKIPPED', 'ERROR'"

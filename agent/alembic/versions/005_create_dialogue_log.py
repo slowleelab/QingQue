@@ -8,8 +8,8 @@ Changes:
 - New table: dialogue_log (持久化对话记录，满足银行合规审计 5-7 年保存要求)
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP
 
 revision = "005"
