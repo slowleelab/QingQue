@@ -41,6 +41,11 @@ export function getDocumentStatus(docId: string): Promise<KbDocumentStatus> {
   return client.get(`/kb/documents/${docId}/status`)
 }
 
+/** 重新摄入失败文档 (kb-service 后端: POST /api/v1/documents/{id}/reindex) */
+export function retryIngestion(docId: string): Promise<{ doc_id: string; reindexed: boolean; total: number }> {
+  return client.post(`/kb/documents/${docId}/reindex`)
+}
+
 // ── FAQ CRUD ──
 
 export function listFaqs(params?: {
