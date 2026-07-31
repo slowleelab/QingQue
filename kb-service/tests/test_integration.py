@@ -10,9 +10,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kb.pipeline.chunker import StructuredChunk, ChunkType
-from kb.pipeline.cleaner import clean_text
-from kb.pipeline.parser import parse_markdown
+# 端到端管线会触达 ES / uuid_utils, 在 3.14 / 缺 wheel 的开发环境跳过整套,
+# 在 3.11 生产环境正常运行
+pytest.importorskip("uuid_utils", reason="集成测试需要 uuid_utils (kb-service 要求 Python 3.11)")
+pytest.importorskip("elasticsearch", reason="集成测试需要 elasticsearch 异步客户端")
+
+from kb.pipeline.chunker import StructuredChunk, ChunkType  # noqa: E402
+from kb.pipeline.cleaner import clean_text  # noqa: E402
+from kb.pipeline.parser import parse_markdown  # noqa: E402
 
 
 def test_parse_clean_chunk_pipeline():

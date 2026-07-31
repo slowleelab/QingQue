@@ -1,6 +1,10 @@
 """ORM 模型测试"""
 
-from kb.orm.kb import (
+import pytest
+
+pytest.importorskip("uuid_utils", reason="需要 uuid_utils (Python 3.14 暂未发布对应 wheel, 在 3.11 环境下安装正常)")
+
+from kb.orm.kb import (  # noqa: E402
     KbSourceType,
     KbDocStatus,
     KbApprovalStatus,

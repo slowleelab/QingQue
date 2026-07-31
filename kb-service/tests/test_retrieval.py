@@ -1,6 +1,10 @@
 """检索引擎测试"""
 
-from kb.retrieval.engine import build_es_filters, _build_cache_key, _date_to_epoch
+import pytest
+
+pytest.importorskip("elasticsearch", reason="需要 elasticsearch 异步客户端, kb-service 要求 Python 3.11")
+
+from kb.retrieval.engine import build_es_filters, _build_cache_key, _date_to_epoch  # noqa: E402
 
 
 def test_build_es_filters_keyword():

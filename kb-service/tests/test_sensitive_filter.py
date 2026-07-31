@@ -1,6 +1,10 @@
 """敏感词过滤器测试 — AC 自动机"""
 
-from kb.security.sensitive_filter import SensitiveWordFilter
+import pytest
+
+pytest.importorskip("ahocorasick", reason="需要 pyahocorasick C 扩展 wheel, 当前 Python 版本无对应 wheel")
+
+from kb.security.sensitive_filter import SensitiveWordFilter  # noqa: E402
 
 
 def test_scan_basic():
