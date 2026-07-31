@@ -7,7 +7,6 @@ import type {
   FaqCreateRequest,
   FaqUpdateRequest,
   FaqApprovalResult,
-  FaqDuplicate,
 } from "./types"
 
 // ── 文档管理 ──

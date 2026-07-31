@@ -98,7 +98,7 @@
           <el-input v-model="editForm.answer" type="textarea" :rows="4" />
         </el-form-item>
         <el-form-item label="变体问法">
-          <div v-for="(v, i) in editForm.variant_questions" :key="i" class="variant-row">
+          <div v-for="(_, i) in editForm.variant_questions" :key="i" class="variant-row">
             <el-input v-model="editForm.variant_questions[i]" size="small" />
             <el-button link type="danger" size="small" @click="editForm.variant_questions.splice(i, 1)">删除</el-button>
           </div>
@@ -177,10 +177,10 @@
 
 <script setup lang="ts">
 import { ref, reactive } from "vue"
-import { ElMessage, ElMessageBox } from "element-plus"
+import { ElMessage } from "element-plus"
 import { Plus } from "@element-plus/icons-vue"
 import {
-  listFaqs, getFaq, createFaq, updateFaq, deleteFaq,
+  listFaqs, getFaq, createFaq, updateFaq,
   submitFaq, approveFaq, rejectFaq, publishFaq, archiveFaq,
 } from "@/api/admin"
 import type { FaqItem, FaqDetail } from "@/api/types"
