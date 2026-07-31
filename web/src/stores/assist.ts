@@ -19,6 +19,10 @@ export const useAssistStore = defineStore("assist", () => {
   // 按 session 分组存储对话消息
   const messagesMap = ref<Map<string, ChatMessage[]>>(new Map())
 
+  // 跨组件注入的草稿片段：AssistPanel 的"采纳"按钮通过 store 推送给 ConversationPanel 输入框
+  // nonce 字段用于在同一文本连续点击时强制触发 watch (避免文本相同时 watcher 不触发)
+  const pendingInsert = ref<{ text: string; nonce: number } | null>(null)
+
   const activePushData = computed(() => {
     if (!activeSessionId.value) return null
     return pushDataMap.value.get(activeSessionId.value) ?? null
@@ -62,6 +66,16 @@ export const useAssistStore = defineStore("assist", () => {
 
   function setWsStatus(status: "connecting" | "connected" | "disconnected" | "error") {
     wsStatus.value = status
+  }
+
+  // 草稿注入：从 AssistPanel 的"采纳/修改"按钮推到 ConversationPanel 输入框
+  function insertDraftText(text: string) {
+    pendingInsert.value = { text, nonce: Date.now() }
+  }
+
+  // ConversationPanel 消费后清空，避免下次进入会话时重复触发
+  function consumePendingInsert() {
+    pendingInsert.value = null
   }
 
   // 从 chat-svc 拉取实时会话列表
@@ -115,7 +129,8 @@ export const useAssistStore = defineStore("assist", () => {
   return {
     currentAgentId,
     sessions, activeSessionId, wsStatus, activePushData, activeMessages, activeSession,
+    pendingInsert,
     fetching, fetchSessions,
-    onPushMessage, addMessage, selectSession, setWsStatus,
+    onPushMessage, addMessage, selectSession, setWsStatus, insertDraftText, consumePendingInsert,
   }
 })

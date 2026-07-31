@@ -57,6 +57,7 @@ data-testid="chat-input"           v-model="inputText"
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue"
+import { ElMessage } from "element-plus"
 import { ChatDotRound, Promotion } from "@element-plus/icons-vue"
 import { useAssistStore } from "@/stores/assist"
 import { useWebSocket } from "@/composables/useWebSocket"
@@ -166,8 +167,16 @@ watch(() => assistStore.activeSessionId, (newId) => {
   }
 })
 
-// 会话切换时自动滚动到底部
-watch(() => assistStore.activeMessages.length, () => scrollToBottom())
+// 监听 AssistPanel 通过 store 推过来的草稿片段（如 ScriptCard 采纳）
+watch(() => assistStore.pendingInsert, (p) => {
+  if (!p) return
+  if (assistStore.activeSessionId) {
+    // 追加到现有输入末尾；空时直接赋值
+    inputText.value = inputText.value ? `${inputText.value}${inputText.value.endsWith("\n") ? "" : "\n"}${p.text}` : p.text
+    ElMessage.success("已填充到输入框")
+  }
+  assistStore.consumePendingInsert()
+})
 
 // 选中会话时滚动到底部
 watch(() => assistStore.activeSessionId, () => scrollToBottom())
