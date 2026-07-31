@@ -1,6 +1,6 @@
 """E2E 会话生命周期集成测试
 
-验证 star-connection → Lumio 回调链路的端到端流程：
+验证 chat-svc → Lumio 回调链路的端到端流程：
 1. Session update 回调 (AGENT/ENDED 阶段)
 2. Analyze 回调 (客户消息 → AI 分析)
 3. Feedback 反馈闭环
@@ -65,7 +65,7 @@ async def test_session_update_to_agent_phase(bot_client: httpx.AsyncClient, assi
     session_id = "e2e-lifecycle-agent-" + uuid_module.uuid4().hex[:8]
     await _create_session_in_redis(session_id, "bot", "bot:active")
 
-    # 模拟 star-connection 回调: 会话进入 AGENT 阶段
+    # 模拟 chat-svc 回调: 会话进入 AGENT 阶段
     resp = await assist_client.post(
         "/api/session/update",
         json={

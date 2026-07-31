@@ -41,8 +41,8 @@ body:
       options:
         - Bot Service (agent)
         - Assist Service (agent)
-        - knowledge-platform
-        - star-connection
+        - kb-service
+        - chat-svc
         - web 前端
         - 中间件 / 部署
         - 文档

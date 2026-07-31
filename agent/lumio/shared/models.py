@@ -547,7 +547,7 @@ class PollResponse(BaseModel):
 
 
 class SessionUpdateRequest(BaseModel):
-    """会话状态更新请求（star-connection 回调）"""
+    """会话状态更新请求（chat-svc 回调）"""
 
     session_id: str
     phase: Literal["AGENT", "ENDED", "agent", "ended"]

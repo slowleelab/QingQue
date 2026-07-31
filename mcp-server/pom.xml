@@ -12,7 +12,7 @@
     <name>lumio-mcp-server</name>
     <description>Lumio 银行信用卡智能客服 MCP 工具服务（Spring AI MCP Server，streamable/SSE，22 个常用信用卡工具）</description>
 
-    <!-- 独立顶层工程：不挂到 star-connection 聚合 pom 下，直接继承 Spring Boot 父 pom -->
+    <!-- 独立顶层工程：不挂到 chat-svc 聚合 pom 下，直接继承 Spring Boot 父 pom -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>

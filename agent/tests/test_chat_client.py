@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from lumio.services.common.star_client import StarConnectionClient
+from lumio.services.common.chat_client import ChatSvcClient
 
 
 def test_client_has_base_url():
-    c = StarConnectionClient(base_url="http://localhost:8080")
+    c = ChatSvcClient(base_url="http://localhost:8080")
     assert c._base_url == "http://localhost:8080"
 
 
 def test_build_transfer_request():
-    c = StarConnectionClient()
+    c = ChatSvcClient()
     req = c.build_transfer_request(
         session_id="sess-001",
         customer_id="cust-001",

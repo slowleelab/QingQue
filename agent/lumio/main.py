@@ -37,7 +37,7 @@ from lumio.services.common.deps import (
     close_reranker,
     close_session_manager,
     close_session_timeout_manager,
-    close_star_client,
+    close_chat_svc_client,
     init_agent,
     init_assist_orchestrator,
     init_classifier,
@@ -53,7 +53,7 @@ from lumio.services.common.deps import (
     init_reranker,
     init_session_manager,
     init_session_timeout_manager,
-    init_star_client,
+    init_chat_svc_client,
     init_transfer_checker,
 )
 from lumio.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
@@ -117,7 +117,7 @@ _BOT_INIT_STEPS = [
     init_session_manager,
     init_classifier,
     init_transfer_checker,
-    init_star_client,
+    init_chat_svc_client,
     init_mcp_client,
     init_agent,
     start_bot_worker,
@@ -125,7 +125,7 @@ _BOT_INIT_STEPS = [
 
 _BOT_CLOSE_STEPS = [
     stop_bot_worker,
-    close_star_client,
+    close_chat_svc_client,
     close_agent,
     close_mcp_client,
     *_COMMON_CLOSE_STEPS[:2],  # close_classifier, close_session_manager

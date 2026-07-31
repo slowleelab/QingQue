@@ -48,8 +48,8 @@
 | 阶段 | 子阶段 | 触发条件 | 系统行为 |
 |------|--------|---------|---------|
 | **BOT** | `bot:active` | 客户发起会话 | Bot Agent (asyncio+规则路由) 处理消息，意图分类+路由分发 (knowledge→RAG / business→API / fallback→模板) |
-| **AGENT** | `agent:queued` | L1/L2/L3 转人工触发 | 调用 star-connection 创建人工会话，进入排队 |
-| **AGENT** | `agent:assigned` | star-connection 分配坐席 | 坐席振铃，超时守卫启动 (默认 30s) |
+| **AGENT** | `agent:queued` | L1/L2/L3 转人工触发 | 调用 chat-svc 创建人工会话，进入排队 |
+| **AGENT** | `agent:assigned` | chat-svc 分配坐席 | 坐席振铃，超时守卫启动 (默认 30s) |
 | **AGENT** | `agent:active` | 坐席接听 | WS 消息激活会话，坐席辅助引擎启动辅助推送，超时守卫 (默认 1800s) |
 | **AGENT** | `agent:on_hold` | 坐席点击保持 | 启动静音检测 (60s)，超时守卫继续计时 |
 | **AGENT** | `agent:reviewing` | 坐席点击生成小结 | LLM 生成话后小结，超时守卫 (默认 120s) |
@@ -272,12 +272,12 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
 
 ### 流程 2：客户转人工 (Bot → AGENT)
 
-转人工三步：**发起**（Bot 调用 star-conn）→ **等待+接听**（star-conn 内部路由）→ **激活**（AgentUI 已有 Assist WS，发消息即激活）。
+转人工三步：**发起**（Bot 调用 chat-svc）→ **等待+接听**（chat-svc 内部路由）→ **激活**（AgentUI 已有 Assist WS，发消息即激活）。
 
 > AgentUI 与 Assist 之间是 **1 条 WS（坐席登录时建立，持久的）**，非按会话建连。会话上下文通过消息中 `session_id` 字段区分。
 
 ```
-  CU              Bot:8000                     star-conn        AgentUI       Assist:8001
+  CU              Bot:8000                     chat-svc        AgentUI       Assist:8001
   ──              ────────                     ─────────        ───────       ──────────
    │                   │                            │               │               │
    │ ═══ Step 1: 发起转人工 ══════════════════════════════════════════════════════│
@@ -292,11 +292,11 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
    │                   │    reason, summary,         │               │               │
    │                   │    history[20], intent})──▶│               │               │
    │                   │                            │               │               │
-   │                   │◀── {star_sid, poll_url} ──│               │               │
+   │                   │◀── {chat_sid, poll_url} ──│               │               │
    │                   │                            │               │               │
    │◀──"正在为您转接" + poll_url ─────│                            │               │
    │                   │                            │               │               │
-   │ ═══ Step 2: 等待+接听 (star-conn 内部路由, 灵智不感知) ═══════════════│
+   │ ═══ Step 2: 等待+接听 (chat-svc 内部路由, 灵智不感知) ═══════════════│
    │                   │                            │               │               │
    │                   │                   ┌────────┴────────┐      │               │
    │                   │                   │ 坐席负载均衡      │      │               │
@@ -342,19 +342,19 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
 | 转接摘要 | Bot LLM 生成 → session meta | 坐席接听即刻看到上下文 |
 | 排队感知 | poll_url 长轮询，每 15s 推送排队位置 | 客户感知进度 |
 | 超时保护 | 排队 60s→回退BOT / 振铃 30s→ENDED | 避免无限等待 |
-| 会话激活 | AgentUI → Assist WS 消息 `session_activated` | 无需 star-conn 回调，WS 消息即激活 |
-| 消息流 | star-conn 路由客户消息到坐席，同时 POST /notify 给 Assist | 辅助与对话解耦 |
+| 会话激活 | AgentUI → Assist WS 消息 `session_activated` | 无需 chat-svc 回调，WS 消息即激活 |
+| 消息流 | chat-svc 路由客户消息到坐席，同时 POST /notify 给 Assist | 辅助与对话解耦 |
 | WS 生命周期 | 坐席登录建连，上班持久，一个坐席一条 | 不与单个会话绑定 |
 | 容错 | create_session 超时/失败 → "人工客服暂不可用" | 不阻塞 Bot |
 
 ### 流程 3：坐席辅助推送 (AGENT 阶段, 每条客户消息触发)
 
-客户消息到达 → star-conn 双路分发（路由到坐席 UI + 通知 Assist）→ Assist 异步编排 → 通过已有的持久 WS 推给坐席。
+客户消息到达 → chat-svc 双路分发（路由到坐席 UI + 通知 Assist）→ Assist 异步编排 → 通过已有的持久 WS 推给坐席。
 
 > AgentUI 与 Assist 之间是流程 2 中已建立的持久 WS（按坐席），不在此流程中新建。
 
 ```
-  CU              star-conn          Assist:8001 (内部)                    AgentUI
+  CU              chat-svc          Assist:8001 (内部)                    AgentUI
   ──              ─────────          ─────────────────                    ───────
    │                   │                      │                              │
    │──"我想提额"──────▶│                      │                              │
@@ -440,7 +440,7 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
 
 | 机制 | 实现 | 作用 |
 |------|------|------|
-| 异步解耦 | POST /notify → 202 → asyncio.Queue | star-conn 不阻塞，<10ms 返回 |
+| 异步解耦 | POST /notify → 202 → asyncio.Queue | chat-svc 不阻塞，<10ms 返回 |
 | 顺序保证 | per-session Queue + 独享 Worker | 每会话一个协程，无锁无竞态，可跳过过期消息 |
 | 幂等处理 | 处理前检查 response key | 防重复消费 |
 | 上下文加载 | SessionManager.get_session() | 一次 Redis GET 拿到完整状态 |
@@ -558,7 +558,7 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
 ### 流程 5：端到端交互时序图
 
 ```
-  CU          Bot:8000       star-conn       AgentUI       Assist:8001
+  CU          Bot:8000       chat-svc       AgentUI       Assist:8001
    │              │              │               │               │
    │ ═══ Phase 1: Bot 对话 ═════════════════════════════════════│
    │              │              │               │               │
@@ -581,11 +581,11 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
    │              │──create_session({sid,        │               │
    │              │   reason, summary, history})─▶               │
    │              │              │               │               │
-   │              │◀── {star_sid, poll_url} ─────│               │
+   │              │◀── {chat_sid, poll_url} ─────│               │
    │              │              │               │               │
    │◀──"正在转接" + poll_url ───│               │               │
    │              │              │               │               │
-   │              │     [star-conn 内部: 路由→振铃→坐席接受]      │
+   │              │     [chat-svc 内部: 路由→振铃→坐席接受]      │
    │              │              │               │               │
    │ ═══ Phase 3: 坐席接听 + 激活 ═══════════════════════════════│
    │              │              │               │               │
@@ -659,13 +659,13 @@ GET /chat/poll 返回不同状态，让客户感知节奏而非黑盒等待：
 
 坐席 UI 与辅助系统的交互是 **1 个长连接 (WS 推送) + 多个短请求 (REST 控制)** 模式。WS 负责"辅助内容下行"，REST 负责"会话状态上行"。
 
-### 5.0 star-conn ↔ Assist 通信架构
+### 5.0 chat-svc ↔ Assist 通信架构
 
-star-conn 与 Assist 之间的通信按模式分为两层：
+chat-svc 与 Assist 之间的通信按模式分为两层：
 
 ```
 ┌────────────────────────────────────────────┐
-│  star-conn (Java)                          │
+│  chat-svc (Java)                          │
 │                                            │
 │  BOT 阶段：                                │
 │    客户消息 → HTTP → Bot(:8000)             │  ← 不变
@@ -690,7 +690,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 │          2. 编排 (LLM+RAG)                 │
 │          3. WS 推送                         │
 │                                            │
-│  过载时：Queue 满 → 503 → star-conn 感知    │
+│  过载时：Queue 满 → 503 → chat-svc 感知    │
 │                                            │
 └────────────────────────────────────────────┘
 ```
@@ -705,14 +705,14 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | 话后小结 | `POST /review/*` | 请求-响应 | 低 (每会话1次) | 中 |
 | 反馈 | `POST /feedback` | 请求-响应 | 中 | 低 |
 
-**为什么不用 Kafka / Redis Streams**：Assist 宕机时辅助链路已断，消息积压无恢复价值。过载时 503 让 star-conn 感知并降级，比 Stream 缓冲更诚实。注意：此处 503 仅针对 /notify 辅助推送，坐席仍正常对话——与 Bot 的"永不拒客"策略不同。
+**为什么不用 Kafka / Redis Streams**：Assist 宕机时辅助链路已断，消息积压无恢复价值。过载时 503 让 chat-svc 感知并降级，比 Stream 缓冲更诚实。注意：此处 503 仅针对 /notify 辅助推送，坐席仍正常对话——与 Bot 的"永不拒客"策略不同。
 
 **容错处理**：
 
 | 场景 | 处理方式 |
 |------|---------|
-| Assist 宕机 | star-conn HTTP 超时/连接失败 → 该会话无辅助，坐席仍可正常对话 |
-| Assist 过载 | Queue 满 → 503 → star-conn 降级 (跳过辅助推送) |
+| Assist 宕机 | chat-svc HTTP 超时/连接失败 → 该会话无辅助，坐席仍可正常对话 |
+| Assist 过载 | Queue 满 → 503 → chat-svc 降级 (跳过辅助推送) |
 | 网络抖动 | 重试 1~2 次，间隔 100ms；仍失败则跳过 |
 | 通知乱序 | AGENT 阶段消息间隔 10-60s，实际不会乱序 |
 
@@ -736,7 +736,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 
 | 路径 | 触发方 | 流程 |
 |------|--------|------|
-| **服务端通知** (主路径) | star-connection CF 收到客户消息后发 `POST /api/notify` | CF → Assist → 202 → 异步编排 → WS 推送 |
+| **服务端通知** (主路径) | chat-svc CF 收到客户消息后发 `POST /api/notify` | CF → Assist → 202 → 异步编排 → WS 推送 |
 | **前端手动触发** (备用) | 坐席 UI 通过 WS 发送 `{"type": "customer_message", "message": "..."}` | 前端 → WS → AssistOrchestrator → WS 回推 |
 
 服务端通知主路径：
@@ -760,7 +760,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
                               坐席UI ← WS ← assist_push 消息
 ```
 
-**为什么用 /notify 而不是 /analyze**: `/analyze` 是同步请求-响应模式，Assist 需 3-8s 编排时间，期间 star-conn 线程被阻塞。`/notify` 采用异步通知模式：star-conn 发完即返回，Assist 内部异步处理，结果通过 WS 独立推送。
+**为什么用 /notify 而不是 /analyze**: `/analyze` 是同步请求-响应模式，Assist 需 3-8s 编排时间，期间 chat-svc 线程被阻塞。`/notify` 采用异步通知模式：chat-svc 发完即返回，Assist 内部异步处理，结果通过 WS 独立推送。
 
 ### 5.3 推送消息格式
 
@@ -897,7 +897,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | 3 | SYS | — | 路由到 business_agent → should_transfer=True |
 | 4 | SYS | — | TransferChecker: L1 关键词"转人工"命中 |
 | 5 | SYS | — | transfer_node: 会话阶段 BOT → AGENT (sub: agent:queued) |
-| 6 | SYS | — | StarClient.create_session() → star-connection 排队 |
+| 6 | SYS | — | ChatSvcClient.create_session() → chat-svc 排队 |
 | 7 | SYS | — | 返回排队位置 + 预估等待时间 |
 | 8 | CU | 看到"正在为您转接人工客服，您前面还有 3 位" | — |
 
@@ -909,9 +909,9 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 **验收标准**:
 - [ ] L1 关键词 ("人工"/"转人工"/"真人"/"投诉") 立即触发转接
 - [ ] 会话阶段正确过渡到 AGENT:agent:queued
-- [ ] star-connection 返回排队位置和预估等待时间
+- [ ] chat-svc 返回排队位置和预估等待时间
 - [ ] 排队期间客户可继续发送消息
-- [ ] star-connection 不可用时，提示"人工客服系统暂不可用"
+- [ ] chat-svc 不可用时，提示"人工客服系统暂不可用"
 
 ---
 
@@ -942,7 +942,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 |---|------|----------|---------|
 | 1 | AG | 在 Workbench 打开会话 | WS 已建立 (登录时 per-agent) → 发送 session_activated → 收到 assist_ready |
 | 2 | SYS | — | Assist 收到 WS 消息 → transition(AG_ACTIVE) |
-| 3 | CU | 说"我想提升信用卡额度" | star-connection → POST /notify (202) → 异步编排 |
+| 3 | CU | 说"我想提升信用卡额度" | chat-svc → POST /notify (202) → 异步编排 |
 | 4 | SYS | — | 意图分类 → limit_query (conf=0.82) |
 | 5 | SYS | — | OE EVALUATING: D1 激活, D2 被 suppress (D1 激活→压制营销), D3 始终激活 |
 | 6 | SYS | — | OE DISPATCHING: E1∥E3 并行 |
@@ -1102,8 +1102,8 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 |---|------|----------|---------|
 | 1 | CU | 在 Bot 对话中 | 会话阶段 = BOT, sub = bot:active |
 | 2 | SYS | 触发转人工 (L1/L2/L3/业务直转) | transfer_node → AGENT:agent:queued |
-| 3 | SYS | — | StarClient.create_session() → star-connection 排队 |
-| 4 | SYS | — | star-connection 分配坐席 → agent:assigned (振铃) |
+| 3 | SYS | — | ChatSvcClient.create_session() → chat-svc 排队 |
+| 4 | SYS | — | chat-svc 分配坐席 → agent:assigned (振铃) |
 | 5 | AG | 坐席接听 | AgentUI 发送 session_activated → Assist 激活 → assist_ready |
 | 6 | SYS | — | 坐席辅助引擎启动: 话术+知识+告警+产品 推送到坐席 |
 | 7 | AG/CU | 对话结束 | → agent:reviewing → ENDED |
@@ -1262,7 +1262,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 │                                                        │
 │  REST 线程                                              │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │  POST /notify          star-conn 客户消息通知     │  │
+│  │  POST /notify          chat-svc 客户消息通知     │  │
 │  │    → 202 → asyncio.Queue (秒返)                  │  │
 │  │  POST /hold|/resume    坐席会话保持/恢复          │  │
 │  │  POST /review/*        话后小结                   │  │
@@ -1305,7 +1305,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | 组件 | 技术 | 用途 |
 |------|------|------|
 | Web 框架 | FastAPI + uvicorn | HTTP + WebSocket |
-| 消息入口 | HTTP POST /notify → asyncio.Queue | star-conn 异步通知 |
+| 消息入口 | HTTP POST /notify → asyncio.Queue | chat-svc 异步通知 |
 | 异步编排 | asyncio (create_task / Queue / per-session Worker) | 并发消费, Worker 保序 |
 | 坐席辅助引擎 | Temporal Workflow (主) / AssistOrchestrator (降级) | D评估→策略矩阵→E执行→仲裁 |
 | 会话状态 | SessionManager → Redis | 与 Bot 共享同一 Redis |
@@ -1333,7 +1333,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 | 10 | 双写索引 | ES + Milvus | BM25 和向量各有优势, RRF 融合互补 | 一致性保障 |
 | 11 | 超时守卫 | asyncio.Task per sub-phase | 细粒度超时，阶段切换自动重建 | 大量会话时 Task 调度开销 |
 | 12 | 坐席交互 | 1 条 WS (按坐席,登录建连) + REST 控制 | 生命周期与上班对齐，不随会话反复重建，会话上下文由消息中 sid 区分 | WS 断连恢复策略 |
-| 13 | star-conn→Assist 通信 | HTTP /notify (202 异步) | 不阻塞 star-conn 线程，零新增中间件，过载时 503 比 Stream 缓冲更诚实 | 高并发下 asyncio.Queue 吞吐 |
+| 13 | chat-svc→Assist 通信 | HTTP /notify (202 异步) | 不阻塞 chat-svc 线程，零新增中间件，过载时 503 比 Stream 缓冲更诚实 | 高并发下 asyncio.Queue 吞吐 |
 | 14 | Bot 过载保护 | Semaphore(10) + 固定话术兜底 | 满荷不走 Agent，<50ms 返回固定话术，不拒客、不堆积 | 固定话术覆盖率 |
 
 ---
@@ -1343,7 +1343,7 @@ star-conn 与 Assist 之间的通信按模式分为两层：
 ### 高优先级
 
 1. **L3 累积转人工阈值**: 当前 3 轮连续低置信度，是否需要更灵活的策略？
-2. **star-connection 容错**: 转人工桥接失败时的重试/降级策略
+2. **chat-svc 容错**: 转人工桥接失败时的重试/降级策略
 3. **合规规则动态化**: 运营后台增删合规规则的能力
 4. **反馈闭环**: 隐式反馈数据如何用于优化推荐质量
 5. **客户身份核验**: 查询个人数据 (账单/额度) 前是否需要身份核验 (如短信验证码)

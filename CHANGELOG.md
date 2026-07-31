@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/
 - detect_scene 融合 intent 入参，增加否定语义检测
 - 审计中间件改用路由元数据（endpoint 函数名）推断操作类型
 
+### Renamed
+- **子工程命名收敛**（跨 3 个 commit）
+  - `20c8779` — Java 端 `star-connection/` → `chat-svc/`，groupId `com.example` → `com.lumio.chatsvc`，artifactId 全部 `chat-*`，包路径 `com.example.*` → `com.lumio.chatsvc.*`
+  - `5800235` — Python 端 `knowledge-platform/` → `kb-service/`，包 `app/` → `kb/`，配置前缀 `KP_` → `KB_`，ES 索引 `kp_*` → `kb_*`，Kafka 主题 `kp.ingest.*` → `kb.ingest.*`
+  - (本 commit) — 主仓 `star_client.py` → `chat_client.py` + 70+ 跨仓引用；env `LUMIO_STAR_CONNECTION_URL` → `LUMIO_CHAT_SVC_URL`；类 `StarConnectionClient` → `ChatSvcClient`
+
 ### Fixed
 - 删除 save_push_tracker 孤儿函数（OE 改名遗留 + Redis key 前缀不一致）
 

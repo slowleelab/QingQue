@@ -420,8 +420,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     service_host: str = "127.0.0.1"
 
-    # star-connection 客户端
-    star_connection_url: str = "http://localhost:8080"
+    # chat-svc 客户端
+    chat_svc_url: str = "http://localhost:8080"
 
     # CORS
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])

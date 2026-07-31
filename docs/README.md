@@ -18,8 +18,8 @@
 
 | 项目 | 文档 |
 |------|------|
-| `knowledge-platform/` | [README](../knowledge-platform/README.md) — 知识数据微服务 |
-| `star-connection/` | [README](../star-connection/README.md) · [DESIGN](../star-connection/DESIGN.md) — 在线客服接入 |
+| `kb-service/` | [README](../kb-service/README.md) — 知识数据微服务 |
+| `chat-svc/` | [README](../chat-svc/README.md) · [DESIGN](../chat-svc/DESIGN.md) — 在线客服接入 |
 | `web/` | [README](../web/README.md) — 前端工作台 |
 | `mcp-server/` | Java Spring AI MCP Server（22 个信用卡工具，mock 数据） |
 
@@ -31,7 +31,7 @@
 |------|------|
 | [Sprint 3 设计](./superpowers/specs/2026-05-01-sprint3-agent-orchestration-design.md) | Agent 编排 + Bot 对话 MVP |
 | [Sprint 4 设计](./superpowers/specs/2026-05-03-sprint4-degradation-design.md) | LLM 集成 + 系统化降级策略 |
-| [star-connection 集成设计](./superpowers/specs/2026-05-04-star-connection-integration-design.md) | 在线客服接入方案 |
+| [chat-svc 集成设计](./superpowers/specs/2026-05-04-chat-svc-integration-design.md) | 在线客服接入方案 |
 | [超级图设计](./superpowers/specs/2026-05-01-super-diagram-design.md) | 三层架构图（编排 / 能力 / 数据） |
 
 各 Sprint 的实施计划见 [`docs/superpowers/plans/`](./superpowers/plans/)。
@@ -43,7 +43,7 @@
 | Commit | 范围 |
 |--------|------|
 | `4be1d67` | Python 包 `smartcs` → `lumio`，异常基类 `SmartCSError` → `LumioError`（24 个子类同改） |
-| `0908f82` | 资源 / 容器 / 镜像 / Java `mcp-server` / `star-connection` / proto / web 前端；Java groupId `com.smartcs` → `com.lumio` |
+| `0908f82` | 资源 / 容器 / 镜像 / Java `mcp-server` / `chat-svc` / proto / web 前端；Java groupId `com.smartcs` → `com.lumio` |
 | 本 commit | 文档 / 历史 / UAT / 博客 |
 
 详细迁移清单见 [CHANGELOG.md](../CHANGELOG.md)。

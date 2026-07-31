@@ -27,7 +27,7 @@
 | Commit | 范围 |
 |--------|------|
 | `4be1d67` | Python 包 `smartcs` → `lumio`，异常基类 `SmartCSError` → `LumioError`（24 子类同改） |
-| `0908f82` | 资源 / 容器 / 镜像 / Java mcp-server / star-connection / proto / web 前端；Java groupId `com.smartcs` → `com.lumio` |
+| `0908f82` | 资源 / 容器 / 镜像 / Java mcp-server / chat-svc / proto / web 前端；Java groupId `com.smartcs` → `com.lumio` |
 | 本 commit | 文档 / 历史 / UAT / 博客 |
 
 ## 三层架构

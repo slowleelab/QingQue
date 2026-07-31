@@ -26,7 +26,7 @@
 | Python | 3.11 | 编排服务（`agent/`） |
 | Poetry | 1.7+ | Python 依赖管理 |
 | Node / pnpm | 20+ / 9+ | 前端（`web/`，可选） |
-| Java / Maven | 21+ / 3.9+ | `mcp-server` 与 `star-connection` 构建 |
+| Java / Maven | 21+ / 3.9+ | `mcp-server` 与 `chat-svc` 构建 |
 | Ollama | 最新 | 本地 LLM（Qwen2.5-7B），可选 |
 
 ## 一键 Demo

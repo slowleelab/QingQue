@@ -1,4 +1,4 @@
-"""star-connection HTTP 客户端"""
+"""chat-svc HTTP 客户端"""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
-class StarConnectionClient:
-    """star-connection HTTP 客户端"""
+class ChatSvcClient:
+    """chat-svc HTTP 客户端"""
 
     def __init__(self, base_url: str = "http://localhost:8080") -> None:
         self._base_url = base_url.rstrip("/")
@@ -37,10 +37,10 @@ class StarConnectionClient:
         }
 
     async def create_session(self, data: dict[str, Any]) -> dict[str, Any]:
-        """POST /api/sessions — create agent session on star-connection"""
+        """POST /api/sessions — create agent session on chat-svc"""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(f"{self._base_url}/api/sessions", json=data)
             if resp.status_code != 200:
                 logger.error("create_session failed: %s %s", resp.status_code, resp.text)
-                raise RuntimeError(f"star-connection returned {resp.status_code}")
+                raise RuntimeError(f"chat-svc returned {resp.status_code}")
             return resp.json()

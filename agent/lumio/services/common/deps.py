@@ -37,7 +37,7 @@ from lumio.services.common.reranker import (
     create_reranker_provider,
 )
 from lumio.services.common.session import SessionManager
-from lumio.services.common.star_client import StarConnectionClient
+from lumio.services.common.chat_client import ChatSvcClient
 from lumio.services.common.transfer import TransferChecker
 from lumio.shared.config import get_settings
 
@@ -597,23 +597,23 @@ async def close_assist_orchestrator(app: FastAPI) -> None:
     app.state.product_catalog = None
 
 
-# ── star-connection 客户端 ──
+# ── chat-svc 客户端 ──
 
 
-async def init_star_client(app: FastAPI) -> None:
-    """初始化 star-connection HTTP 客户端，存储到 app.state"""
+async def init_chat_svc_client(app: FastAPI) -> None:
+    """初始化 chat-svc HTTP 客户端，存储到 app.state"""
     settings = get_settings()
-    app.state.star_client = StarConnectionClient(base_url=settings.star_connection_url)
+    app.state.chat_svc_client = ChatSvcClient(base_url=settings.chat_svc_url)
 
 
-async def close_star_client(app: FastAPI) -> None:
-    """关闭 star-connection 客户端"""
-    app.state.star_client = None
+async def close_chat_svc_client(app: FastAPI) -> None:
+    """关闭 chat-svc 客户端"""
+    app.state.chat_svc_client = None
 
 
-def get_star_client(request: Request) -> StarConnectionClient:
-    """获取 star-connection 客户端（FastAPI 依赖注入）"""
-    return request.app.state.star_client
+def get_chat_svc_client(request: Request) -> ChatSvcClient:
+    """获取 chat-svc 客户端（FastAPI 依赖注入）"""
+    return request.app.state.chat_svc_client
 
 
 # ── 类型别名 ──
@@ -633,7 +633,7 @@ HealthMonitorDep = Annotated[HealthMonitor, Depends(get_health_monitor)]
 DegradationManagerDep = Annotated[DegradationManager, Depends(get_degradation_manager)]
 
 
-StarClientDep = Annotated[StarConnectionClient, Depends(get_star_client)]
+ChatSvcClientDep = Annotated[ChatSvcClient, Depends(get_chat_svc_client)]
 
 
 # ── 依赖组件熔断器 (ES / Milvus) ──

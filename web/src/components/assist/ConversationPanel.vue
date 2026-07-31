@@ -114,15 +114,15 @@ async function handleSend() {
   // 通知 Assist：坐席已回复（合规检测 + 隐式反馈推断）
   notifyAgentMessage(sid, text)
 
-  // 发送坐席消息到 star-connection
+  // 发送坐席消息到 chat-svc
   try {
-    await fetch(`/api/star/sessions/${sid}/messages`, {
+    await fetch(`/api/chat-svc/sessions/${sid}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sender: "agent", content: text }),
     })
     lastPollTimestamp = Date.now()
-  } catch { /* star-connection 不可用时静默 */ }
+  } catch { /* chat-svc 不可用时静默 */ }
 
   scrollToBottom()
 }
@@ -134,8 +134,8 @@ async function scrollToBottom() {
   }
 }
 
-// HTTP 长轮询 star-connection 获取新消息（基于时间戳游标，非消费性读取）
-// 注意：AI 分析由 star-connection 回调 Lumio 服务端完成，前端不参与分析链路
+// HTTP 长轮询 chat-svc 获取新消息（基于时间戳游标，非消费性读取）
+// 注意：AI 分析由 chat-svc 回调 Lumio 服务端完成，前端不参与分析链路
 let pollActive = false
 let lastPollTimestamp = 0  // 游标，只拉取该时间戳之后的消息
 
@@ -144,7 +144,7 @@ async function pollMessages(sessionId: string) {
   lastPollTimestamp = 0  // 切换会话时重置游标
   while (pollActive && assistStore.activeSessionId === sessionId) {
     try {
-      const url = `/api/star/sessions/${sessionId}/poll?timeout=25000&since=${lastPollTimestamp}`
+      const url = `/api/chat-svc/sessions/${sessionId}/poll?timeout=25000&since=${lastPollTimestamp}`
       const resp = await fetch(url)
       if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
       const msgs: Array<{ sender: string; content: string; messageId: string; timestamp: number }> = await resp.json()

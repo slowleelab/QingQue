@@ -105,7 +105,7 @@ agent/lumio/              # 主包（原 smartcs，重命名后）
   scripts/                # 初始化/验证脚本（init_milvus/elasticsearch/kafka/minio/temporal, verify_*）
   tests/                  # pytest（728 条）
 mcp-server/               # Java Spring AI MCP Server（com.lumio.mcp, 22 tools, mock）
-star-connection/          # Java 客户/坐席长连接（customer-server :8080 / agent-server :8081）
+chat-svc/          # Java 客户/坐席长连接（customer-server :8080 / agent-server :8081）
 web/                      # Vue 3 + TS 前端（/、/agent、/admin、/login）
 deploy/                   # docker-compose / Dockerfile / k8s/lumio.yaml / higress/
 config/                   # prometheus / grafana（单一事实源）

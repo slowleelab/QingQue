@@ -93,7 +93,7 @@ async def test_session_update_success(bot_client: httpx.AsyncClient, assist_clie
     session_id = "e2e-assist-session-" + uuid_module.uuid4().hex[:8]
     await _ensure_session_exists(bot_client, session_id)
 
-    # 更新会话状态为 AGENT（star-connection 回调）
+    # 更新会话状态为 AGENT（chat-svc 回调）
     resp = await assist_client.post(
         "/api/session/update",
         json={

@@ -101,7 +101,7 @@
 
 #### `POST /api/chat/transfer` · public
 
-转人工（命中转人工意图时由 Bot Agent 触发，或由客户显式请求）。内部调用 `LumioClient`（Java star-connection）创建人工会话。
+转人工（命中转人工意图时由 Bot Agent 触发，或由客户显式请求）。内部调用 `LumioClient`（Java chat-svc）创建人工会话。
 
 #### `POST /api/chat/feedback` · public
 
@@ -111,7 +111,7 @@
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| `POST` | `/api/session/update` | agent | 更新会话阶段 / 子状态（star-connection 回调） |
+| `POST` | `/api/session/update` | agent | 更新会话阶段 / 子状态（chat-svc 回调） |
 | `POST` | `/api/hold` | agent | 坐席保持（AG_ACTIVE → AG_ON_HOLD） |
 | `POST` | `/api/resume` | agent | 恢复（AG_ON_HOLD → AG_ACTIVE） |
 | `POST` | `/api/transfer-to-bot` | agent | 会话从人工转回 Bot |
@@ -161,11 +161,11 @@
 
 #### `POST /api/notify` · agent
 
-外部系统通知（如 star-connection 的话务事件、坐席状态变更）。
+外部系统通知（如 chat-svc 的话务事件、坐席状态变更）。
 
 #### `POST /api/session/update` · agent
 
-更新会话阶段 / 子状态（状态机推进）。由 star-connection 回调触发。
+更新会话阶段 / 子状态（状态机推进）。由 chat-svc 回调触发。
 
 ### 话后处理（After-Call Work）
 

@@ -1,6 +1,6 @@
-> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+> **本文件为历史方案归档（2026-05-04 时的 star-connection 设计）。** 子工程已于 2026-07 重命名为 `chat-svc/`（Java groupId `com.example` → `com.lumio.chatsvc`，包路径 `com.example.*` → `com.lumio.chatsvc.*`，环境变量 `LUMIO_STAR_CONNECTION_URL` → `LUMIO_CHAT_SVC_URL`）。最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
 
-# star-connection 集成到 灵智（Lumio） 在线客服系统 — 完整设计方案
+# star-connection（现 chat-svc） 集成到 灵智（Lumio） 在线客服系统 — 完整设计方案
 
 > 日期：2026-05-04
 > 状态：待审批

@@ -1,12 +1,12 @@
-> **本文件为历史方案归档。** 最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
+> **本文件为历史方案归档（2026-05-04 时的 star-connection 设计）。** 子工程已于 2026-07 重命名为 `chat-svc/`（Java groupId `com.example` → `com.lumio.chatsvc`，包路径 `com.example.*` → `com.lumio.chatsvc.*`，环境变量 `LUMIO_STAR_CONNECTION_URL` → `LUMIO_CHAT_SVC_URL`）。最新文档见 [docs/README.md](../README.md) 与 [docs/architecture.md](../architecture.md)。
 
-# star-connection 集成到 灵智（Lumio） — 实施计划
+# star-connection（现 chat-svc） 集成到 灵智（Lumio） — 实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 star-connection (Java 在线客服系统) 嵌入 灵智（Lumio），实现 Bot 先行 → 转人工 → 坐席接管 + AI 辅助旁路的全链路闭环。
+**Goal:** 将 star-connection (Java 在线客服系统，现 `chat-svc/`) 嵌入 灵智（Lumio），实现 Bot 先行 → 转人工 → 坐席接管 + AI 辅助旁路的全链路闭环。
 
-**Architecture:** HTTP 长轮询统一客户端通信，灵智（Lumio） Redis 作为单一会话状态源，star-connection 通过新增 API 接收转人工请求，agent-server 内部连 Assist WebSocket 获取 AI 辅助。
+**Architecture:** HTTP 长轮询统一客户端通信，灵智（Lumio） Redis 作为单一会话状态源，star-connection（现 `chat-svc/`） 通过新增 API 接收转人工请求，agent-server 内部连 Assist WebSocket 获取 AI 辅助。
 
 **Tech Stack:** FastAPI (Python), Spring Boot 3 + Netty + ZooKeeper (Java 17), Vue 3 + TypeScript, Redis, Maven
 

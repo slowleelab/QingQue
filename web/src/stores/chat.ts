@@ -7,7 +7,7 @@ export const useChatStore = defineStore("chat", () => {
   const messages = ref<ChatMessage[]>([])
   const sessionId = ref<string | null>(null)
   const isLoading = ref(false)
-  const transferUrl = ref<string | null>(null)  // star-connection 轮询地址
+  const transferUrl = ref<string | null>(null)  // chat-svc 轮询地址
   const agentConnected = ref(false)
 
   let msgCounter = 0
@@ -24,11 +24,11 @@ export const useChatStore = defineStore("chat", () => {
     isLoading.value = true
 
     try {
-      // 如果已转人工，发消息到 star-connection
+      // 如果已转人工，发消息到 chat-svc
       if (transferUrl.value) {
         const sid = transferUrl.value.match(/session_id=([^&]+)/)?.[1]
         if (sid) {
-          await fetch("/api/star/sessions/" + sid + "/messages", {
+          await fetch("/api/chat-svc/sessions/" + sid + "/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sender: "customer", content: text }),
@@ -61,7 +61,7 @@ export const useChatStore = defineStore("chat", () => {
         }
         messages.value.push(botMsg)
 
-        // 转人工：记录 transfer_url，开始轮询 star-connection
+        // 转人工：记录 transfer_url，开始轮询 chat-svc
         if (pollResp.is_transfer && pollResp.transfer_url) {
           transferUrl.value = pollResp.transfer_url
           agentConnected.value = true
@@ -85,7 +85,7 @@ export const useChatStore = defineStore("chat", () => {
       try {
         const sid = transferUrl.value.match(/session_id=([^&]+)/)?.[1]
         if (!sid) break
-        const url = `/api/star/sessions/${sid}/poll?timeout=25000&since=${lastAgentTimestamp}`
+        const url = `/api/chat-svc/sessions/${sid}/poll?timeout=25000&since=${lastAgentTimestamp}`
         const resp = await fetch(url)
         if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
         const msgs: Array<{ sender: string; content: string; messageId: string; timestamp: number }> = await resp.json()

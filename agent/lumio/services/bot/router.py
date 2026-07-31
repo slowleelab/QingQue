@@ -596,8 +596,8 @@ async def _run_agent(
     # 转人工处理
     if is_transfer:
         transfer_url = ""
-        star_client = getattr(agent, "_star_client", None)
-        if star_client:
+        chat_client = getattr(agent, "_chat_client", None)
+        if chat_client:
             try:
                 # 重新加载会话状态（add_turn 可能已更新 version）
                 state = await session_manager.get_session(session_id)
@@ -618,7 +618,7 @@ async def _run_agent(
                 if state and state.last_entities:
                     known_entities = [{"type": e.entity_type, "value": e.value} for e in state.last_entities]
 
-                transfer_req = star_client.build_transfer_request(
+                transfer_req = chat_client.build_transfer_request(
                     session_id=session_id,
                     transfer_reason=transfer_reason,
                     transfer_summary=transfer_summary,
@@ -626,7 +626,7 @@ async def _run_agent(
                     intent=str(primary_intent.value) if primary_intent and hasattr(primary_intent, "value") else "",
                     sentiment=str(result.get("sentiment", "neutral")),
                 )
-                transfer_resp = await star_client.create_session(transfer_req)
+                transfer_resp = await chat_client.create_session(transfer_req)
 
                 # 将转人工摘要 + 实体写入 session 状态，供坐席端 assist_ready 读取
                 with contextlib.suppress(Exception):
@@ -641,10 +641,10 @@ async def _run_agent(
                         transfer_resp.get("sessionId", transfer_resp.get("session_id", "")),
                     )
             except Exception:
-                logger.exception("转人工调用 star-connection 失败")
+                logger.exception("转人工调用 chat-svc 失败")
                 transfer_reason += "（人工客服系统暂不可用）"
         else:
-            logger.warning("star_client 未初始化，跳过转人工桥接: session=%s", session_id)
+            logger.warning("chat_client 未初始化，跳过转人工桥接: session=%s", session_id)
 
         await _finish_message(
             redis_client,
@@ -1358,15 +1358,15 @@ async def chat_transfer(body: ChatTransferRequest, req: Request):
         except Exception:
             pass
 
-    # 通知 star-connection 创建转人工会话
-    star_client = getattr(req.app.state, "star_client", None)
+    # 通知 chat-svc 创建转人工会话
+    chat_client = getattr(req.app.state, "chat_client", None)
     transfer_url = ""
-    if star_client:
+    if chat_client:
         try:
-            result = await star_client.create_session(body.session_id)
+            result = await chat_client.create_session(body.session_id)
             transfer_url = result.get("transfer_url", "")
         except Exception:
-            logger.warning("star-connection 转人工通知失败: session=%s", body.session_id)
+            logger.warning("chat-svc 转人工通知失败: session=%s", body.session_id)
 
     return {"status": "transferring", "session_id": body.session_id, "transfer_url": transfer_url}
 

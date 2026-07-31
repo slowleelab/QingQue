@@ -2,8 +2,8 @@ import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 import type { SessionInfo, AssistPushPayload, AssistPushMessage, ChatMessage } from "@/api/types"
 
-// star-connection 会话 API
-const STAR_SESSIONS_URL = "/api/star/monitor/customer-service/sessions"
+// chat-svc 会话 API
+const CHAT_SVC_SESSIONS_URL = "/api/chat-svc/monitor/customer-service/sessions"
 
 export const useAssistStore = defineStore("assist", () => {
   const sessions = ref<SessionInfo[]>([])
@@ -64,11 +64,11 @@ export const useAssistStore = defineStore("assist", () => {
     wsStatus.value = status
   }
 
-  // 从 star-connection 拉取实时会话列表
+  // 从 chat-svc 拉取实时会话列表
   async function fetchSessions() {
     fetching.value = true
     try {
-      const resp = await fetch(STAR_SESSIONS_URL)
+      const resp = await fetch(CHAT_SVC_SESSIONS_URL)
       if (!resp.ok) return
       const data: Array<{
         sessionId: string
@@ -78,8 +78,8 @@ export const useAssistStore = defineStore("assist", () => {
         customerId: string | null
       }> = await resp.json()
 
-      // 转换 star-connection 会话为前端 SessionInfo
-      const starSessions: SessionInfo[] = data
+      // 转换 chat-svc 会话为前端 SessionInfo
+      const chatSessions: SessionInfo[] = data
         .filter((s) => s.status !== "CLOSED")
         .map((s) => ({
           sessionId: s.sessionId,
@@ -89,15 +89,15 @@ export const useAssistStore = defineStore("assist", () => {
           agentId: s.agentId || undefined,
         }))
 
-      // 合并已有会话和 star-connection 会话
+      // 合并已有会话和 chat-svc 会话
       const existingIds = new Set(sessions.value.map((s) => s.sessionId))
-      for (const s of starSessions) {
+      for (const s of chatSessions) {
         if (!existingIds.has(s.sessionId)) {
           sessions.value.push(s)
         }
       }
     } catch {
-      // star-connection 不可用时静默失败
+      // chat-svc 不可用时静默失败
     } finally {
       fetching.value = false
     }

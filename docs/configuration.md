@@ -23,8 +23,8 @@
 | `LUMIO_LOG_LEVEL` | `INFO` | 日志级别（DEBUG / INFO / WARNING / ERROR） |
 | `LUMIO_SERVICE_HOST` | `127.0.0.1` | 服务监听地址 |
 | `LUMIO_JWT_SECRET` | （开发默认） | JWT 签名密钥（生产必须覆盖） |
-| `LUMIO_STAR_CONNECTION_URL` | `http://localhost:8080` | star-connection customer-server 地址 |
-| `LUMIO_ASSIST_URL` | `http://localhost:8001` | 本项目 assist 入口（被 star-connection agent-server 调用） |
+| `LUMIO_CHAT_SVC_URL` | `http://localhost:8080` | chat-svc customer-server 地址 |
+| `LUMIO_ASSIST_URL` | `http://localhost:8001` | 本项目 assist 入口（被 chat-svc agent-server 调用） |
 | `LUMIO_CORS_ORIGINS` | `["http://localhost:5173","http://localhost:8080"]` | CORS 允许源（JSON 数组） |
 
 ### Bot 服务（`BOT_`）

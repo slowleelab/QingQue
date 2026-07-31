@@ -189,14 +189,14 @@ web-install: ## 安装前端依赖
 	cd web && pnpm install
 
 # ── 在线客服（Java） ──
-star-build: ## 编译 star-connection
-	mvn -f star-connection/pom.xml clean package -DskipTests -q
+chat-svc-build: ## 编译 chat-svc
+	mvn -f chat-svc/pom.xml clean package -DskipTests -q
 
-star-up: ## 启动 star-connection（customer-server :8080 + agent-server :8081）
-	java -jar star-connection/customer-server/target/customer-server-1.0.0.jar &
+chat-svc-up: ## 启动 chat-svc（chat-customer-server :8080 + chat-agent-server :8081）
+	java -jar chat-svc/customer-server/target/chat-customer-server-1.0.0.jar &
 	sleep 3
-	java -jar star-connection/agent-server/target/agent-server-1.0.0.jar --server.port=8081 &
+	java -jar chat-svc/agent-server/target/chat-agent-server-1.0.0.jar --server.port=8081 &
 
-star-down: ## 停止 star-connection
+chat-svc-down: ## 停止 chat-svc
 	pkill -f "customer-server" || true
 	pkill -f "agent-server" || true

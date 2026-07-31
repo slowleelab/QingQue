@@ -17,8 +17,8 @@
 | 2 | Bot 健康检查 | GET /api/health | 通过 | 200 | 含 Streams 指标 + Agent 槽位 |
 | 3 | Assist 异步通知 | POST /api/notify | 通过 | 200 | 通知已接受 |
 | 4 | Assist 健康检查 | GET /api/health | 通过 | 200 | 服务健康 |
-| 5a | star-conn CF 监控 | GET /api/monitor/customer-service/stats | 警告 | 200 | 返回 SPA 前端页面，非 JSON API |
-| 5b | star-conn AB 监控 | GET 同上路径 (8081 端口) | 失败 | 404 | 该端口无非监控端点 |
+| 5a | chat-svc CF 监控 | GET /api/monitor/customer-service/stats | 警告 | 200 | 返回 SPA 前端页面，非 JSON API |
+| 5b | chat-svc AB 监控 | GET 同上路径 (8081 端口) | 失败 | 404 | 该端口无非监控端点 |
 | 6a | 空消息发送 | POST /api/chat/send | 通过 | 200 | 无输入校验，空消息被接受 |
 | 6b | 无效会话轮询 | GET /api/chat/poll (无效sid) | **已修复** | — | 修复前永久挂起，修复后 5s 超时返回 |
 | 6c | 缺少必填字段 | POST /api/notify (无session_id) | 通过 | 422 | 正确返回参数校验错误 |
@@ -102,7 +102,7 @@
 
 ---
 
-### 测试 5：star-connection 监控 — 警告/失败
+### 测试 5：chat-svc 监控 — 警告/失败
 
 #### 5a. CF 端口 8080
 
@@ -159,7 +159,7 @@
 - **修复：** 新增 `_wait_for_response()` 函数，外层 `asyncio.wait_for` 硬超时保护
 - **状态：** 已验证修复
 
-### BUG-2：star-conn AB 端口缺少监控端点
+### BUG-2：chat-svc AB 端口缺少监控端点
 
 - **严重程度：** 低（可能是设计如此）
 - **接口：** `GET /api/monitor/customer-service/stats` (8081 端口)

@@ -60,8 +60,8 @@ export function useCustomerChat() {
           if (data.is_transfer) {
             addMsg("system", "正在转接人工客服...")
             inQueue.value = true
-            // 开始轮询 star-conn
-            startStarPolling()
+            // 开始轮询 chat-svc
+            startChatSvcPolling()
             return
           }
         } else if (data.status === "queued") {
@@ -77,10 +77,10 @@ export function useCustomerChat() {
     }
   }
 
-  async function startStarPolling() {
+  async function startChatSvcPolling() {
     while (inQueue.value && sessionId.value) {
       try {
-        const resp = await fetch(`/api/star/sessions/${sessionId.value}/poll?timeout=25000`)
+        const resp = await fetch(`/api/chat-svc/sessions/${sessionId.value}/poll?timeout=25000`)
         if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
         const msgs = await resp.json()
         for (const m of msgs || []) {

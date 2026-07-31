@@ -1,7 +1,7 @@
 # 灵智（Lumio）v2.4 UAT 测试报告
 
 **测试日期**: 2026-05-24
-**测试环境**: Bot (localhost:8000), Assist (localhost:8001), star-conn CF (localhost:8080)
+**测试环境**: Bot (localhost:8000), Assist (localhost:8001), chat-svc CF (localhost:8080)
 **中间件状态**: Redis / ES / Milvus / Postgres / Ollama 全部运行中
 
 ---
@@ -105,15 +105,15 @@
 
 ---
 
-## 8. star-connection (P1)
+## 8. chat-svc (P1)
 
 | ID | 测试项 | 请求 | 期望 | 实际响应 | 结果 |
 |----|--------|------|------|----------|------|
 | T30 | 前端页面可达 | GET http://localhost:8080/ | 200 | HTTP 200, Vue SPA HTML | **PASS** |
-| T31 | REST API 端点 | GET http://localhost:8080/api/health | API 响应 | 返回 SPA HTML (前端路由拦截) | **WARN** — star-connection 作为前端 SPA，不暴露后端 REST API |
+| T31 | REST API 端点 | GET http://localhost:8080/api/health | API 响应 | 返回 SPA HTML (前端路由拦截) | **WARN** — chat-svc 作为前端 SPA，不暴露后端 REST API |
 | T32 | Actuator 端点 | GET http://localhost:8080/actuator/health | API 响应 | 返回 SPA HTML (前端路由拦截) | **WARN** — 无 Spring Boot Actuator 端点暴露 |
 
-**star-connection 小结**: 3 条测试中 1 PASS / 2 WARN。star-connection 端口 8080 仅提供前端静态资源，不暴露后端 API，因此端到端客户进线+坐席接起流程需要完整的前端交互操作，不适合纯 API 测试。
+**chat-svc 小结**: 3 条测试中 1 PASS / 2 WARN。chat-svc 端口 8080 仅提供前端静态资源，不暴露后端 API，因此端到端客户进线+坐席接起流程需要完整的前端交互操作，不适合纯 API 测试。
 
 ---
 
@@ -143,7 +143,7 @@
 | 健康检查 | 2 | 2 | 0 | 0 | 100% |
 | Hold/Resume | 4 | 2 | 2 | 0 | 100% (含 WARN 视为条件通过) |
 | Review | 4 | 1 | 3 | 0 | 100% (含 WARN 视为条件通过) |
-| star-connection | 3 | 1 | 2 | 0 | 100% (含 WARN 视为条件通过) |
+| chat-svc | 3 | 1 | 2 | 0 | 100% (含 WARN 视为条件通过) |
 | 扩展 (Analyze/KB/Feedback) | 8 | 8 | 0 | 0 | 100% |
 | **合计** | **47** | **34** | **12** | **1** | **72.3% (严格) / 97.9% (含 WARN)** |
 
@@ -158,15 +158,15 @@
 - **现象**: 任何对 `/api/session/update` 的有效请求均返回 `{"error":{"code":5000,"message":"系统内部错误","type":"ValueError"}}` HTTP 500
 - **定位**: `router.py:275` 调用 `session_manager.transition_phase()` 触发 ValueError 未捕获
 - **根因推测**: Bot 服务通过 `/api/chat/send` 创建的会话存储在 Redis (`lumio:session:*:meta`)，但 Assist 服务的 `SessionManager` 可能使用不同的 key 前缀或 session 初始化流程，导致 `get_session()` 成功但 `transition_phase()` 触发内部验证失败
-- **影响**: 阻塞 star-connection 回调的会话状态同步，Hold/Resume/Review 等后续流程均无法测试
+- **影响**: 阻塞 chat-svc 回调的会话状态同步，Hold/Resume/Review 等后续流程均无法测试
 
 ### 需关注
 
-1. **跨服务会话状态同步**: Bot 服务和 Assist 服务各自维护独立的 SessionManager/StateManager，bot 创建的会话无法直接在 assist 的 Hold/Resume/Review/SessionUpdate 中使用。需确认这是预期架构（star-connection 统一驱动）还是需要同步机制。
+1. **跨服务会话状态同步**: Bot 服务和 Assist 服务各自维护独立的 SessionManager/StateManager，bot 创建的会话无法直接在 assist 的 Hold/Resume/Review/SessionUpdate 中使用。需确认这是预期架构（chat-svc 统一驱动）还是需要同步机制。
 
 2. **SessionSubPhase 枚举设计**: ENDED 阶段不支持子阶段（符合模型定义），但错误消息 `"无效的子阶段: ended:normal"` 可能让调用方困惑。建议明确文档说明 ENDED 阶段仅通过 `end_reason` 记录终止原因。
 
-3. **star-connection 前端 SPA**: 端口 8080 仅提供静态前端，无可直接调用的 API，端到端测试需要前端交互操作。
+3. **chat-svc 前端 SPA**: 端口 8080 仅提供静态前端，无可直接调用的 API，端到端测试需要前端交互操作。
 
 ### 亮点
 

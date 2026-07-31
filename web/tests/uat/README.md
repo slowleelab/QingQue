@@ -5,7 +5,7 @@
 ## 环境要求
 
 - Node.js 18+
-- 服务运行中: Bot (8000), Assist (8001), star-conn CF (8080), Agent Workbench (5173)
+- 服务运行中: Bot (8000), Assist (8001), chat-svc CF (8080), Agent Workbench (5173)
 - 至少 1 名坐席在线
 
 ## 安装
@@ -46,7 +46,7 @@ npx playwright show-report
 
 1. 所有中间件已启动 (docker compose up -d)
 2. Bot (:8000)、Assist (:8001) 已启动
-3. star-conn CF (:8080)、AB (:8081) 已启动
+3. chat-svc CF (:8080)、AB (:8081) 已启动
 4. Agent Workbench (:5173) 已启动
 5. 至少 1 名坐席已登录
 

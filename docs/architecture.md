@@ -35,7 +35,7 @@
                         │   (Vue 3)        (Vue 3)        (Vue 3)          (Vue 3)     │
                         │                                                             │
                         │   customer-server :8080   agent-server :8081                 │
-                        │   (Java star-connection, Netty + ZooKeeper)                  │
+                        │   (Java chat-svc, Netty + ZooKeeper)                  │
                         └──────────────────────┬──────────────────────────────────────┘
                                                │  HTTP / WS
                         ┌──────────────────────▼──────────────────────────────────────┐
@@ -82,7 +82,7 @@
 - **每个服务是独立的 FastAPI app 工厂**：`bot_app` / `assist_app`，由 `agent/lumio/main.py` 暴露，各有独立 lifespan。
 - **依赖注入**：DB engine、Redis 连接池、gRPC channel 存于 `app.state`，经 `Annotated[..., Depends(...)]` 注入（见 `services/common/deps.py`）。
 - **共享基础设施**集中在 `services/common/`：检索、embedding、reranker、会话、降级、熔断、审计、PII、auth_router 等 25 个模块。
-- **Java 坐席集成**：`star-connection/customer-server:8080` 与 `agent-server:8081` 通过 `LumioClient`（Java 端）和 `LumioSessionListener` 与 Lumio 双向通信；子阶段方法 `toLumioSubPhase()` 取代历史 `toSmartcsSubPhase()`。
+- **Java 坐席集成**：`chat-svc/customer-server:8080` 与 `agent-server:8081` 通过 `LumioClient`（Java 端）和 `LumioSessionListener` 与 Lumio 双向通信；子阶段方法 `toLumioSubPhase()` 取代历史 `toSmartcsSubPhase()`。
 
 ### AI 能力层
 
@@ -121,8 +121,8 @@ Java 侧 `mcp-server` 暴露 **22 个信用卡工具**（账单/卡服务/额度
 |------|------|------|
 | `agent/` | Python 3.11 | 灵智（Lumio）核心：Bot + Assist 编排服务，主包 `lumio`（历史名 `smartcs`） |
 | `mcp-server/` | Java + Spring AI | Java MCP Server，22 个信用卡工具（全部 mock） |
-| `star-connection/` | Java | 在线客服接入系统（customer-server :8080 / agent-server :8081） |
-| `knowledge-platform/` | Python | 独立知识数据微服务（ES 原生 RRF，取代 Milvus 双写） |
+| `chat-svc/` | Java | 在线客服接入系统（customer-server :8080 / agent-server :8081） |
+| `kb-service/` | Python | 独立知识数据微服务（ES 原生 RRF，取代 Milvus 双写） |
 | `web/` | Vue 3 + TS | 坐席工作台 / 客户对话前端，路由 `/`、`/agent`、`/login`、`/admin` |
 
 ## 核心数据流

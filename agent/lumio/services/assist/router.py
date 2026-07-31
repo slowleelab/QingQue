@@ -40,7 +40,7 @@ WS_POOL_KEY = "assist_ws_pool"
 
 
 class AnalyzeRequest(BaseModel):
-    """star-connection 回调：请求分析客户消息"""
+    """chat-svc 回调：请求分析客户消息"""
 
     session_id: str
     message: str
@@ -90,7 +90,7 @@ async def health_ready(request: Request):
 
 
 class NotifyRequest(BaseModel):
-    """star-conn 异步通知请求"""
+    """chat-svc 异步通知请求"""
 
     session_id: str
     message: str = ""
@@ -99,7 +99,7 @@ class NotifyRequest(BaseModel):
 
 @router.post("/notify")
 async def notify_message(body: NotifyRequest, request: Request):
-    """star-conn 异步通知：客户消息到达
+    """chat-svc 异步通知：客户消息到达
 
     202 立即返回。消息通过 Redis Pub/Sub 发布到 session 专属频道，
     持有该 session WebSocket 连接的实例订阅频道并异步处理。
@@ -233,7 +233,7 @@ async def _run_assist_engine(app, session_id: str, message: str, intent, confide
 
 @router.post("/session/update")
 async def session_update(body: SessionUpdateRequest, request: Request):
-    """Receive session state callback from star-connection"""
+    """Receive session state callback from chat-svc"""
     app = request.app
     session_manager = getattr(app.state, "session_manager", None)
     if session_manager is None:
@@ -291,14 +291,14 @@ async def session_update(body: SessionUpdateRequest, request: Request):
     return SessionUpdateResponse(status="ok")
 
 
-# ── Analyze（star-connection 回调，生产级入口）──
+# ── Analyze（chat-svc 回调，生产级入口）──
 
 
 @router.post("/analyze")
 async def analyze_message(body: AnalyzeRequest, request: Request):
-    """star-connection 回调：分析客户消息并推送辅助结果给坐席
+    """chat-svc 回调：分析客户消息并推送辅助结果给坐席
 
-    由 star-connection 在收到客户消息时调用。
+    由 chat-svc 在收到客户消息时调用。
     Lumio 执行完整分析链路后将结果推送到对应 WebSocket。
     走坐席辅助引擎（run_assist_engine）单一编排路径；
     ai_executor 缺失时 E1 自动降级，E3 风控独立运行。
@@ -777,7 +777,7 @@ async def _commit_feedback_after_delay(
 
 
 async def _handle_ws_notify(websocket: WebSocket, app, session_id: str) -> None:
-    """监听 Redis Pub/Sub 频道, 处理 star-conn notify 消息
+    """监听 Redis Pub/Sub 频道, 处理 chat-svc notify 消息
 
     替代旧的 _notify_session_worker 循环。
     串行性由 async for 循环自然保证: 上一条处理完才取下一条。
@@ -814,7 +814,7 @@ async def session_websocket(websocket: WebSocket, session_id: str):
 
     并发运行两个任务:
     - 客户端消息处理 (ping/pong, customer_message)
-    - Redis Pub/Sub 监听 (star-conn notify → 坐席辅助引擎 → WS 推送)
+    - Redis Pub/Sub 监听 (chat-svc notify → 坐席辅助引擎 → WS 推送)
     """
     await websocket.accept()
     app = websocket.app

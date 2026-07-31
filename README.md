@@ -22,7 +22,7 @@ graph TB
         A1["Web Chat<br/>Vue 3"]
         A2["Workbench<br/>Vue 3"]
         A3["Admin<br/>Vue 3"]
-        A4["StarConn<br/>Java"]
+        A4["ChatSvc<br/>Java"]
     end
 
     subgraph ORCH["Orchestration Layer 编排层 · FastAPI + asyncio"]
@@ -321,7 +321,7 @@ make clean        # 清理缓存
 | Sprint 3 | Agent 编排 + 机器人 MVP | ✅ 已完成 |
 | Sprint 4 | 大模型集成 + 降级策略 | ✅ 已完成 |
 | Sprint 5 | 坐席辅助服务 + 坐席辅助引擎 | ✅ 已完成 |
-| Sprint 6 | star-connection 集成 + 超级图 | ✅ 已完成 |
+| Sprint 6 | chat-svc 集成 + 超级图 | ✅ 已完成 |
 
 ## 文档
 
@@ -339,8 +339,8 @@ make clean        # 清理缓存
 |------|------|------|
 | `agent/` | 灵智（Lumio）核心（Bot + Assist 编排服务） | 见上方文档 |
 | `mcp-server/` | 信用卡工具服务（Java / Spring AI MCP Server，22 个工具，mock 数据） | [README](mcp-server/README.md) |
-| `knowledge-platform/` | 知识数据微服务（ES 原生 RRF） | [README](knowledge-platform/README.md) |
-| `star-connection/` | 在线客服接入系统（Java） | [README](star-connection/README.md) · [DESIGN](star-connection/DESIGN.md) |
+| `kb-service/` | 知识数据微服务（ES 原生 RRF） | [README](kb-service/README.md) |
+| `chat-svc/` | 在线客服接入系统（Java） | [README](chat-svc/README.md) · [DESIGN](chat-svc/DESIGN.md) |
 | `web/` | 坐席工作台 / 客户对话前端（Vue 3） | [README](web/README.md) |
 
 ## 贡献

@@ -10,7 +10,7 @@
 - customer — 客户，可使用 bot 聊天接口
 - agent — 坐席，可使用 assist 接口
 - admin — 管理员，可使用知识库管理接口
-- service — 内部服务间调用（star-connection → assist）
+- service — 内部服务间调用（chat-svc → assist）
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
 > **日期**: 2026-05-11
 > **测试类型**: API 契约/集成测试（非用户验收测试）
 > **测试范围**: Bot 自助服务 (:8000) + 坐席辅助服务 (:8001) 全业务链路
-> **测试环境**: 需启动 Redis、ES、Milvus、MinIO、PostgreSQL、star-connection 服务
+> **测试环境**: 需启动 Redis、ES、Milvus、MinIO、PostgreSQL、chat-svc 服务
 > **测试方式**: curl / HTTP 客户端直接调用 REST API 和 WebSocket
 
 ---
@@ -57,7 +57,7 @@
 ### 2.3 会话阶段生命周期
 
 ```
-BOT ──(触发转人工)──> HANDOFF ──(star-connection回调)──> ASSIST ──(通话结束)──> ENDED
+BOT ──(触发转人工)──> HANDOFF ──(chat-svc回调)──> ASSIST ──(通话结束)──> ENDED
 ```
 
 ---
@@ -149,7 +149,7 @@ BOT ──(触发转人工)──> HANDOFF ──(star-connection回调)──> 
 ## UAT-05: 转人工全链路
 
 ### 前置条件
-- star-connection Java 服务已启动
+- chat-svc Java 服务已启动
 - Bot + Assist 服务均可用
 - 知识库已初始化
 
@@ -161,10 +161,10 @@ BOT ──(触发转人工)──> HANDOFF ──(star-connection回调)──> 
 | 05-04 | L2负面情绪+高置信 | 1. 连续发送负面消息触发 angry 情绪<br>2. 发送: "你们银行怎么这样" | 当情绪为 angry 且 confidence>0.8 时，`is_transfer=true` | P1 |
 | 05-05 | L3累计低置信 | 1. 连续发送3条模糊消息（如: "嗯"、"那个"、"就是"） | 低置信累计达3轮后，`is_transfer=true` | P1 |
 | 05-06 | 挂失业务自动转人工 | 1. 发送: "我的信用卡丢了要挂失" | `intent="card_loss"`，`is_transfer=true`，`transfer_reason` 含 "挂失业务" | P0 |
-| 05-07 | 转人工后poll含transfer_url | 1. 触发转人工<br>2. GET `/api/chat/poll` | poll 返回 `is_transfer=true`，`transfer_url` 非空（指向 star-connection） | P0 |
-| 05-08 | 转人工时star-connection不可用 | 1. 停止 star-connection<br>2. 发送: "转人工" | `is_transfer=true`，`transfer_reason` 含 "人工客服系统暂不可用" | P1 |
+| 05-07 | 转人工后poll含transfer_url | 1. 触发转人工<br>2. GET `/api/chat/poll` | poll 返回 `is_transfer=true`，`transfer_url` 非空（指向 chat-svc） | P0 |
+| 05-08 | 转人工时chat-svc不可用 | 1. 停止 chat-svc<br>2. 发送: "转人工" | `is_transfer=true`，`transfer_reason` 含 "人工客服系统暂不可用" | P1 |
 | 05-09 | 会话阶段流转 BOT→HANDOFF | 1. 触发转人工<br>2. 检查 Redis 中会话状态 | 会话 `current_phase` 变为 "handoff" | P1 |
-| 05-10 | 会话阶段流转 HANDOFF→ASSIST | 1. 触发转人工后<br>2. star-connection 回调 POST `/api/session/update` body: `{"session_id": "{sid}", "phase": "ASSIST", "agent_id": "agent-001"}` | 返回 `{"status": "ok"}`，会话阶段变为 "assist" | P0 |
+| 05-10 | 会话阶段流转 HANDOFF→ASSIST | 1. 触发转人工后<br>2. chat-svc 回调 POST `/api/session/update` body: `{"session_id": "{sid}", "phase": "ASSIST", "agent_id": "agent-001"}` | 返回 `{"status": "ok"}`，会话阶段变为 "assist" | P0 |
 
 ---
 
@@ -357,10 +357,10 @@ BOT ──(触发转人工)──> HANDOFF ──(star-connection回调)──> 
   → Bot: RAG回复 (intent=bill_query)
 客户: "不对，我要转人工"
   → Bot: 转人工 (intent=transfer_agent, is_transfer=true)
-  → star-connection 分配坐席
+  → chat-svc 分配坐席
   → 坐席 WS 连接建立
   → POST /api/session/update phase=ASSIST
-客户(通过star-connection): "上个月的退款怎么还没到"
+客户(通过chat-svc): "上个月的退款怎么还没到"
   → POST /api/analyze
   → 坐席WS收到 assist_push (primary_card + fusion_type)
 坐席: 采纳话术发送
@@ -374,7 +374,7 @@ BOT ──(触发转人工)──> HANDOFF ──(star-connection回调)──> 
 ### 场景 C: 风控拦截场景
 
 ```
-客户(通过star-connection): "你们能帮我套现吗"
+客户(通过chat-svc): "你们能帮我套现吗"
   → POST /api/analyze
   → AlertEngine 命中 R-COMP-001 (critical)
   → E3 返回 risk_action=BLOCK
