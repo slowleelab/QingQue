@@ -62,6 +62,7 @@ import { ChatDotRound, Promotion } from "@element-plus/icons-vue"
 import { useAssistStore } from "@/stores/assist"
 import { useWebSocket } from "@/composables/useWebSocket"
 import { useDraftText } from "@/composables/useDraftText"
+import { sendChatSvcMessage, pollChatSvcMessages } from "@/api/chat-svc"
 import MessageBubble from "@/components/chat/MessageBubble.vue"
 import type { SessionPhase } from "@/api/types"
 
@@ -127,15 +128,11 @@ async function handleSend() {
   // 通知 Assist：坐席已回复（合规检测 + 隐式反馈推断）
   notifyAgentMessage(sid, text)
 
-  // 发送坐席消息到 chat-svc
+  // 发送坐席消息到 chat-svc (走 axios 包装, 自动 Bearer + 错误拦截)
   try {
-    await fetch(`/api/chat-svc/sessions/${sid}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sender: "agent", content: text }),
-    })
+    await sendChatSvcMessage(sid, { sender: "agent", content: text })
     lastPollTimestamp = Date.now()
-  } catch { /* chat-svc 不可用时静默 */ }
+  } catch { /* chat-svc 不可用时静默; 错误已 ElMessage 提示 */ }
 
   scrollToBottom()
 }
@@ -149,6 +146,7 @@ async function scrollToBottom() {
 
 // HTTP 长轮询 chat-svc 获取新消息（基于时间戳游标，非消费性读取）
 // 注意：AI 分析由 chat-svc 回调 Lumio 服务端完成，前端不参与分析链路
+// 走 B2 api/chat-svc.ts 包装, 带 Bearer 头, 401 跳登录
 let pollActive = false
 let lastPollTimestamp = 0  // 游标，只拉取该时间戳之后的消息
 
@@ -157,10 +155,7 @@ async function pollMessages(sessionId: string) {
   lastPollTimestamp = 0  // 切换会话时重置游标
   while (pollActive && assistStore.activeSessionId === sessionId) {
     try {
-      const url = `/api/chat-svc/sessions/${sessionId}/poll?timeout=25000&since=${lastPollTimestamp}`
-      const resp = await fetch(url)
-      if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
-      const msgs: Array<{ sender: string; content: string; messageId: string; timestamp: number }> = await resp.json()
+      const msgs = await pollChatSvcMessages(sessionId, lastPollTimestamp, 25000)
       for (const m of msgs) {
         if (m.timestamp > lastPollTimestamp) {
           lastPollTimestamp = m.timestamp

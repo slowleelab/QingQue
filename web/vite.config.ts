@@ -70,10 +70,10 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
-      "/api/star": {
+      "/api/chat-svc": {
         target: "http://localhost:8080",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/star/, "/api"),
+        rewrite: (path) => path.replace(/^\/api\/chat-svc/, "/api"),
       },
     },
   },

@@ -1,4 +1,5 @@
 import { ref, onUnmounted } from "vue"
+import { pollChatSvcMessages } from "@/api/chat-svc"
 
 export interface ChatMsg {
   id: string
@@ -78,12 +79,12 @@ export function useCustomerChat() {
   }
 
   async function startChatSvcPolling() {
+    let lastSince = 0
     while (inQueue.value && sessionId.value) {
       try {
-        const resp = await fetch(`/api/chat-svc/sessions/${sessionId.value}/poll?timeout=25000`)
-        if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
-        const msgs = await resp.json()
+        const msgs = await pollChatSvcMessages(sessionId.value, lastSince, 25000)
         for (const m of msgs || []) {
+          if (m.timestamp > lastSince) lastSince = m.timestamp
           const role = m.sender === "agent" ? "agent" as const : "customer" as const
           if (role === "agent") {
             addMsg("agent", m.content)

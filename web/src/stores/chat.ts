@@ -1,6 +1,7 @@
 import { defineStore } from "pinia"
 import { ref } from "vue"
 import { sendMessage, pollReply } from "@/api/bot"
+import { sendChatSvcMessage, pollChatSvcMessages } from "@/api/chat-svc"
 import type { ChatMessage, ChatRequest } from "@/api/types"
 
 export const useChatStore = defineStore("chat", () => {
@@ -24,15 +25,13 @@ export const useChatStore = defineStore("chat", () => {
     isLoading.value = true
 
     try {
-      // 如果已转人工，发消息到 chat-svc
+      // 如果已转人工，发消息到 chat-svc (走 axios 包装, 自动 Bearer + 错误拦截)
       if (transferUrl.value) {
         const sid = transferUrl.value.match(/session_id=([^&]+)/)?.[1]
         if (sid) {
-          await fetch("/api/chat-svc/sessions/" + sid + "/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sender: "customer", content: text }),
-          })
+          try {
+            await sendChatSvcMessage(sid, { sender: "customer", content: text })
+          } catch { /* 错误已 toast */ }
           // 更新游标：避免轮询拉回自己刚发的消息
           lastAgentTimestamp = Date.now()
         }
@@ -85,10 +84,7 @@ export const useChatStore = defineStore("chat", () => {
       try {
         const sid = transferUrl.value.match(/session_id=([^&]+)/)?.[1]
         if (!sid) break
-        const url = `/api/chat-svc/sessions/${sid}/poll?timeout=25000&since=${lastAgentTimestamp}`
-        const resp = await fetch(url)
-        if (!resp.ok) { await new Promise(r => setTimeout(r, 1000)); continue }
-        const msgs: Array<{ sender: string; content: string; messageId: string; timestamp: number }> = await resp.json()
+        const msgs = await pollChatSvcMessages(sid, lastAgentTimestamp, 25000)
         for (const m of msgs) {
           if (m.timestamp > lastAgentTimestamp) {
             lastAgentTimestamp = m.timestamp

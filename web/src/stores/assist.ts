@@ -1,9 +1,7 @@
 import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 import type { SessionInfo, AssistPushPayload, AssistPushMessage, ChatMessage } from "@/api/types"
-
-// chat-svc 会话 API
-const CHAT_SVC_SESSIONS_URL = "/api/chat-svc/monitor/customer-service/sessions"
+import { listChatSvcSessions, type ChatSvcSessionRaw } from "@/api/chat-svc"
 
 export const useAssistStore = defineStore("assist", () => {
   const sessions = ref<SessionInfo[]>([])
@@ -78,19 +76,11 @@ export const useAssistStore = defineStore("assist", () => {
     pendingInsert.value = null
   }
 
-  // 从 chat-svc 拉取实时会话列表
+  // 从 chat-svc 拉取实时会话列表 (走 axios 包装, 自动 Bearer + 401 跳登录)
   async function fetchSessions() {
     fetching.value = true
     try {
-      const resp = await fetch(CHAT_SVC_SESSIONS_URL)
-      if (!resp.ok) return
-      const data: Array<{
-        sessionId: string
-        status: string
-        agentId: string | null
-        createTime: number
-        customerId: string | null
-      }> = await resp.json()
+      const data: ChatSvcSessionRaw[] = await listChatSvcSessions()
 
       // 转换 chat-svc 会话为前端 SessionInfo
       const chatSessions: SessionInfo[] = data
