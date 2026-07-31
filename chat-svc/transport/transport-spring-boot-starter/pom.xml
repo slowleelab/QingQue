@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.lumio.chatsvc</groupId>
+        <artifactId>chat-transport</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>chat-transport-spring-boot-starter</artifactId>
+    <name>chat-transport-spring-boot-starter</name>
+    <description>Lumio chat-svc transport Spring Boot Starter — auto-configuration for the transport module</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.lumio.chatsvc</groupId>
+            <artifactId>chat-transport-netty</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.lumio.chatsvc</groupId>
+            <artifactId>chat-transport-zookeeper</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-actuator-autoconfigure</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>
