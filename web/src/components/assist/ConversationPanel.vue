@@ -61,6 +61,7 @@ import { ElMessage } from "element-plus"
 import { ChatDotRound, Promotion } from "@element-plus/icons-vue"
 import { useAssistStore } from "@/stores/assist"
 import { useWebSocket } from "@/composables/useWebSocket"
+import { useDraftText } from "@/composables/useDraftText"
 import MessageBubble from "@/components/chat/MessageBubble.vue"
 import type { SessionPhase } from "@/api/types"
 
@@ -79,6 +80,17 @@ watch(() => assistStore.activeSessionId, (newSid, oldSid) => {
 
 const inputText = ref("")
 const messageListRef = ref<HTMLElement | null>(null)
+
+// 草稿持久化: 按 sessionId 隔离, 切会话不串; 失败回滚需配合 B2 useChatSvcPoll
+const activeDraft = useDraftText(`draft:agent:${assistStore.activeSessionId ?? "_"}`)
+// 切会话时同步本地 ref 与持久 ref
+watch(
+  () => assistStore.activeSessionId,
+  () => {
+    inputText.value = activeDraft.text.value
+  },
+)
+watch(inputText, (v) => { activeDraft.text.value = v })
 
 const session = computed(() => assistStore.activeSession)
 

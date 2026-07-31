@@ -6,7 +6,7 @@
       <el-button text size="small" @click="chatStore.clearSession()">新会话</el-button>
     </div>
     <MessageList />
-    <ChatInput @send="onSend" :disabled="chatStore.isLoading" />
+    <ChatInput @send="onSend" :disabled="chatStore.isLoading" :draft-key="chatStore.sessionId ?? ''" />
   </div>
 </template>
 

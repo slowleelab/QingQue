@@ -4,7 +4,7 @@
       v-model="text"
       type="textarea"
       :autosize="{ minRows: 1, maxRows: 4 }"
-      placeholder="请输入您的问题..."
+      :placeholder="placeholder"
       :disabled="disabled"
       @keydown.enter.exact.prevent="handleSend"
     />
@@ -13,25 +13,37 @@
       type="primary"
       :icon="Promotion"
       circle
-      :disabled="!text.trim() || disabled"
+      :disabled="!text.trim() || disabled || sending"
+      :loading="sending"
       @click="handleSend"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue"
 import { Promotion } from "@element-plus/icons-vue"
+import { useDraftText } from "@/composables/useDraftText"
 
-defineProps<{ disabled: boolean }>()
+const props = withDefaults(
+  defineProps<{
+    disabled?: boolean
+    sending?: boolean
+    /** 草稿持久化 key (建议传 sessionId, 切会话互不干扰) */
+    draftKey?: string
+    placeholder?: string
+  }>(),
+  { disabled: false, sending: false, draftKey: "", placeholder: "请输入您的问题... (Enter 发送 · ⌘K 命令面板)" },
+)
+
 const emit = defineEmits<{ send: [text: string] }>()
 
-const text = ref("")
+const { text, commit } = useDraftText(`draft:chat:${props.draftKey || "default"}`)
 
 function handleSend() {
-  if (!text.value.trim()) return
-  emit("send", text.value)
-  text.value = ""
+  const v = text.value.trim()
+  if (!v) return
+  emit("send", v)
+  commit()
 }
 </script>
 
