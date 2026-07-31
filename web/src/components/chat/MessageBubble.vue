@@ -33,8 +33,12 @@ const avatarText = computed(() => {
 })
 
 const avatarStyle = computed(() => {
-  const map: Record<string, string> = { customer: "#409eff", bot: "#67c23a", agent: "#e6a23c" }
-  return { background: map[props.message.role] ?? "#909399" }
+  const map: Record<string, string> = {
+    customer: "var(--color-primary)",
+    bot:      "var(--color-success)",
+    agent:    "var(--color-warning)",
+  }
+  return { background: map[props.message.role] ?? "var(--color-info)", color: "var(--color-text-on-primary)" }
 })
 
 function formatTime(date: Date): string {
@@ -45,8 +49,8 @@ function formatTime(date: Date): string {
 <style scoped>
 .message-bubble {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .message-bubble.agent {
@@ -58,34 +62,34 @@ function formatTime(date: Date): string {
 }
 
 .message-bubble.customer .bubble-content {
-  background: #fff;
-  color: #303133;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px 12px 12px 12px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm) var(--radius-xl) var(--radius-xl) var(--radius-xl);
 }
 
 .message-bubble.bot .bubble-content {
-  background: #f0f9eb;
-  color: #303133;
-  border-radius: 4px 12px 12px 12px;
+  background: var(--color-bot-bg);
+  color: var(--color-bot-text);
+  border-radius: var(--radius-sm) var(--radius-xl) var(--radius-xl) var(--radius-xl);
 }
 
 .message-bubble.agent .bubble-content {
-  background: #ecf5ff;
-  color: #303133;
-  border-radius: 12px 4px 12px 12px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-xl) var(--radius-sm) var(--radius-xl) var(--radius-xl);
 }
 
 .bubble-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   max-width: 320px;
 }
 
 .bubble-content {
   padding: 10px 14px;
-  font-size: 14px;
+  font-size: var(--fs-base);
   line-height: 1.5;
   word-break: break-word;
 }
@@ -97,8 +101,8 @@ function formatTime(date: Date): string {
 }
 
 .confidence {
-  font-size: 11px;
-  color: #909399;
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
 }
 
 .transfer-tip {
@@ -106,7 +110,7 @@ function formatTime(date: Date): string {
 }
 
 .bubble-time {
-  font-size: 11px;
-  color: #c0c4cc;
+  font-size: var(--fs-xs);
+  color: var(--color-text-placeholder);
 }
 </style>

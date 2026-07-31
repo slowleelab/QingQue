@@ -31,27 +31,27 @@ defineProps<{ recommendation: ProductRecommendationType }>()
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .product-name {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
-  color: #303133;
+  color: var(--color-text-primary);
 }
 
 .reason {
-  font-size: 13px;
-  color: #606266;
-  margin-bottom: 8px;
+  font-size: var(--fs-base);
+  color: var(--color-text-regular);
+  margin-bottom: var(--space-2);
 }
 
 .script-suggestion {
-  font-size: 13px;
-  color: #409eff;
-  margin-bottom: 8px;
-  padding: 8px;
-  background: #ecf5ff;
-  border-radius: 6px;
+  font-size: var(--fs-base);
+  color: var(--color-primary);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-md);
 }
 </style>

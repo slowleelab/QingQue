@@ -171,8 +171,8 @@ watch(() => assistStore.activeSessionId, () => scrollToBottom())
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-right: 1px solid #ebeef5;
+  background: var(--color-bg-surface);
+  border-right: 1px solid var(--color-border-lighter);
   min-width: 0;
 }
 
@@ -182,17 +182,17 @@ watch(() => assistStore.activeSessionId, () => scrollToBottom())
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  color: #909399;
+  gap: var(--space-4);
+  color: var(--color-text-secondary);
 }
 
 .conversation-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #ebeef5;
-  background: #fafbfc;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-lighter);
+  background: var(--color-bg-page);
 }
 
 .customer-info {
@@ -202,40 +202,40 @@ watch(() => assistStore.activeSessionId, () => scrollToBottom())
 }
 
 .customer-avatar {
-  background: #409eff;
-  color: #fff;
-  font-size: 14px;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  font-size: var(--fs-base);
 }
 
 .customer-detail {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .customer-name {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
-  color: #303133;
+  color: var(--color-text-primary);
 }
 
 .session-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .session-id-text {
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--fs-sm);
+  color: var(--color-text-secondary);
   font-family: monospace;
 }
 
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
-  background: #f9f9f9;
+  padding: var(--space-4);
+  background: var(--color-msg-list-bg);
 }
 
 .no-messages {
@@ -243,20 +243,20 @@ watch(() => assistStore.activeSessionId, () => scrollToBottom())
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #c0c4cc;
+  color: var(--color-text-placeholder);
 }
 
 .conversation-input {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid #ebeef5;
-  background: #fff;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border-lighter);
+  background: var(--color-bg-surface);
 }
 
 .conversation-input :deep(.el-textarea__inner) {
   resize: none;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 </style>

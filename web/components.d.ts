@@ -56,6 +56,7 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     ScriptCard: typeof import('./src/components/assist/ScriptCard.vue')['default']
     SessionList: typeof import('./src/components/assist/SessionList.vue')['default']
+    ThemeToggle: typeof import('./src/components/common/ThemeToggle.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

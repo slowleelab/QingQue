@@ -1,7 +1,7 @@
 <template>
   <div class="message-list">
     <div v-if="chatStore.messages.length === 0" class="empty-tip">
-      <el-icon :size="48" color="#c0c4cc"><ChatDotRound /></el-icon>
+      <el-icon :size="48" color="var(--color-text-placeholder)"><ChatDotRound /></el-icon>
       <p>您好，请问有什么可以帮您？</p>
     </div>
     <MessageBubble
@@ -28,8 +28,8 @@ const chatStore = useChatStore()
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
-  background: #f9f9f9;
+  padding: var(--space-4);
+  background: var(--color-msg-list-bg);
 }
 
 .empty-tip {
@@ -38,17 +38,17 @@ const chatStore = useChatStore()
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #909399;
-  gap: 12px;
+  color: var(--color-text-secondary);
+  gap: var(--space-3);
 }
 
 .typing-indicator {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 0;
-  color: #909399;
-  font-size: 13px;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-sm);
 }
 
 .dots {

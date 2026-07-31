@@ -1,7 +1,7 @@
 <template>
   <el-card shadow="hover" class="script-card" data-testid="script-card">
     <div class="priority">
-      <el-icon v-for="n in card.priority" :key="n" color="#e6a23c"><Star /></el-icon>
+      <el-icon v-for="n in card.priority" :key="n" color="var(--color-warning)"><Star /></el-icon>
     </div>
     <p class="content">{{ card.content }}</p>
     <div class="tags">
@@ -36,7 +36,7 @@ defineEmits<{
 <style scoped>
 .script-card { margin-bottom: 10px; }
 .priority { margin-bottom: 6px; }
-.content { font-size: 14px; line-height: 1.6; color: #303133; margin-bottom: 8px; }
-.tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
-.actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #ebeef5; }
+.content { font-size: var(--fs-base); line-height: 1.6; color: var(--color-text-primary); margin-bottom: var(--space-2); }
+.tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: var(--space-2); }
+.actions { display: flex; gap: 6px; margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--color-border-lighter); }
 </style>

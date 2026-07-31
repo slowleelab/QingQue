@@ -59,22 +59,22 @@ function formatTime(date: Date): string {
   width: 240px;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-right: 1px solid #ebeef5;
+  background: var(--color-bg-surface);
+  border-right: 1px solid var(--color-border-lighter);
 }
 
 .list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px solid #ebeef5;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border-lighter);
 }
 
 .list-header .title {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
-  color: #303133;
+  color: var(--color-text-primary);
 }
 
 .list-body {
@@ -83,24 +83,24 @@ function formatTime(date: Date): string {
 }
 
 .session-item {
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   cursor: pointer;
-  border-bottom: 1px solid #f2f3f5;
-  transition: background 0.2s;
+  border-bottom: 1px solid var(--color-border-extra-light);
+  transition: background var(--transition-fast);
 }
 
 .session-item:hover {
-  background: #f5f7fa;
+  background: var(--color-bg-page);
 }
 
 .session-item.active {
-  background: #ecf5ff;
+  background: var(--color-bg-hover);
 }
 
 .session-name {
-  font-size: 14px;
+  font-size: var(--fs-base);
   font-weight: 500;
-  color: #303133;
+  color: var(--color-text-primary);
   margin-bottom: 6px;
 }
 
@@ -111,7 +111,7 @@ function formatTime(date: Date): string {
 }
 
 .session-time {
-  font-size: 11px;
-  color: #c0c4cc;
+  font-size: var(--fs-xs);
+  color: var(--color-text-placeholder);
 }
 </style>

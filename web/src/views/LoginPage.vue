@@ -60,24 +60,25 @@ async function doLogin() {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  background: #1d1e2c;
+  background: var(--color-bg-page);
 }
 .login-card {
   width: 380px;
   padding: 40px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--color-border-lighter);
 }
 .login-card h2 {
   text-align: center;
   margin: 0 0 4px;
-  color: #303133;
+  color: var(--color-text-primary);
 }
 .subtitle {
   text-align: center;
-  color: #909399;
-  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-sm);
   margin: 0 0 28px;
 }
 </style>

@@ -51,14 +51,14 @@ function handleSend() {
 .chat-input {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid #ebeef5;
-  background: #fff;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border-lighter);
+  background: var(--color-bg-surface);
 }
 
 .chat-input :deep(.el-textarea__inner) {
   resize: none;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 </style>

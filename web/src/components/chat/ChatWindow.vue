@@ -30,28 +30,28 @@ function onSend(text: string) {
   height: 640px;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
 .chat-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-text-on-primary);
 }
 
 .chat-header .title {
   flex: 1;
-  font-size: 16px;
+  font-size: var(--fs-lg);
   font-weight: 600;
 }
 
 .chat-header .el-button {
-  color: #fff;
+  color: var(--color-text-on-primary);
 }
 </style>
