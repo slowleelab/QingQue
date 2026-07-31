@@ -62,7 +62,8 @@ import { ChatDotRound, Promotion } from "@element-plus/icons-vue"
 import { useAssistStore } from "@/stores/assist"
 import { useWebSocket } from "@/composables/useWebSocket"
 import { useDraftText } from "@/composables/useDraftText"
-import { sendChatSvcMessage, pollChatSvcMessages } from "@/api/chat-svc"
+import { useChatSvcPoll } from "@/composables/useChatSvcPoll"
+import { sendChatSvcMessage } from "@/api/chat-svc"
 import MessageBubble from "@/components/chat/MessageBubble.vue"
 import type { SessionPhase } from "@/api/types"
 
@@ -82,23 +83,20 @@ watch(() => assistStore.activeSessionId, (newSid, oldSid) => {
 const inputText = ref("")
 const messageListRef = ref<HTMLElement | null>(null)
 
-// 草稿持久化: 按 sessionId 隔离, 切会话不串; 失败回滚需配合 B2 useChatSvcPoll
+// 草稿持久化: 按 sessionId 隔离, 切会话不串
 const activeDraft = useDraftText(`draft:agent:${assistStore.activeSessionId ?? "_"}`)
-// 切会话时同步本地 ref 与持久 ref
 watch(
   () => assistStore.activeSessionId,
-  () => {
-    inputText.value = activeDraft.text.value
-  },
+  () => { inputText.value = activeDraft.text.value },
 )
 watch(inputText, (v) => { activeDraft.text.value = v })
 
 const session = computed(() => assistStore.activeSession)
 
 const phaseMap: Record<SessionPhase, { type: "" | "warning" | "success" | "danger"; label: string }> = {
-  bot: { type: "", label: "机器人服务中" },
+  bot:   { type: "",        label: "机器人服务中" },
   agent: { type: "success", label: "坐席辅助中" },
-  ended: { type: "danger", label: "已结束" },
+  ended: { type: "danger",  label: "已结束" },
 }
 
 const phaseTagType = computed(() => phaseMap[session.value?.phase ?? "bot"].type)
@@ -131,7 +129,6 @@ async function handleSend() {
   // 发送坐席消息到 chat-svc (走 axios 包装, 自动 Bearer + 错误拦截)
   try {
     await sendChatSvcMessage(sid, { sender: "agent", content: text })
-    lastPollTimestamp = Date.now()
   } catch { /* chat-svc 不可用时静默; 错误已 ElMessage 提示 */ }
 
   scrollToBottom()
@@ -144,34 +141,14 @@ async function scrollToBottom() {
   }
 }
 
-// HTTP 长轮询 chat-svc 获取新消息（基于时间戳游标，非消费性读取）
-// 注意：AI 分析由 chat-svc 回调 Lumio 服务端完成，前端不参与分析链路
-// 走 B2 api/chat-svc.ts 包装, 带 Bearer 头, 401 跳登录
-let pollActive = false
-let lastPollTimestamp = 0  // 游标，只拉取该时间戳之后的消息
-
-async function pollMessages(sessionId: string) {
-  pollActive = true
-  lastPollTimestamp = 0  // 切换会话时重置游标
-  while (pollActive && assistStore.activeSessionId === sessionId) {
-    try {
-      const msgs = await pollChatSvcMessages(sessionId, lastPollTimestamp, 25000)
-      for (const m of msgs) {
-        if (m.timestamp > lastPollTimestamp) {
-          lastPollTimestamp = m.timestamp
-        }
-        assistStore.addMessage(sessionId, m.sender === "agent" ? "agent" : "customer", m.content)
-      }
-    } catch { await new Promise(r => setTimeout(r, 1000)) }
-  }
-}
-
-watch(() => assistStore.activeSessionId, (newId) => {
-  pollActive = false
-  lastPollTimestamp = 0
-  if (newId) {
-    setTimeout(() => pollMessages(newId), 0)
-  }
+// HTTP 长轮询 chat-svc: 抽出到 useChatSvcPoll (B3 拆组件)
+useChatSvcPoll({
+  sessionId: computed(() => assistStore.activeSessionId),
+  onMessage: (m) => {
+    const sid = assistStore.activeSessionId
+    if (!sid) return
+    assistStore.addMessage(sid, m.sender === "agent" ? "agent" : "customer", m.content)
+  },
 })
 
 // 监听 AssistPanel 通过 store 推过来的草稿片段（如 ScriptCard 采纳）
