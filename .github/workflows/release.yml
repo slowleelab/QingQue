@@ -6,7 +6,7 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
-  IMAGE_NAME: slowleelab/qingque
+  IMAGE_NAME: slowleelab/lumio
 
 jobs:
   test:
@@ -118,6 +118,6 @@ jobs:
 
             ## 快速开始
 
-            参见 [README](https://github.com/slowleelab/QingQue#readme) — `make demo` 一键体验。
+            参见 [README](https://github.com/slowleelab/lumio#readme) — `make demo` 一键体验。
           draft: false
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}

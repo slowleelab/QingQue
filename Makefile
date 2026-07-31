@@ -112,8 +112,8 @@ demo-ps: ## 查看 Demo 服务状态
 	cd deploy && docker compose $(DEMO_COMPOSE) ps
 
 demo-push: ## 构建并推送 Demo 镜像到 Docker Hub（需先 docker login）
-	docker build -f deploy/Dockerfile -t slowleelab/qingque:demo agent/
-	docker push slowleelab/qingque:demo
+	docker build -f deploy/Dockerfile -t slowleelab/lumio:demo agent/
+	docker push slowleelab/lumio:demo
 
 ps: ## 查看中间件状态
 	cd deploy && docker compose ps

@@ -2,7 +2,7 @@
 
 > 一句话：**灵智（Lumio）** 是一个可私有化部署的银行信用卡智能客服参考实现 —— Bot 自助问答 + AI 坐席辅助双引擎，RAG 检索增强、意图识别、合规过滤、熔断降级、实时监控全配齐，`make demo` 一条命令即可体验。
 >
-> 仓库：https://github.com/slowleelab/QingQue ｜ License：Apache 2.0
+> 仓库：https://github.com/slowleelab/lumio ｜ License：Apache 2.0
 
 ![demo](../assets/demo.gif)
 
@@ -33,7 +33,7 @@
 
 完整迁移清单见 [CHANGELOG.md](../../CHANGELOG.md)；历史归档位于 [`docs/`](../../docs/)。
 
-> 仓库地址 `slowleelab/QingQue` 不变 —— 灵智是项目的新名字，"青雀"是承载它的社区/组织。
+> 仓库地址 `slowleelab/lumio` 不变 —— 灵智是项目的新名字，"青雀"是承载它的社区/组织。
 
 ## 三层架构
 
@@ -89,7 +89,7 @@ Java 端通过 Spring AI MCP Server 暴露 **22 个信用卡工具**（账单 / 
 最大的心智负担是中间件一堆。所以做了一键 Demo：在基础编排上叠一个 `docker-compose.demo.yml`，多跑一个一次性的 `demo-init` 容器（自动 `alembic upgrade head` + 灌入预置知识库，幂等可重复），然后 Bot/Assist 以容器内主机名拉起。
 
 ```bash
-git clone https://github.com/slowleelab/QingQue.git && cd QingQue
+git clone https://github.com/slowleelab/lumio.git && cd lumio
 make demo
 ```
 
@@ -125,4 +125,4 @@ curl -X POST http://localhost:8000/api/chat/send \
 - [ ] 更多 LLM 后端适配（vLLM / OpenAI 兼容）
 - [ ] 完善 Observability 端到端 trace 串联
 
-如果这个项目对你有帮助，欢迎 [Star](https://github.com/slowleelab/QingQue) ⭐；有问题去 [Discussions](https://github.com/slowleelab/QingQue/discussions) 聊，报 Bug 走 [Issues](https://github.com/slowleelab/QingQue/issues)。也欢迎 PR —— 先从[贡献指南](../../CONTRIBUTING.md)开始。
+如果这个项目对你有帮助，欢迎 [Star](https://github.com/slowleelab/lumio) ⭐；有问题去 [Discussions](https://github.com/slowleelab/lumio/discussions) 聊，报 Bug 走 [Issues](https://github.com/slowleelab/lumio/issues)。也欢迎 PR —— 先从[贡献指南](../../CONTRIBUTING.md)开始。

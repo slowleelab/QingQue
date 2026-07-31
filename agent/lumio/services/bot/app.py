@@ -24,7 +24,7 @@ def create_bot_app(lifespan: Callable | None = None) -> FastAPI:
         description="银行信用卡智能客服 - 机器人自助问答服务。提供 RAG 增强的对话问答、知识库管理、FAQ 审批。",
         version="0.2.0",
         lifespan=lifespan,
-        contact={"name": "Lumio", "url": "https://github.com/slowleelab/QingQue"},
+        contact={"name": "Lumio", "url": "https://github.com/slowleelab/lumio"},
         license_info={"name": "Apache 2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0"},
         openapi_tags=[
             {"name": "bot", "description": "对话服务 — 客户消息发送、轮询获取回复、转人工"},

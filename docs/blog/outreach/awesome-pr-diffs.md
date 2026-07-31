@@ -3,7 +3,7 @@
 > 网络受限未能拉取各列表实时 README，以下 diff 基于 sindresorhus/awesome 通用规范编写。
 > **提交前请打开目标列表的 CONTRIBUTING.md 核对 3 点**：① 描述结尾是否带句号；② 是否要求按字母序插入；③ 插入到哪个小节。多数列表差异只在这三处。
 
-> 仓库名 `slowleelab/QingQue` 不变（青雀是社区/组织名），项目展示名为 **灵智（Lumio）**。
+> 仓库名 `slowleelab/lumio` 不变（青雀是社区/组织名），项目展示名为 **灵智（Lumio）**。
 
 ---
 
@@ -11,12 +11,12 @@
 
 英文（投国际列表）：
 ```markdown
-- [Lumio (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot, real-time agent assist, and 22 MCP credit-card tools, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
+- [Lumio](https://github.com/slowleelab/lumio) - Self-hostable banking-grade intelligent customer service with a RAG chatbot, real-time agent assist, and 22 MCP credit-card tools, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
 ```
 
 中文（投中文列表）：
 ```markdown
-- [灵智（Lumio）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现，含 RAG 机器人问答、实时坐席辅助与 22 个 MCP 信用卡工具，支持合规过滤与熔断降级链。基于 FastAPI + asyncio，`make demo` 一键体验。
+- [灵智（Lumio）](https://github.com/slowleelab/lumio) - 银行级私有化智能客服参考实现，含 RAG 机器人问答、实时坐席辅助与 22 个 MCP 信用卡工具，支持合规过滤与熔断降级链。基于 FastAPI + asyncio，`make demo` 一键体验。
 ```
 
 ---
@@ -29,13 +29,13 @@
 --- a/README.md
 +++ b/README.md
 @@ 在该列表 Projects / Open Source 小节末尾追加（或按字母序插入）
-+- [Lumio (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot, real-time agent assist, and 22 MCP credit-card tools, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
++- [Lumio](https://github.com/slowleelab/lumio) - Self-hostable banking-grade intelligent customer service with a RAG chatbot, real-time agent assist, and 22 MCP credit-card tools, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
 ```
 
-**PR 标题**：`Add Lumio (QingQue)`
+**PR 标题**：`Add Lumio`
 **PR 正文**：
 ```
-Adds Lumio (QingQue), an open-source (Apache-2.0) production-grade customer-service platform built on FastAPI.
+Adds Lumio, an open-source (Apache-2.0) production-grade customer-service platform built on FastAPI.
 
 - RAG-augmented chatbot (ES BM25 + Milvus vector + RRF fusion)
 - Real-time agent-assist over WebSocket
@@ -43,7 +43,7 @@ Adds Lumio (QingQue), an open-source (Apache-2.0) production-grade customer-serv
 - Compliance filtering, circuit-breaker degradation chains, full observability
 - One-command demo: `make demo`
 
-Repo: https://github.com/slowleelab/QingQue
+Repo: https://github.com/slowleelab/lumio
 ```
 
 ---
@@ -53,10 +53,10 @@ Repo: https://github.com/slowleelab/QingQue
 **小节定位**：`### Applications` / `### Chatbots` / `### RAG`。
 
 ```diff
-+- [Lumio (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service with a RAG chatbot, real-time agent assist, and 22 MCP credit-card tools, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
++- [Lumio](https://github.com/slowleelab/lumio) - Self-hostable banking-grade intelligent customer service with a RAG chatbot, real-time agent assist, and 22 MCP credit-card tools, featuring compliance filtering and circuit-breaker degradation chains. Built with FastAPI and asyncio.
 ```
 
-**PR 标题**：`Add Lumio (QingQue) — self-hosted RAG customer service`
+**PR 标题**：`Add Lumio — self-hosted RAG customer service`
 
 ---
 
@@ -65,17 +65,17 @@ Repo: https://github.com/slowleelab/QingQue
 **小节定位**：`### Servers` / `### Java`。
 
 ```diff
-+- [Lumio (QingQue)](https://github.com/slowleelab/QingQue) - Banking MCP server with 22 mock credit-card tools (bill / card / limit / installment / payment / points / transaction) on Spring AI 1.0 + Higress + Nacos.
++- [Lumio](https://github.com/slowleelab/lumio) - Banking MCP server with 22 mock credit-card tools (bill / card / limit / installment / payment / points / transaction) on Spring AI 1.0 + Higress + Nacos.
 ```
 
-**PR 标题**：`Add Lumio (QingQue) — 22 credit-card MCP tools on Spring AI`
+**PR 标题**：`Add Lumio — 22 credit-card MCP tools on Spring AI`
 
 ---
 
 ## 4. 中文列表（如 chinese-independent-developer / 中文 awesome）
 
 ```diff
-+- [灵智（Lumio）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现，含 RAG 机器人问答、实时坐席辅助与 22 个 MCP 信用卡工具，支持合规过滤与熔断降级链。基于 FastAPI + asyncio，`make demo` 一键体验。
++- [灵智（Lumio）](https://github.com/slowleelab/lumio) - 银行级私有化智能客服参考实现，含 RAG 机器人问答、实时坐席辅助与 22 个 MCP 信用卡工具，支持合规过滤与熔断降级链。基于 FastAPI + asyncio，`make demo` 一键体验。
 ```
 
 ---
@@ -91,12 +91,12 @@ git checkout -b add-lumio
 
 # 3. 提交并推送
 git add README.md
-git commit -m "Add Lumio (QingQue)"
+git commit -m "Add Lumio"
 git push origin add-lumio
 
 # 4. 用 gh 开 PR（在 fork 目录下）
 gh pr create --repo <上游owner>/awesome-xxx \
-  --title "Add Lumio (QingQue)" \
+  --title "Add Lumio" \
   --body "见上方 PR 正文模板"
 ```
 

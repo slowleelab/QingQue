@@ -8,7 +8,7 @@
 
 请通过以下方式私下报告：
 
-- GitHub [Security Advisories](https://github.com/slowleelab/QingQue/security/advisories/new)（推荐，私密）
+- GitHub [Security Advisories](https://github.com/slowleelab/lumio/security/advisories/new)（推荐，私密）
 - 或邮件：305525396+slowleelab@users.noreply.github.com
 
 报告请尽量包含：

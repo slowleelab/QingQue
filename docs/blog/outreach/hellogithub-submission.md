@@ -2,11 +2,11 @@
 
 > 到 https://github.com/521xueweihan/HelloGitHub 提 issue，选"推荐项目"模板，按下面对应字段粘贴。
 >
-> 项目展示名：**灵智（Lumio）**，仓库地址 `https://github.com/slowleelab/QingQue` 不变。
+> 项目展示名：**灵智（Lumio）**，仓库地址 `https://github.com/slowleelab/lumio` 不变。
 
 ---
 
-**项目地址**：https://github.com/slowleelab/QingQue
+**项目地址**：https://github.com/slowleelab/lumio
 
 **类别**：Python / 人工智能 / 企业应用
 
@@ -27,12 +27,12 @@
 
 **截图 / 演示**：
 
-![demo](https://raw.githubusercontent.com/slowleelab/QingQue/main/docs/assets/demo.gif)
+![demo](https://raw.githubusercontent.com/slowleelab/lumio/main/docs/assets/demo.gif)
 
 **示例代码（可选）**：
 
 ```bash
-git clone https://github.com/slowleelab/QingQue.git && cd QingQue
+git clone https://github.com/slowleelab/lumio.git && cd lumio
 make demo   # 中间件 + 迁移 + 知识库 + Bot:8000 + Assist:8001
 
 # 问一句
@@ -55,4 +55,4 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 ## 备用：一段话速推版（社群/朋友圈/即刻）
 
-> 开源了一个银行级私有化智能客服【灵智（Lumio）】：RAG 机器人问答 + 实时 AI 坐席辅助 + 22 个 MCP 信用卡工具，混合检索(BM25+向量+RRF)、意图识别、合规过滤、四级熔断降级、全链路监控全配齐，数据不出域、本地大模型可跑。FastAPI + asyncio + Spring AI，`make demo` 一条命令体验。Apache 2.0，欢迎 Star ⭐ https://github.com/slowleelab/QingQue
+> 开源了一个银行级私有化智能客服【灵智（Lumio）】：RAG 机器人问答 + 实时 AI 坐席辅助 + 22 个 MCP 信用卡工具，混合检索(BM25+向量+RRF)、意图识别、合规过滤、四级熔断降级、全链路监控全配齐，数据不出域、本地大模型可跑。FastAPI + asyncio + Spring AI，`make demo` 一条命令体验。Apache 2.0，欢迎 Star ⭐ https://github.com/slowleelab/lumio

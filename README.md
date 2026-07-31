@@ -125,7 +125,7 @@ graph TB
 只需 Docker，一条命令拉起完整系统（中间件 + 数据库迁移 + 预置知识库 + Bot/Assist 服务）：
 
 ```bash
-git clone https://github.com/slowleelab/QingQue.git && cd QingQue
+git clone https://github.com/slowleelab/lumio.git && cd lumio
 make demo
 ```
 
@@ -149,7 +149,7 @@ curl -X POST http://localhost:8000/api/chat/send \
 >
 > **或者直接拉取预构建镜像（免编译）**：
 > ```bash
-> docker run --name lumio-demo -d slowleelab/qingque:demo
+> docker run --name lumio-demo -d slowleelab/lumio:demo
 > ```
 
 ---

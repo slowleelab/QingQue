@@ -57,5 +57,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/
 - GitHub Actions CI（lint / unit tests / Docker build / E2E smoke）
 - Apache 2.0 License
 
-[Unreleased]: https://github.com/slowleelab/QingQue/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/slowleelab/QingQue/releases/tag/v0.1.0
+[Unreleased]: https://github.com/slowleelab/lumio/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/slowleelab/lumio/releases/tag/v0.1.0

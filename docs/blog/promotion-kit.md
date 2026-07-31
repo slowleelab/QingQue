@@ -1,7 +1,7 @@
 # 投稿材料（Awesome 列表 / 周刊 / 社区）
 
 > 用于向各类 awesome 列表、周刊、社区投稿的"电梯陈述"素材。不同列表格式要求不同，按需取用。
-> 项目名：**灵智（Lumio）** —— 仓库地址 `slowleelab/QingQue` 不变（青雀是组织/社区名）。
+> 项目名：**灵智（Lumio）** —— 仓库地址 `slowleelab/lumio` 不变（青雀是组织/社区名）。
 
 ## 一句话简介（中文）
 
@@ -9,7 +9,7 @@
 
 ## 一句话简介（English）
 
-Lumio (QingQue) — A production-grade, self-hostable intelligent customer-service platform for banking: RAG-augmented chatbot + real-time agent-assist, with compliance filtering, circuit-breaker degradation chains, 22 Java MCP credit-card tools, and full observability. FastAPI + asyncio, one-command demo via `make demo`.
+Lumio — A production-grade, self-hostable intelligent customer-service platform for banking: RAG-augmented chatbot + real-time agent-assist, with compliance filtering, circuit-breaker degradation chains, 22 Java MCP credit-card tools, and full observability. FastAPI + asyncio, one-command demo via `make demo`.
 
 ## GitHub 短描述（用于 repo About / 列表条目）
 
@@ -39,13 +39,13 @@ Self-hostable banking-grade intelligent customer service — RAG chatbot + real-
 ## 标准 awesome 条目格式（Markdown）
 
 ```markdown
-- [Lumio (QingQue)](https://github.com/slowleelab/QingQue) - Self-hostable banking-grade intelligent customer service: RAG chatbot + real-time agent assist + 22 MCP credit-card tools, with compliance filtering and degradation chains. FastAPI + asyncio.
+- [Lumio](https://github.com/slowleelab/lumio) - Self-hostable banking-grade intelligent customer service: RAG chatbot + real-time agent assist + 22 MCP credit-card tools, with compliance filtering and degradation chains. FastAPI + asyncio.
 ```
 
 中文版：
 
 ```markdown
-- [灵智（Lumio）](https://github.com/slowleelab/QingQue) - 银行级私有化智能客服参考实现：RAG 机器人问答 + 实时坐席辅助 + 22 个 MCP 信用卡工具，含合规过滤与熔断降级链。FastAPI + asyncio，`make demo` 一键体验。
+- [灵智（Lumio）](https://github.com/slowleelab/lumio) - 银行级私有化智能客服参考实现：RAG 机器人问答 + 实时坐席辅助 + 22 个 MCP 信用卡工具，含合规过滤与熔断降级链。FastAPI + asyncio，`make demo` 一键体验。
 ```
 
 ## 标签 / Topics（已在仓库设置，供投稿引用）
