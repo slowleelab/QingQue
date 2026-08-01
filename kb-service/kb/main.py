@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from kb.api.admin import router as admin_router
+from kb.api.approval import router as approval_router
 from kb.api.documents import router as documents_router
 from kb.api.retrieve import router as retrieve_router
 from kb.config import get_settings
@@ -127,6 +128,7 @@ def create_app() -> FastAPI:
     # 路由
     app.include_router(health_router)
     app.include_router(documents_router, prefix="/api/v1")
+    app.include_router(approval_router, prefix="/api/v1")
     app.include_router(retrieve_router, prefix="/api/v1")
     app.include_router(admin_router)  # 内部已用 /api/v1 前缀
 

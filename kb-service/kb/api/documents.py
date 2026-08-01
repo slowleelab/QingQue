@@ -166,7 +166,7 @@ async def upload_document(
             "effective_date": eff_date.isoformat() if eff_date else None,
             "expiry_date": exp_date.isoformat() if exp_date else None,
             "keywords": kw_list,
-            "approval_status": "PUBLISHED",
+            "approval_status": "DRAFT",
             "is_current_version": True,
             "doc_group": str(doc_id),
         },
