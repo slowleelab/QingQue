@@ -4,6 +4,10 @@
 - GET /documents/{id}: 查询文档状态
 - GET /documents: 文档列表（分页）
 - POST /documents/{id}/reindex: 重建 ES 索引
+- GET /documents/{id}/versions: 同 doc_group 下的版本列表 (I2-C3)
+- POST /documents/{id}/rollback: 切换到指定历史版本 (I2-C3, 原子操作 + 审计)
+- GET /documents/{id}/diff: 两版本 diff (I2-C3, 字段级对比)
+- POST /documents/{id}/takedown: 紧急下架 (I2-C3, 独立于 archive, 强留痕)
 
 安全措施：
 - API Key 认证
@@ -11,31 +15,44 @@
 - 文件名安全化（防路径穿越）
 - 敏感词 AC 自动机扫描
 - 并发 ETL 分布式锁（Redis SETNX）
+- 版本切换/下架/回滚均写 KbDocumentApproval + AuditService
 """
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import io
 import logging
 import os
 import uuid_utils
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from kb.api.deps import DbSession, PrincipalDep
 from kb.config import get_settings
-from kb.orm.kb import KbDocStatus, KbDocument, KbSourceType
+from kb.logging import get_logger
+from kb.orm.kb import (
+    KbApprovalAction,
+    KbApprovalStatus,
+    KbDocStatus,
+    KbDocument,
+    KbDocumentApproval,
+    KbSourceType,
+)
 from kb.pipeline.parser import detect_source_type
+from kb.security.audit_service import AuditService
 from kb.security.sensitive_filter import get_sensitive_filter
 from kb.storage.kafka import publish_ingest_request
 from kb.storage.minio import get_minio
 from kb.storage.redis import acquire_lock, release_lock
 from kb.utils import sanitize_filename
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -334,3 +351,456 @@ def _parse_date(s: str | None) -> date | None:
         return date.fromisoformat(s)
     except ValueError:
         return None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# I2-C3: 版本管理 — 列表 / 回滚 / diff / 紧急下架
+# ──────────────────────────────────────────────────────────────────────
+
+
+class VersionInfo(BaseModel):
+    doc_id: str
+    version: str
+    is_current: bool
+    approval_status: str
+    created_at: str
+    created_by: str | None
+    chunk_count: int | None
+    content_hash: str | None
+
+
+class VersionListResponse(BaseModel):
+    doc_group: str
+    current_doc_id: str
+    versions: list[VersionInfo]
+
+
+class RollbackRequest(BaseModel):
+    target_doc_id: str = Field(..., description="要切换到的历史版本 doc_id")
+    comment: str = Field(..., min_length=1, max_length=2000, description="回滚原因 (合规留痕, 必填)")
+
+
+class RollbackResponse(BaseModel):
+    from_doc_id: str
+    to_doc_id: str
+    from_version: str
+    to_version: str
+    approval_id: str
+    actor_id: str
+    created_at: str
+
+
+class DiffField(BaseModel):
+    field: str
+    from_value: str | None
+    to_value: str | None
+    changed: bool
+
+
+class DiffResponse(BaseModel):
+    from_doc_id: str
+    to_doc_id: str
+    fields: list[DiffField]
+    content_unified_diff: str | None = Field(
+        default=None,
+        description="content_hash 层面的 unified diff 占位 (实际对比走 chunk 级)",
+    )
+
+
+class TakedownRequest(BaseModel):
+    """紧急下架请求 — 高风险, 必填 comment"""
+
+    comment: str = Field(..., min_length=5, max_length=2000, description="下架原因 (至少 5 字符)")
+    reason: str = Field(default="other", description="原因分类: regulatory/security/quality/other")
+
+
+class TakedownResponse(BaseModel):
+    doc_id: str
+    approval_id: str
+    actor_id: str
+    comment: str
+    reason: str
+    created_at: str
+
+
+@router.get("/{doc_id}/versions", response_model=VersionListResponse)
+async def list_versions(
+    doc_id: str,
+    db: DbSession,
+    principal: PrincipalDep,
+):
+    """列出同 doc_group 下的所有版本 (含当前/历史)
+
+    按 is_current 优先, 然后 created_at 倒序.
+    """
+    try:
+        uid = uuid_utils.UUID(doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的 doc_id")
+
+    doc = await db.get(KbDocument, uid)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.is_deleted:
+        raise HTTPException(status_code=410, detail="文档已删除")
+
+    doc_group = doc.doc_group or str(doc.id)
+
+    result = await db.execute(
+        select(KbDocument)
+        .where(KbDocument.doc_group == doc_group)
+        .order_by(KbDocument.is_current_version.desc(), KbDocument.created_at.desc())
+    )
+    docs = result.scalars().all()
+
+    # 找当前生效版本
+    current_id = str(doc.id) if doc.is_current_version else None
+    if not current_id:
+        for d in docs:
+            if d.is_current_version:
+                current_id = str(d.id)
+                break
+
+    return VersionListResponse(
+        doc_group=doc_group,
+        current_doc_id=current_id or str(doc.id),
+        versions=[
+            VersionInfo(
+                doc_id=str(d.id),
+                version=d.version,
+                is_current=d.is_current_version,
+                approval_status=d.approval_status.value,
+                created_at=d.created_at.isoformat() if d.created_at else "",
+                created_by=d.created_by,
+                chunk_count=d.chunk_count,
+                content_hash=d.content_hash,
+            )
+            for d in docs
+        ],
+    )
+
+
+@router.post("/{doc_id}/rollback", response_model=RollbackResponse)
+async def rollback_document(
+    doc_id: str,
+    payload: RollbackRequest,
+    db: DbSession,
+    principal: PrincipalDep,
+):
+    """版本回滚: 切换 is_current_version 标志, 原子操作
+
+    流程:
+    1. 校验当前 doc 与 target_doc 同属一个 doc_group
+    2. 校验 target_doc.approval_status == PUBLISHED (不能回滚到未发布版本)
+    3. 事务内: 当前 version is_current_version=False; target is_current_version=True
+    4. 写 KbDocumentApproval (action=ROLLBACK, from/to, 必填 comment)
+    5. AuditService 记录 "document.rollback" 事件
+    """
+    try:
+        current_uid = uuid_utils.UUID(doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的 doc_id")
+    try:
+        target_uid = uuid_utils.UUID(payload.target_doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的 target_doc_id")
+
+    current_doc = await db.get(KbDocument, current_uid)
+    if current_doc is None:
+        raise HTTPException(status_code=404, detail="当前文档不存在")
+    if current_doc.is_deleted:
+        raise HTTPException(status_code=410, detail="当前文档已删除")
+
+    target_doc = await db.get(KbDocument, target_uid)
+    if target_doc is None:
+        raise HTTPException(status_code=404, detail="目标版本文档不存在")
+    if target_doc.is_deleted:
+        raise HTTPException(status_code=410, detail="目标版本已删除")
+
+    # 同 doc_group 校验
+    current_group = current_doc.doc_group or str(current_doc.id)
+    target_group = target_doc.doc_group or str(target_doc.id)
+    if current_group != target_group:
+        raise HTTPException(
+            status_code=422,
+            detail=f"目标版本与当前不属于同一文档组 ({current_group} vs {target_group})",
+        )
+
+    # 目标必须是已发布版本
+    target_status = target_doc.approval_status
+    if hasattr(target_status, "value"):
+        target_status_str = target_status.value
+    else:
+        target_status_str = str(target_status)
+    if target_status_str != KbApprovalStatus.PUBLISHED.value:
+        raise HTTPException(
+            status_code=422,
+            detail=f"目标版本必须已发布 (实际 {target_status_str})",
+        )
+
+    # 当前已经是 current 时直接返回
+    if current_doc.is_current_version and str(current_doc.id) == str(target_doc.id):
+        raise HTTPException(status_code=422, detail="该版本已经是当前版本, 无需回滚")
+
+    # 权限: rollback 是高风险操作, 仅 admin 可执行 (双签豁免角色也可)
+    if "admin" not in principal.roles and principal.actor_role not in {"admin", "service"}:
+        raise HTTPException(status_code=403, detail="ROLLBACK 仅 admin / service 可执行")
+    from_status = current_doc.approval_status
+    now = datetime.now(timezone.utc)
+    retention = now + timedelta(days=365 * 5)
+
+    # 原子切换 is_current_version
+    current_doc.is_current_version = False
+    current_doc.updated_at = now
+    current_doc.updated_by = principal.actor_id
+
+    target_doc.is_current_version = True
+    target_doc.updated_at = now
+    target_doc.updated_by = principal.actor_id
+
+    # 写审批记录 (用 SUPERSEDE 表示版本切换语义)
+    record = KbDocumentApproval(
+        id=uuid_utils.uuid7(),
+        document_id=target_doc.id,
+        action=KbApprovalAction.SUPERSEDE,
+        from_status=from_status.value,
+        to_status=target_doc.approval_status.value,
+        actor_id=principal.actor_id,
+        actor_role=principal.actor_role,
+        comment=f"[ROLLBACK] {payload.comment} (从 {doc_id} 切到 {payload.target_doc_id})",
+        tenant_id=target_doc.tenant_id,
+        operation_result="success",
+        risk_level="high",
+        retention_until=retention,
+    )
+    db.add(record)
+
+    # 业务审计
+    try:
+        audit = AuditService(db)
+        await audit.log(
+            event_type="document.rollback",
+            principal=principal,
+            resource=str(target_doc.id),
+            action="rollback",
+            result="success",
+            detail={
+                "from_doc_id": str(current_doc.id),
+                "to_doc_id": str(target_doc.id),
+                "from_version": current_doc.version,
+                "to_version": target_doc.version,
+                "comment": payload.comment,
+            },
+        )
+    except Exception:
+        logger.exception("rollback 审计事件记录失败", doc_id=str(target_doc.id))
+
+    await db.commit()
+
+    logger.info(
+        "版本回滚完成",
+        from_doc_id=str(current_doc.id),
+        to_doc_id=str(target_doc.id),
+        from_version=current_doc.version,
+        to_version=target_doc.version,
+        actor_id=principal.actor_id,
+    )
+
+    return RollbackResponse(
+        from_doc_id=str(current_doc.id),
+        to_doc_id=str(target_doc.id),
+        from_version=current_doc.version,
+        to_version=target_doc.version,
+        approval_id=str(record.id),
+        actor_id=principal.actor_id,
+        created_at=record.created_at.isoformat() if record.created_at else now.isoformat(),
+    )
+
+
+@router.get("/{doc_id}/diff", response_model=DiffResponse)
+async def diff_versions(
+    doc_id: str,
+    db: DbSession,
+    principal: PrincipalDep,
+    from_doc_id: str = Query(..., alias="from"),
+    to_doc_id: str = Query(..., alias="to"),
+):
+    """两版本 diff — 字段级对比
+
+    对比: version / approval_status / content_hash / llm_summary / llm_keywords / llm_entities
+    """
+    try:
+        from_uid = uuid_utils.UUID(from_doc_id)
+        to_uid = uuid_utils.UUID(to_doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的 doc_id")
+
+    from_doc = await db.get(KbDocument, from_uid)
+    to_doc = await db.get(KbDocument, to_uid)
+    if from_doc is None or to_doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 同 doc_group 校验 (跨组 diff 没有意义)
+    fg = from_doc.doc_group or str(from_doc.id)
+    tg = to_doc.doc_group or str(to_doc.id)
+    if fg != tg:
+        raise HTTPException(
+            status_code=422,
+            detail=f"两版本不属于同一文档组 ({fg} vs {tg}), 无法 diff",
+        )
+
+    def _str_or_none(v: Any) -> str | None:
+        return str(v) if v is not None else None
+
+    fields: list[DiffField] = []
+    compare_specs = [
+        ("version", from_doc.version, to_doc.version),
+        ("approval_status", from_doc.approval_status.value, to_doc.approval_status.value),
+        ("content_hash", from_doc.content_hash, to_doc.content_hash),
+        ("llm_summary", from_doc.llm_summary, to_doc.llm_summary),
+        ("effective_date", _str_or_none(from_doc.effective_date), _str_or_none(to_doc.effective_date)),
+        ("expiry_date", _str_or_none(from_doc.expiry_date), _str_or_none(to_doc.expiry_date)),
+    ]
+    for fname, fv, tv in compare_specs:
+        fields.append(
+            DiffField(
+                field=fname,
+                from_value=fv,
+                to_value=tv,
+                changed=(fv != tv),
+            )
+        )
+
+    # LLM 字段 (list) — 序列化为 JSON 再 diff
+    for fname, fv, tv in [
+        ("llm_keywords", from_doc.llm_keywords or [], to_doc.llm_keywords or []),
+        ("llm_entities", from_doc.llm_entities or [], to_doc.llm_entities or []),
+    ]:
+        fs = ",".join(sorted(str(x) for x in fv))
+        ts = ",".join(sorted(str(x) for x in tv))
+        fields.append(
+            DiffField(
+                field=fname,
+                from_value=fs or None,
+                to_value=ts or None,
+                changed=(fs != ts),
+            )
+        )
+
+    # 内容差异占位 (基于 content_hash, 详细 diff 走 chunk 级, I2-C3 不展开)
+    content_diff: str | None = None
+    if from_doc.content_hash and to_doc.content_hash and from_doc.content_hash != to_doc.content_hash:
+        content_diff = f"--- {from_doc_id} (hash={from_doc.content_hash[:8]})\n+++ {to_doc_id} (hash={to_doc.content_hash[:8]})\n@@ 内容已变更 (chunk 级 diff 走 /chunks diff 端点) @@"
+
+    return DiffResponse(
+        from_doc_id=from_doc_id,
+        to_doc_id=to_doc_id,
+        fields=fields,
+        content_unified_diff=content_diff,
+    )
+
+
+@router.post("/{doc_id}/takedown", response_model=TakedownResponse)
+async def emergency_takedown(
+    doc_id: str,
+    payload: TakedownRequest,
+    db: DbSession,
+    principal: PrincipalDep,
+):
+    """紧急下架 — 高风险操作, 仅 admin, 强留痕
+
+    与 /archive 区别:
+    - takedown 是独立端点, 不走审批工作流, 直接生效
+    - 强制 comment 至少 5 字符
+    - 必须选 reason 分类 (regulatory/security/quality/other)
+    - 高 risk_level, 5 年留存
+
+    下架语义: approval_status → ARCHIVED + is_current_version = False
+    """
+    try:
+        uid = uuid_utils.UUID(doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的 doc_id")
+
+    # 权限: takedown 是高风险操作, 仅 admin 可执行
+    if "admin" not in principal.roles and principal.actor_role != "admin":
+        raise HTTPException(status_code=403, detail="TAKEDOWN 仅 admin 可执行")
+
+    doc = await db.get(KbDocument, uid)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.is_deleted:
+        raise HTTPException(status_code=410, detail="文档已删除")
+    cur_status = doc.approval_status
+    cur_status_str = cur_status.value if hasattr(cur_status, "value") else str(cur_status)
+    if cur_status_str == KbApprovalStatus.ARCHIVED.value:
+        raise HTTPException(status_code=422, detail="文档已下架, 重复操作")
+
+    # reason 合法性
+    if payload.reason not in {"regulatory", "security", "quality", "other"}:
+        raise HTTPException(status_code=422, detail="reason 必须是 regulatory/security/quality/other 之一")
+
+    from_status = doc.approval_status
+    now = datetime.now(timezone.utc)
+    retention = now + timedelta(days=365 * 10)  # takedown 留存 10 年 (更严)
+
+    # 状态变更
+    doc.approval_status = KbApprovalStatus.ARCHIVED
+    doc.is_current_version = False
+    doc.updated_at = now
+    doc.updated_by = principal.actor_id
+
+    # 写审批记录 (action=ARCHIVE, high risk)
+    record = KbDocumentApproval(
+        id=uuid_utils.uuid7(),
+        document_id=doc.id,
+        action=KbApprovalAction.ARCHIVE,
+        from_status=from_status.value,
+        to_status=KbApprovalStatus.ARCHIVED.value,
+        actor_id=principal.actor_id,
+        actor_role=principal.actor_role,
+        comment=f"[TAKEDOWN/{payload.reason}] {payload.comment}",
+        tenant_id=doc.tenant_id,
+        operation_result="success",
+        risk_level="high",
+        retention_until=retention,
+    )
+    db.add(record)
+
+    # 业务审计
+    try:
+        audit = AuditService(db)
+        await audit.log(
+            event_type="document.takedown",
+            principal=principal,
+            resource=doc_id,
+            action="takedown",
+            result="success",
+            detail={
+                "from_status": from_status.value,
+                "to_status": KbApprovalStatus.ARCHIVED.value,
+                "reason": payload.reason,
+                "comment": payload.comment,
+            },
+        )
+    except Exception:
+        logger.exception("takedown 审计事件记录失败", doc_id=doc_id)
+
+    await db.commit()
+
+    logger.warning(
+        "紧急下架执行",
+        doc_id=doc_id,
+        reason=payload.reason,
+        actor_id=principal.actor_id,
+        comment=payload.comment,
+    )
+
+    return TakedownResponse(
+        doc_id=doc_id,
+        approval_id=str(record.id),
+        actor_id=principal.actor_id,
+        comment=payload.comment,
+        reason=payload.reason,
+        created_at=record.created_at.isoformat() if record.created_at else now.isoformat(),
+    )
