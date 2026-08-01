@@ -193,6 +193,20 @@ class KbDocument(Base):
         Date, nullable=True, comment="下次复核截止日期",
     )
 
+    # ── 多租户 + PII 治理 (I1-C1) ──
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="default", index=True,
+        comment="租户 ID, 隔离数据归属; 'default' 为单租户回退值",
+    )
+    is_pii: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+        comment="文档是否含个人信息 (Luhn/GB11643 命中标记)",
+    )
+    redacted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+        comment="PII 是否已脱敏入库 (redact 而不是 reject)",
+    )
+
     # ── LLM 抽取结果 ──
     llm_summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="LLM 自动摘要")
     llm_keywords: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list, comment="LLM 抽取关键词")
@@ -231,6 +245,11 @@ class KbDocument(Base):
             unique=True,
             postgresql_where=text("is_current_version = true AND is_deleted = false"),
         ),
+        Index(
+            "ix_kb_document_is_pii",
+            "is_pii",
+            postgresql_where=text("is_pii = true"),
+        ),
     )
 
 
@@ -238,7 +257,15 @@ class KbDocument(Base):
 
 
 class KbDocumentApproval(Base):
-    """文档审批记录表（append-only）"""
+    """文档审批记录表（append-only）
+
+    I1-C1 扩展:
+    - tenant_id: 数据归属 (多租户)
+    - ip / ua / request_id: 完整审计三元组 (与 AuditMiddleware 串联)
+    - operation_result: success / denied / failed (区分操作结果)
+    - risk_level: low / normal / high (高风险操作如 takedown)
+    - retention_until: 留存截止 (默认 created_at + 5 年, GB/T 22239)
+    """
 
     __tablename__ = "kb_document_approval"
 
@@ -255,12 +282,31 @@ class KbDocumentApproval(Base):
     actor_id: Mapped[str] = mapped_column(String(64), nullable=False)
     actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── 业务审计扩展 (I1-C1) ──
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="default", index=True,
+    )
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    ua: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    operation_result: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="success",
+    )
+    risk_level: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="normal",
+    )
+    retention_until: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, default=datetime.now, server_default=text("now()"),
     )
 
     __table_args__ = (
         Index("ix_kb_approval_document_created", "document_id", "created_at"),
+        Index("ix_kb_approval_actor_id", "actor_id"),
     )
 
 
@@ -300,6 +346,10 @@ class KbChunk(Base):
     model_version: Mapped[str | None] = mapped_column(
         String(64), nullable=True,
         comment="嵌入模型版本标识，如 bge-m3-v1，支持影子索引灰度切换",
+    )
+    # ── 多租户冗余 (I1-C1, 避免跨表 JOIN) ──
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="default", index=True,
     )
 
     # ── Parent-Child 分块字段 ──
@@ -358,3 +408,49 @@ class KbIngestionLog(Base):
     )
 
     document: Mapped[KbDocument] = relationship(back_populates="ingestion_logs")
+
+
+# ── KbRetrievalAudit ──
+
+
+class KbRetrievalAudit(Base):
+    """检索审计表 (append-only, I1-C1)
+
+    记录每次检索 API 调用的完整三元组:
+    - 谁 (actor_id) 在什么租户 (tenant_id) 用什么 query (md5 哈希) 检索
+    - 命中多少条 (result_count), 用了多少毫秒 (latency_ms)
+    - 是否降级 (degraded, 业务侧可见 RetrieveResponse.degraded)
+
+    银行场景下"谁在何时查了什么"是风控审计硬要求.
+    """
+
+    __tablename__ = "kb_retrieval_audit"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False), primary_key=True, default=_uuid_v7,
+    )
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="default", index=True,
+    )
+    query_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False,
+        comment="md5(query), 不存原文 (防 PII 进日志)",
+    )
+    top_k: Mapped[int] = mapped_column(Integer, nullable=False)
+    result_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    search_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    degraded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False,
+        default=datetime.now, server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_kb_retrieval_audit_actor", "actor_id"),
+        Index("ix_kb_retrieval_audit_created", "created_at"),
+    )

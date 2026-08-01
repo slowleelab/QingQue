@@ -12,6 +12,7 @@ from kb.orm.kb import (
     KbIngestionLog,
     KbIngestionStage,
     KbIngestionStatus,
+    KbRetrievalAudit,
     KbSourceType,
 )
 
@@ -28,4 +29,5 @@ __all__ = [
     "KbDocumentApproval",
     "KbChunk",
     "KbIngestionLog",
+    "KbRetrievalAudit",
 ]
