@@ -119,10 +119,7 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
     app.add_middleware(AuditMiddleware)
-    app.add_middleware(
-        RateLimitMiddleware,
-        requests_per_minute=settings.security.rate_limit_per_minute,
-    )
+    app.add_middleware(RateLimitMiddleware)  # I2-C1: 用 settings.security.tier_quotas, 不再传参
     app.add_middleware(PrometheusMiddleware)
 
     # 路由

@@ -39,13 +39,12 @@ from kb.config import get_settings
 from kb.main import create_app
 from kb.orm.kb import KbApprovalAction, KbApprovalStatus
 
-
 # ── JWT helper ──
 
 
 def _make_jwt(settings, *, sub="alice", tenant_id="default", roles=None, actor_role=None,
               tier="normal", exp_offset=3600, extra=None) -> str:
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     payload = {
         "sub": sub,
         "tenant_id": tenant_id,
@@ -120,19 +119,19 @@ class FakeSession:
                 obj.llm_entities = []
             import datetime as _dt
             if obj.created_at is None:
-                obj.created_at = _dt.datetime.now(_dt.timezone.utc)
+                obj.created_at = _dt.datetime.now(_dt.UTC)
             if obj.updated_at is None:
                 obj.updated_at = obj.created_at
             self.docs[str(obj.id)] = obj
         elif cls_name == "KbDocumentApproval":
             import datetime as _dt
             if obj.created_at is None:
-                obj.created_at = _dt.datetime.now(_dt.timezone.utc)
+                obj.created_at = _dt.datetime.now(_dt.UTC)
             self.approvals.append(obj)
         elif cls_name == "KbRetrievalAudit":
             import datetime as _dt
             if obj.created_at is None:
-                obj.created_at = _dt.datetime.now(_dt.timezone.utc)
+                obj.created_at = _dt.datetime.now(_dt.UTC)
             self.retrievals.append(obj)
 
     async def commit(self):
@@ -168,7 +167,6 @@ class FakeSession:
         if kwargs:
             bind_params.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int))})
         try:
-            from sqlalchemy.sql import sqltypes as _st
             # 优先 literal_binds 渲染 (字面量可见), 失败再回退到 raw str
             try:
                 compiled = stmt.compile(compile_kwargs={"literal_binds": True})
@@ -617,9 +615,10 @@ class TestT10BusinessAuditQuery:
             # 简化: 只测审计查询, 不实际跑流程
 
         # 直接 seed 审批
-        from kb.orm.kb import KbDocumentApproval
         import datetime as _dt
-        now = _dt.datetime.now(_dt.timezone.utc)
+
+        from kb.orm.kb import KbDocumentApproval
+        now = _dt.datetime.now(_dt.UTC)
         for action, actor in [(KbApprovalAction.SUBMIT, "alice"), (KbApprovalAction.APPROVE, "bob"), (KbApprovalAction.PUBLISH, "alice")]:
             fake_db.approvals.append(KbDocumentApproval(
                 id=uuid.uuid4(), document_id=d.id, action=action,
@@ -635,7 +634,7 @@ class TestT10BusinessAuditQuery:
                 id=uuid.uuid4(), request_id="r1", actor_id="alice", tenant_id="default",
                 query_hash=hashlib.md5(b"q").hexdigest(), top_k=10, result_count=5,
                 latency_ms=42, search_type="hybrid", degraded=False,
-                created_at=_dt.datetime.now(_dt.timezone.utc),
+                created_at=_dt.datetime.now(_dt.UTC),
             ))
 
         r = client.get("/api/v1/admin/business-audit",
@@ -647,9 +646,10 @@ class TestT10BusinessAuditQuery:
 
     def test_filter_by_actor(self, app, client, jwt_carol, jwt_alice, jwt_bob):
         _, fake_db, _, _, _, _ = app
-        from kb.orm.kb import KbDocumentApproval, KbDocument, KbRetrievalAudit
         import datetime as _dt
-        now = _dt.datetime.now(_dt.timezone.utc)
+
+        from kb.orm.kb import KbDocument, KbDocumentApproval
+        now = _dt.datetime.now(_dt.UTC)
         d = KbDocument(id=uuid.uuid4(), title="s", source_type="TXT", file_path="x",
                        category="OTHER", doc_type="faq", security_level="internal",
                        version="1.0", status="PENDING", tenant_id="default",
@@ -770,7 +770,7 @@ class TestT15WorkflowStringInputs:
         assert new == KbApprovalStatus.IN_REVIEW
 
     def test_invalid_status(self):
-        from kb.security.workflow import validate_transition, WorkflowError
+        from kb.security.workflow import WorkflowError, validate_transition
         with pytest.raises(WorkflowError) as exc:
             validate_transition(current_status="UNKNOWN", action="SUBMIT",
                                 actor_id="x", actor_role="editor", comment=None)
@@ -1015,7 +1015,6 @@ class TestT20DegradedResultInAudit:
     """T20: 降级路径 → KbRetrievalAudit.degraded=True 落表"""
 
     def test_degraded_audit_recorded(self, app, client, jwt_alice, monkeypatch):
-        import asyncio
         from kb.retrieval.models import RetrievedChunk
         test_app, fake_db, fake_redis, fake_es, _, _ = app
 
@@ -1044,7 +1043,225 @@ class TestT20DegradedResultInAudit:
 
         # 审计: 至少有 1 条 KbRetrievalAudit, degraded=True
         # (embed 失败 → 走 L2 bm25 → 仍 degraded=True 因为 hybrid→bm25 阶段降级)
-        from kb.orm.kb import KbRetrievalAudit
         degraded_audits = [a for a in fake_db.retrievals if a.degraded is True]
         assert len(degraded_audits) >= 1
-        assert degraded_audits[0].degraded is True
+
+
+# ──────────────────────────────────────────────────────────────────────
+# I2-C1: 限流分级 E2E (T21-T23)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class _RateLimitFakeRedis:
+    """支持限流 Lua 脚本的最小 Redis fake
+
+    模拟 INCR + EXPIRE 语义, 不依赖真 Redis.
+    计数用 in-memory dict, TTL 用 monotonic time.
+    """
+
+    def __init__(self) -> None:
+        self.counters: dict[str, int] = {}
+        self.expires: dict[str, float] = {}
+
+    async def eval(self, script: str, numkeys: int, key: str, *args):
+        # 简单实现限流 Lua 语义
+        import time as _t
+
+        window = int(args[0]) if args else 60
+        now = _t.monotonic()
+        exp = self.expires.get(key, 0.0)
+        if exp and now > exp:
+            # 已过期, 重置
+            self.counters.pop(key, None)
+            self.expires.pop(key, None)
+        current = self.counters.get(key, 0) + 1
+        self.counters[key] = current
+        if current == 1:
+            self.expires[key] = now + window
+        ttl = max(0, int(self.expires.get(key, now + window) - now))
+        return [current, ttl]
+
+    async def ping(self):
+        return True
+
+    async def aclose(self):
+        pass
+
+
+@pytest.fixture
+def ratelimit_app(monkeypatch, settings):
+    """独立的 E2E fixture — 装上支持 eval 的 fake redis
+
+    用于 T21-T23 限流分级测试, 不依赖业务路由是否完整.
+    """
+    from fastapi.testclient import TestClient
+
+    from kb.main import create_app
+
+    test_app = create_app()
+
+    # 装支持 eval 的 fake redis
+    rl_redis = _RateLimitFakeRedis()
+    test_app.state.redis_client = rl_redis
+
+    # 注入到 kb.storage.redis._client, 让 RateLimitMiddleware.get_redis() 拿到
+    import kb.storage.redis as _redis_mod
+    monkeypatch.setattr(_redis_mod, "_client", rl_redis)
+
+    # disable ES / embedding / reranker 依赖 (这些端点会调到)
+    test_app.state.es_client = None
+    test_app.state.embedding_provider = None
+    test_app.state.reranker_provider = None
+    test_app.state.embedding_breaker = None
+    test_app.state.llm_extractor = None
+
+    # 关掉 rate limit 之后, 需要走 /api/v1/retrieve 等端点 — 但端点内部会查 ES
+    # 我们改用更轻的端点: /api/v1/documents (GET) — 这个只会返回空 list
+    # 或者直接测试 middleware 自身, 不走业务路由
+
+    client = TestClient(test_app)
+    yield test_app, rl_redis, client
+
+    # 清理
+    monkeypatch.setattr(_redis_mod, "_client", None)
+
+
+class TestT21TierQuotaDifferentiation:
+    """T21: tier 配额差异化 — normal 与 vip 配额不同"""
+
+    @pytest.mark.asyncio
+    async def test_normal_user_limited_to_10_uploads(self, ratelimit_app, settings):
+        """normal 用户 upload 配额 = 10/min, 第 11 次应 429"""
+        from tests.test_i1_e2e import _make_jwt
+
+        test_app, rl_redis, client = ratelimit_app
+        jwt_normal = _make_jwt(settings, sub="alice", tier="normal", roles=["editor"])
+
+        from kb.middleware.rate_limit import RateLimitMiddleware
+
+        mw = RateLimitMiddleware(test_app)
+
+        async def call_next(req):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.headers = {}
+            return resp
+
+        last_status = None
+        last_headers: dict = {}
+        for i in range(11):
+            request = MagicMock()
+            request.method = "POST"
+            request.url.path = "/api/v1/documents"
+            request.headers = {"authorization": f"Bearer {jwt_normal}"}
+            request.client.host = "127.0.0.1"
+            response = await mw.dispatch(request, call_next)
+            if hasattr(response, "status_code"):
+                last_status = response.status_code
+                last_headers = dict(response.headers) if hasattr(response, "headers") else {}
+
+        assert last_status == 429
+        assert last_headers.get("Retry-After") is not None or "retry-after" in str(last_headers).lower()
+
+    @pytest.mark.asyncio
+    async def test_vip_user_not_limited_at_100(self, ratelimit_app, settings):
+        """vip 用户配额 = 200/min, 跑 100 次仍放行"""
+        from kb.middleware.rate_limit import RateLimitMiddleware
+        from tests.test_i1_e2e import _make_jwt
+
+        test_app, rl_redis, client = ratelimit_app
+        jwt_vip = _make_jwt(settings, sub="vip_user", tier="vip", roles=["editor"])
+
+        mw = RateLimitMiddleware(test_app)
+
+        async def call_next(req):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.headers = {}
+            return resp
+
+        statuses = []
+        for i in range(100):
+            request = MagicMock()
+            request.method = "GET"
+            request.url.path = "/api/v1/documents"
+            request.headers = {"authorization": f"Bearer {jwt_vip}"}
+            request.client.host = "127.0.0.1"
+            response = await mw.dispatch(request, call_next)
+            statuses.append(response.status_code)
+
+        assert all(s == 200 for s in statuses), f"vip 被错误限流: {set(statuses)}"
+
+
+class TestT22UploadQuotaIndependent:
+    """T22: upload (write) 配额独立于 read"""
+
+    @pytest.mark.asyncio
+    async def test_read_does_not_consume_write_quota(self, ratelimit_app, settings):
+        """GET 读请求 100 次不影响 POST upload 配额 (不同 group 独立计数)"""
+        from kb.middleware.rate_limit import RateLimitMiddleware
+        from tests.test_i1_e2e import _make_jwt
+
+        test_app, rl_redis, client = ratelimit_app
+        jwt_normal = _make_jwt(settings, sub="alice", tier="normal", roles=["editor"])
+
+        mw = RateLimitMiddleware(test_app)
+
+        async def call_next(req):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.headers = {}
+            return resp
+
+        for i in range(100):
+            request = MagicMock()
+            request.method = "GET"
+            request.url.path = "/api/v1/documents"
+            request.headers = {"authorization": f"Bearer {jwt_normal}"}
+            request.client.host = "127.0.0.1"
+            await mw.dispatch(request, call_next)
+
+        for i in range(10):
+            request = MagicMock()
+            request.method = "POST"
+            request.url.path = "/api/v1/documents"
+            request.headers = {"authorization": f"Bearer {jwt_normal}"}
+            request.client.host = "127.0.0.1"
+            response = await mw.dispatch(request, call_next)
+            assert response.status_code == 200, f"第 {i+1} 次 upload 被错误限流"
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/v1/documents"
+        request.headers = {"authorization": f"Bearer {jwt_normal}"}
+        request.client.host = "127.0.0.1"
+        response = await mw.dispatch(request, call_next)
+        assert response.status_code == 429
+
+
+class TestT23HealthAndMetricsWhitelisted:
+    """T23: /health/* 与 /metrics 不计入限流"""
+
+    @pytest.mark.asyncio
+    async def test_health_endpoints_skip_rate_limit(self, ratelimit_app, settings):
+        from kb.middleware.rate_limit import RateLimitMiddleware
+
+        test_app, rl_redis, client = ratelimit_app
+        mw = RateLimitMiddleware(test_app)
+
+        async def call_next(req):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.headers = {}
+            return resp
+
+        for i in range(1000):
+            request = MagicMock()
+            request.method = "GET"
+            request.url.path = "/health/live"
+            request.headers = {}
+            request.client.host = "127.0.0.1"
+            response = await mw.dispatch(request, call_next)
+            assert response.status_code == 200
+
+        assert len(rl_redis.counters) == 0, f"白名单不应计数, 但有: {list(rl_redis.counters)}"

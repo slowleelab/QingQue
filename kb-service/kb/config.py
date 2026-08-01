@@ -179,8 +179,20 @@ class SecuritySettings(BaseSettings):
     # 文件上传限制
     max_upload_size_mb: int = 50
     allowed_file_extensions: str = ".pdf,.docx,.html,.htm,.md,.markdown,.txt,.xlsx"
-    # 限流
-    rate_limit_per_minute: int = 60
+    # 限流 (I2-C1 分级 — tier × path_group)
+    rate_limit_per_minute: int = 60  # 兜底配额 (未识别 tier / path_group 时)
+    rate_limit_enabled: bool = True  # 测试时可临时关闭
+    rate_limit_redis_prefix: str = "kp:ratelimit"
+    rate_limit_window_seconds: int = 60  # 滑动窗口长度
+    # I2-C1.2: tier 配额矩阵 (次/分钟)
+    # read = GET + POST /retrieve, write = POST /documents (上传), admin = /admin/*
+    tier_quotas: dict[str, dict[str, int]] = Field(
+        default_factory=lambda: {
+            "vip": {"read": 2000, "write": 200, "admin": 500},
+            "normal": {"read": 200, "write": 10, "admin": 50},
+            "internal": {"read": 10000, "write": 500, "admin": 5000},
+        }
+    )
     # 默认租户 (单租户回退值; JWT 无 tenant_id claim 时使用)
     default_tenant_id: str = "default"
 

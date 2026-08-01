@@ -66,6 +66,13 @@ CIRCUIT_BREAKER_STATE = Gauge(
     ["name"],
 )
 
+# I2-C1: 限流超限计数 (tier × path_group)
+RATE_LIMIT_EXCEEDED = Counter(
+    "kb_rate_limit_exceeded_total",
+    "限流超限次数 (tier + path_group)",
+    ["tier", "path_group"],
+)
+
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
     """Prometheus 指标采集中间件"""
