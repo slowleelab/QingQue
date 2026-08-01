@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
@@ -46,9 +46,24 @@ RETRIEVE_COUNT = Counter(
 
 RETRIEVE_LATENCY = Histogram(
     "kb_retrieve_duration_seconds",
-    "检索延迟（秒）",
+    "检索延迟（秒，含降级路径）",
     ["search_type"],
-    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+    # I2-C2: 扩 bucket 覆盖到 P99.9 (1.5/2.0/2.5/5.0/10.0)
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0),
+)
+
+# I2-C2: 检索降级事件计数 (from_stage -> to_stage)
+RETRIEVE_DEGRADATION = Counter(
+    "kb_retrieve_degradation_total",
+    "检索降级事件 (from -> to, 例如 hybrid->bm25)",
+    ["from", "to"],
+)
+
+# I2-C2: 熔断器状态 — Gauge, 由 health-check 端点暴露
+CIRCUIT_BREAKER_STATE = Gauge(
+    "kb_circuit_breaker_state",
+    "熔断器状态 (0=closed, 1=half_open, 2=open)",
+    ["name"],
 )
 
 

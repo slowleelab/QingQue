@@ -16,6 +16,7 @@ from kb.api.deps import (
     PrincipalDep,
     RedisClient,
     RerankerDep,
+    get_embedding_breaker,
 )
 from kb.retrieval.engine import retrieve
 from kb.retrieval.models import RetrieveRequest, RetrieveResponse
@@ -56,12 +57,16 @@ async def retrieve_documents(
     if not request_body.actor_roles:
         request_body.actor_roles = list(principal.roles)
 
+    # I2-C2: 注入嵌入熔断器 (后台探测, 不可用时跳过 embed → 走 bm25)
+    embedding_breaker = get_embedding_breaker(request)
+
     response = await retrieve(
         request=request_body,
         es_client=es,
         embedding_provider=embedding,
         reranker=reranker,
         redis_client=redis,
+        embedding_breaker=embedding_breaker,
     )
 
     # I1-C4: 业务审计 (检索事件)

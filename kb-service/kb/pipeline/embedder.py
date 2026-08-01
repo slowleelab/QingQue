@@ -168,6 +168,7 @@ class EmbeddingCircuitBreaker:
     """嵌入服务熔断器
 
     周期性探测后端健康状态，连续失败达阈值后打开熔断，连续成功达阈值后关闭。
+    I2-C2 保留旧实现不变 — 三态半开逻辑由 GenericCircuitBreaker 提供给新用例使用.
     """
 
     def __init__(

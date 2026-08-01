@@ -90,6 +90,42 @@ class AuditService:
             # 审计落表失败不阻塞业务, 仅记 ERROR
             logger.exception("检索审计落表失败", actor_id=principal.actor_id)
 
+    async def log_degradation(
+        self,
+        *,
+        from_stage: str,
+        to_stage: str,
+        reason: str,
+        principal: Any | None = None,
+        request_id: str | None = None,
+        search_type: str | None = None,
+    ) -> None:
+        """记录检索降级事件 (I2-C2)
+
+        降级事件高频 (熔断/超时每次都触发), 不写 DB, 仅走 structlog JSON.
+        业务侧从 KbRetrievalAudit.degraded 字段观测, Prometheus 看 from/to 分布.
+
+        参数:
+          from_stage: 降级前阶段 (hybrid / bm25 / rerank)
+          to_stage: 降级后阶段 (bm25 / empty / no_rerank)
+          reason: 触发原因 (timeout / exception / breaker_open)
+          principal: 操作人 (可为 None, 异步后台任务)
+          request_id: 串联上游请求
+          search_type: 请求类型 (hybrid / bm25_only / vector_only)
+        """
+        log_kwargs: dict[str, Any] = {
+            "from_stage": from_stage,
+            "to_stage": to_stage,
+            "reason": reason,
+            "request_id": request_id,
+            "search_type": search_type,
+        }
+        if principal is not None:
+            log_kwargs["actor_id"] = principal.actor_id
+            log_kwargs["actor_role"] = principal.actor_role
+            log_kwargs["tenant_id"] = principal.tenant_id
+        logger.warning("retrieval_degradation", **log_kwargs)
+
     async def log(
         self,
         *,

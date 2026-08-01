@@ -798,3 +798,253 @@ class TestT16ApprovalHistory:
         assert len(body["records"]) == 2
         assert body["records"][0]["action"] == "APPROVE"
         assert body["records"][1]["action"] == "SUBMIT"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# I2-C2: 检索降级 E2E (T17-T20)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class _FakeESClient:
+    """可编程 ES client — 模拟 RRF / BM25 / kNN 行为, 通过 fake_es.kinds 控制"""
+
+    def __init__(self):
+        self.kinds: list[str] = []      # 每次 .search() 弹出
+        self.rrf_results: list = []
+        self.bm25_results: list = []
+        self.knn_results: list = []
+        self.search_calls: list[dict] = []
+
+    async def search(self, *, body=None, knn=None, index=None, **kw):
+        self.search_calls.append({"body": body, "knn": knn, "index": index, **kw})
+        # 推断调用类型
+        if knn is not None:
+            kind = "knn"
+            results = self.knn_results
+        else:
+            kind = "rrf" if self.kinds and self.kinds[0] == "rrf" else "bm25"
+            if not self.kinds:
+                kind = "bm25"
+            else:
+                self.kinds.pop(0)
+            results = self.rrf_results if kind == "rrf" else self.bm25_results
+        # 模拟失败模式
+        if kind == "fail_rrf":
+            raise RuntimeError("ES RRF down")
+        if kind == "fail_bm25":
+            raise RuntimeError("ES BM25 down")
+        return {"hits": {"hits": [{"_id": h.get("chunk_id", "x"), "_score": h.get("score", 0.9),
+                                    "_source": h} for h in results]}}
+
+    async def aclose(self):
+        pass
+
+    async def ping(self):
+        return True
+
+
+class _FakeRedis:
+    """简单内存 Redis, 模拟 get/setex/scan_iter"""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    async def get(self, k):
+        return self.store.get(k)
+
+    async def setex(self, k, ttl, v):
+        self.store[k] = v
+
+    async def delete(self, k):
+        self.store.pop(k, None)
+
+    def scan_iter(self, match=None):
+        # 简单实现: 返回所有 key (测试用)
+        for k in list(self.store.keys()):
+            yield k
+
+    async def ping(self):
+        return True
+
+
+class _FakeEmbedProvider:
+    """可编程 embed provider — 默认成功, 通过 fail_next 让下次 embed 抛错"""
+
+    def __init__(self):
+        self.fail_next = False
+        self.call_count = 0
+
+    async def embed_query(self, query):
+        self.call_count += 1
+        if self.fail_next:
+            self.fail_next = False
+            raise RuntimeError("TEI embed fail")
+        return [0.1] * 4
+
+    async def health_check(self):
+        return True
+
+
+class TestT17BreakerOpenTriggersL2:
+    """T17: 嵌入熔断器 OPEN → 跳过 embed → 走 L2 bm25"""
+
+    def test_breaker_open_skips_embed(self, app, client, jwt_alice, monkeypatch):
+        test_app, fake_db, fake_redis, fake_es, _, _ = app
+        from kb.circuit_breaker import GenericCircuitBreaker
+        from kb.retrieval.models import RetrievedChunk
+
+        # 构造 OPEN 状态熔断器
+        breaker = GenericCircuitBreaker(name="embedding", failure_threshold=2, cooldown_seconds=60)
+        import asyncio
+        asyncio.run(breaker.record_failure())
+        asyncio.run(breaker.record_failure())
+        assert breaker.is_available is False
+        test_app.state.embedding_breaker = breaker
+
+        # monkeypatch BM25 返 c2 (跨测试隔离, 不依赖 fake_es state)
+        async def fake_bm25(es_client, query, top_k, filters):
+            return [RetrievedChunk(chunk_id="c2", content="BM25 命中", score=0.5, source_doc="d2")]
+        monkeypatch.setattr("kb.retrieval.engine._search_bm25_only", fake_bm25)
+
+        embed = _FakeEmbedProvider()
+        test_app.state.embedding_provider = embed
+        test_app.state.redis_client = fake_redis
+
+        r = client.post("/api/v1/retrieve", json={
+            "query": "信用卡年费", "top_k": 3, "search_type": "hybrid", "timeout_ms": 1500,
+            "tenant_id": "bank-a", "actor_roles": ["cs"],
+        }, headers={"Authorization": f"Bearer {jwt_alice}"})
+
+        assert r.status_code == 200
+        body = r.json()
+        # embed 未被调用 (熔断器拦截)
+        assert embed.call_count == 0
+        # L2 bm25 返了结果
+        assert len(body["results"]) == 1
+        assert body["results"][0]["chunk_id"] == "c2"
+        # 标记降级
+        assert body["degraded"] is True
+        assert "hybrid→bm25" in body["degraded_stages"]
+
+
+class TestT18EmbedTimeoutTriggersL2:
+    """T18: 嵌入超时 → 降级 L2 bm25"""
+
+    def test_embed_timeout_degrades_to_bm25(self, app, client, jwt_alice, monkeypatch):
+        import asyncio
+        test_app, fake_db, fake_redis, fake_es, _, _ = app
+
+        # embed 模拟超时: 用 asyncio.sleep > budget
+        class SlowEmbed:
+            def __init__(self):
+                self.call_count = 0
+            async def embed_query(self, q):
+                self.call_count += 1
+                await asyncio.sleep(0.5)
+                return [0.1] * 4
+            async def health_check(self):
+                return True
+
+        test_app.state.embedding_provider = SlowEmbed()
+        # timeout_ms=100 → embed budget 50ms, 立即超时
+        test_app.state.embedding_breaker = None
+        fake_es.kinds = []  # bm25
+        fake_es.bm25_results = [{"chunk_id": "c2", "content": "fallback", "score": 0.4,
+                                  "doc_id": "d2"}]
+
+        r = client.post("/api/v1/retrieve", json={
+            "query": "q", "top_k": 3, "search_type": "hybrid", "timeout_ms": 100,
+            "tenant_id": "bank-a", "actor_roles": ["cs"],
+        }, headers={"Authorization": f"Bearer {jwt_alice}"})
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["degraded"] is True
+        assert "hybrid→bm25" in body["degraded_stages"]
+
+
+class TestT19CrossTenantCacheIsolation:
+    """T19: 跨租户缓存隔离 — alice (tenant=A) 与 bob (tenant=B) 同 query 不命中对方"""
+
+    def test_cross_tenant_does_not_pollute_cache(self, app, client, jwt_alice, jwt_bob, monkeypatch):
+        test_app, fake_db, fake_redis, fake_es, _, _ = app
+        from kb.retrieval.models import RetrievedChunk
+
+        # monkeypatch BM25 返 shared 结果, 计数 search 调用
+        call_count = {"n": 0}
+        async def fake_bm25(es_client, query, top_k, filters):
+            call_count["n"] += 1
+            return [RetrievedChunk(chunk_id=f"c{call_count['n']}", content="shared",
+                                    score=0.5, source_doc="d1")]
+        monkeypatch.setattr("kb.retrieval.engine._search_bm25_only", fake_bm25)
+
+        embed = _FakeEmbedProvider()
+        test_app.state.embedding_provider = embed
+        test_app.state.embedding_breaker = None
+        # 重要: 用全新的 redis (清掉上轮测试残留)
+        test_app.state.redis_client = _FakeRedis()
+
+        # alice (bank-a) 检索
+        r1 = client.post("/api/v1/retrieve", json={
+            "query": "信用卡", "top_k": 3, "search_type": "bm25_only", "timeout_ms": 1500,
+            "tenant_id": "bank-a", "actor_roles": ["cs"],
+        }, headers={"Authorization": f"Bearer {jwt_alice}"})
+        assert r1.status_code == 200
+
+        # bob (bank-b) 同 query 检索 — 应有独立缓存 key
+        r2 = client.post("/api/v1/retrieve", json={
+            "query": "信用卡", "top_k": 3, "search_type": "bm25_only", "timeout_ms": 1500,
+            "tenant_id": "bank-b", "actor_roles": ["cs"],
+        }, headers={"Authorization": f"Bearer {jwt_bob}"})
+        assert r2.status_code == 200
+
+        # 验证: 2 次请求, BM25 被打 2 次 (如果跨租户缓存命中, 第二次会复用)
+        assert call_count["n"] == 2
+        # Redis 中有 2 个不同 key
+        redis = test_app.state.redis_client
+        assert len(redis.store) >= 2
+        keys = list(redis.store.keys())
+        for k in keys:
+            assert k.startswith("kp:rag:cache:bm25_only:")
+        # 但 hash 部分不同 (tenant 隔离)
+        hashes = [k.split(":")[-1] for k in keys]
+        assert len(set(hashes)) >= 2  # 至少 2 个不同 hash
+
+
+class TestT20DegradedResultInAudit:
+    """T20: 降级路径 → KbRetrievalAudit.degraded=True 落表"""
+
+    def test_degraded_audit_recorded(self, app, client, jwt_alice, monkeypatch):
+        import asyncio
+        from kb.retrieval.models import RetrievedChunk
+        test_app, fake_db, fake_redis, fake_es, _, _ = app
+
+        class FailingEmbed:
+            async def embed_query(self, q):
+                raise RuntimeError("TEI fail")
+            async def health_check(self):
+                return False
+
+        # monkeypatch BM25 返 fallback 结果 (这样审计有 result_count=1)
+        async def fake_bm25(es_client, query, top_k, filters):
+            return [RetrievedChunk(chunk_id="c2", content="fallback", score=0.4, source_doc="d2")]
+        monkeypatch.setattr("kb.retrieval.engine._search_bm25_only", fake_bm25)
+
+        test_app.state.embedding_provider = FailingEmbed()
+        test_app.state.embedding_breaker = None
+
+        r = client.post("/api/v1/retrieve", json={
+            "query": "信用卡", "top_k": 3, "search_type": "hybrid", "timeout_ms": 1500,
+            "tenant_id": "bank-a", "actor_roles": ["cs"],
+        }, headers={"Authorization": f"Bearer {jwt_alice}"})
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["degraded"] is True
+
+        # 审计: 至少有 1 条 KbRetrievalAudit, degraded=True
+        # (embed 失败 → 走 L2 bm25 → 仍 degraded=True 因为 hybrid→bm25 阶段降级)
+        from kb.orm.kb import KbRetrievalAudit
+        degraded_audits = [a for a in fake_db.retrievals if a.degraded is True]
+        assert len(degraded_audits) >= 1
+        assert degraded_audits[0].degraded is True
