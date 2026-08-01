@@ -28,6 +28,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # 生成 request_id
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:12]
+        request.state.request_id = request_id
 
         # 绑定上下文
         bind_context(
@@ -43,12 +44,22 @@ class AuditMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             latency_ms = int((time.perf_counter() - start) * 1000)
 
+            # 提取 principal (由 verify_principal 注入, I1-C4)
+            principal = getattr(request.state, "principal", None)
+            actor_id = principal.actor_id if principal else "anonymous"
+            actor_role = principal.actor_role if principal else "anonymous"
+            tenant_id = principal.tenant_id if principal else "default"
+
             # 审计日志（非健康检查路径）
             if not request.url.path.startswith("/health") and not request.url.path.startswith("/metrics"):
                 logger.info(
                     "api_request",
                     status_code=response.status_code,
                     latency_ms=latency_ms,
+                    actor_id=actor_id,
+                    actor_role=actor_role,
+                    tenant_id=tenant_id,
+                    auth_method=principal.auth_method if principal else "none",
                 )
 
             response.headers["X-Request-ID"] = request_id

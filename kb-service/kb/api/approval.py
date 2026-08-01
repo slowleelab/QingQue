@@ -35,6 +35,7 @@ from kb.orm.kb import (
     KbDocument,
     KbDocumentApproval,
 )
+from kb.security.audit_service import AuditService
 from kb.security.workflow import (
     WorkflowError,
     get_allowed_actions,
@@ -212,6 +213,30 @@ async def _execute_action(
         ua=ua,
         request_id=rid,
     )
+
+    # I1-C4: 业务审计事件 (structlog)
+    try:
+        audit = AuditService(db)
+        await audit.log(
+            event_type=f"document.{action.value.lower()}",
+            principal=principal,
+            resource=doc_id,
+            action=action.value,
+            result="success",
+            detail={
+                "from_status": doc.approval_status.value,
+                "to_status": new_status.value,
+                "comment": payload.comment,
+                "risk_level": record.risk_level,
+            },
+            request_id=rid,
+            ip=ip,
+            ua=ua,
+        )
+    except Exception:
+        # 审计日志失败不阻塞主流程
+        logger.exception("审批审计事件记录失败", doc_id=doc_id)
+
     await db.commit()
 
     logger.info(
