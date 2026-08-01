@@ -10,13 +10,22 @@
 from __future__ import annotations
 
 import logging
+import uuid_utils
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
 
 from kb.api.deps import ApiKeyDep, DbSession
-from kb.orm.kb import KbApprovalStatus, KbChunk, KbDocument, KbIngestionLog, KbIngestionStage
+from kb.orm.kb import (
+    KbApprovalStatus,
+    KbChunk,
+    KbDocument,
+    KbDocumentApproval,
+    KbIngestionLog,
+    KbIngestionStage,
+    KbRetrievalAudit,
+)
 from kb.storage.redis import get_redis
 
 logger = logging.getLogger(__name__)
@@ -44,7 +53,9 @@ async def diagnostics(
     # ── 阶段耗时统计 ──
     stage_stats: dict[str, dict[str, float | int]] = {}
     try:
-        # 按阶段聚合 duration_ms
+        # 按阶段聚合 duration_ms (按 created_at 近 7 天过滤, schema 没有 started_at)
+        from datetime import datetime, timedelta, timezone
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
         query = (
             select(
                 KbIngestionLog.stage,
@@ -55,7 +66,7 @@ async def diagnostics(
                     func.case((KbIngestionLog.status == "failed", 1), else_=0)
                 ).label("failures"),
             )
-            .where(KbIngestionLog.started_at.is_not(None))
+            .where(KbIngestionLog.created_at >= seven_days_ago)
             .group_by(KbIngestionLog.stage)
         )
         result = await db.execute(query)
@@ -212,13 +223,98 @@ async def clear_cache(_api_key: ApiKeyDep) -> dict[str, Any]:
     if redis is None:
         raise HTTPException(status_code=503, detail="Redis 不可用")
 
-    # 知识库缓存统一前缀, 见 retrieval/engine.py: _build_cache_key
+    # 知识库缓存统一前缀, 见 retrieval/engine.py: _build_cache_key (kp:rag:cache:*)
     deleted = 0
-    async for key in redis.scan_iter(match="kb:retrieve:*"):
+    async for key in redis.scan_iter(match="kp:rag:cache:*"):
         await redis.delete(key)
         deleted += 1
 
     return {
         "deleted_keys": deleted,
         "message": f"已清理 {deleted} 条检索缓存",
+    }
+
+
+# ── 4. 业务审计查询 (I1-C5) ──
+
+
+@router.get("/api/v1/admin/business-audit")
+async def business_audit(
+    db: DbSession,
+    _api_key: ApiKeyDep,
+    doc_id: str | None = None,
+    actor_id: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """业务审计查询 — 审批流水 + 检索事件
+
+    用于合规审计 / 内部调查, 返回:
+    - approvals: 文档审批记录 (按 doc_id/actor_id 过滤)
+    - retrievals: 检索事件 (按 actor_id 过滤, query 仅返回 hash 不返回原文)
+    - summary: 计数汇总
+
+    I1-C5: admin 端点 1 处, 不暴露 PII (query_hash 是 md5)
+    """
+    limit = min(limit, 200)
+
+    # 审批记录
+    approval_q = select(KbDocumentApproval).order_by(KbDocumentApproval.created_at.desc()).limit(limit)
+    if doc_id:
+        try:
+            uid = uuid_utils.UUID(doc_id)
+            approval_q = approval_q.where(KbDocumentApproval.document_id == uid)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="无效的 doc_id")
+    if actor_id:
+        approval_q = approval_q.where(KbDocumentApproval.actor_id == actor_id)
+    approval_result = await db.execute(approval_q)
+    approvals = approval_result.scalars().all()
+
+    # 检索事件
+    retrieval_q = select(KbRetrievalAudit).order_by(KbRetrievalAudit.created_at.desc()).limit(limit)
+    if actor_id:
+        retrieval_q = retrieval_q.where(KbRetrievalAudit.actor_id == actor_id)
+    retrieval_result = await db.execute(retrieval_q)
+    retrievals = retrieval_result.scalars().all()
+
+    return {
+        "summary": {
+            "approvals_returned": len(approvals),
+            "retrievals_returned": len(retrievals),
+        },
+        "approvals": [
+            {
+                "approval_id": str(a.id),
+                "document_id": str(a.document_id),
+                "action": a.action.value if hasattr(a.action, "value") else str(a.action),
+                "from_status": a.from_status,
+                "to_status": a.to_status,
+                "actor_id": a.actor_id,
+                "actor_role": a.actor_role,
+                "comment": a.comment,
+                "ip": a.ip,
+                "request_id": a.request_id,
+                "risk_level": a.risk_level,
+                "operation_result": a.operation_result,
+                "tenant_id": a.tenant_id,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in approvals
+        ],
+        "retrievals": [
+            {
+                "audit_id": str(r.id),
+                "actor_id": r.actor_id,
+                "tenant_id": r.tenant_id,
+                "query_hash": r.query_hash,
+                "top_k": r.top_k,
+                "result_count": r.result_count,
+                "latency_ms": r.latency_ms,
+                "search_type": r.search_type,
+                "degraded": r.degraded,
+                "request_id": r.request_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in retrievals
+        ],
     }
