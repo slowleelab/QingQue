@@ -29,7 +29,7 @@ _ES_KEYWORD_FIELDS = {
     "category", "doc_type", "card_type", "customer_tier",
     "security_level", "version", "chunk_type",
     "approval_status", "is_current_version", "doc_group",
-    "model_version",
+    "model_version", "tenant_id",
 }
 # ES date 过滤字段
 _ES_DATE_FIELDS = {"effective_date", "expiry_date"}
@@ -64,6 +64,29 @@ def build_es_filters(filters: dict) -> list[dict]:
     return clauses
 
 
+def build_es_excludes(excludes: dict) -> list[dict]:
+    """将 exclude 字典转换为 ES bool.must_not 子句列表 (I1-C2 / P2-1)
+
+    字段值语义:
+      - 单值: {"doc_type": "marketing"} → term must_not
+      - list:  {"doc_type": ["marketing", "spam"]} → terms must_not
+      - 任意 keyword 字段都可, 包括敏感词命中 / 营销话术
+
+    must_not 不能单独存在, 必须配 must/should; 调用方在 retriever 构造里包裹 bool.must_not.
+    """
+    clauses: list[dict] = []
+    for key, value in excludes.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            if not value:
+                continue
+            clauses.append({"terms": {key: value}})
+        else:
+            clauses.append({"term": {key: value}})
+    return clauses
+
+
 def _date_to_epoch(date_str: str) -> int:
     """yyyy-MM-dd → epoch 秒"""
     try:
@@ -90,15 +113,19 @@ async def _search_es_rrf(
     top_k: int,
     filters: dict,
     rrf_k: int = 60,
+    exclude: dict | None = None,
 ) -> list[RetrievedChunk]:
     """ES 原生 RRF 检索
 
     使用 RRF retriever 在服务端融合 BM25+IK 与 kNN，单查询完成混合检索。
+
+    exclude (I1-C2 / P2-1): 否定语义, 转 must_not 子句
     """
     settings = get_settings()
     index_name = settings.elasticsearch.chunks_index
 
     filter_clauses = build_es_filters(filters)
+    exclude_clauses = build_es_excludes(exclude or {})
 
     # BM25 standard retriever
     standard_retriever: dict[str, Any] = {
@@ -109,12 +136,13 @@ async def _search_es_rrf(
         },
     }
     if filter_clauses:
-        standard_retriever["standard"]["query"] = {
-            "bool": {
-                "must": [standard_retriever["standard"]["query"]],
-                "filter": filter_clauses,
-            }
+        bool_query: dict[str, Any] = {
+            "must": [standard_retriever["standard"]["query"]],
+            "filter": filter_clauses,
         }
+        if exclude_clauses:
+            bool_query["must_not"] = exclude_clauses
+        standard_retriever["standard"]["query"] = {"bool": bool_query}
 
     # kNN retriever
     # num_candidates 建议 top_k 的 10 倍以保证召回率（ES 官方推荐）
@@ -126,8 +154,13 @@ async def _search_es_rrf(
             "num_candidates": min(top_k * 10, 1000),
         },
     }
-    if filter_clauses:
-        knn_retriever["knn"]["filter"] = {"bool": {"filter": filter_clauses}}
+    if filter_clauses or exclude_clauses:
+        knn_bool: dict[str, Any] = {}
+        if filter_clauses:
+            knn_bool["filter"] = filter_clauses
+        if exclude_clauses:
+            knn_bool["must_not"] = exclude_clauses
+        knn_retriever["knn"]["filter"] = {"bool": knn_bool}
 
     # RRF 融合
     body: dict[str, Any] = {
@@ -262,13 +295,29 @@ async def retrieve(
     # 扩展候选集
     expanded_k = request.top_k * 3
 
-    # 银行合规过滤
+    # 银行合规过滤 (I1-C2: 注入 tenant_id + allowed_roles)
     compliance_filters = dict(request.filters or {})
     compliance_filters["approval_status"] = "PUBLISHED"
     compliance_filters["is_current_version"] = True
     if not request.include_expired:
         today_str = date_cls.today().isoformat()
         compliance_filters["effective_date"] = {"lte": today_str}
+
+    # ── I1-C2: 多租户隔离 ──
+    # tenant_id 不为 None 时强制注入 (业务侧显式覆盖, 防止跨租户访问)
+    if request.tenant_id is not None:
+        compliance_filters["tenant_id"] = request.tenant_id
+
+    # ── I1-C2: 角色匹配 (actor_roles 与 KbDocument.allowed_roles 配对) ──
+    # ES terms 命中语义: doc.allowed_roles ∩ request.actor_roles 非空
+    # 用 ES terms 表达: actor_roles 列表转 terms filter
+    if request.actor_roles:
+        # 业务场景: 客服角色 (cs/manager/admin) 才能看到对应文档
+        # 如果 actor_roles 为空则不加此 filter, 表示全员可见
+        # allowed_roles 是 JSON list, ES terms 走 array element 匹配
+        # 注意: ES terms 不会对 array 自动展开, 需要用 terms_lookup 或在写入时数组化
+        # 简化: 假设 ES 索引时 allowed_roles 已经是 array (我们 KbDocument ORM 用 JSONB)
+        compliance_filters["allowed_roles"] = request.actor_roles  # build_es_filters 会转 terms
 
     # 影子索引灰度：检索时可指定 model_version 过滤
     # 切换流程：1)新模型灌入用新 version → 2)灰度检索验证 → 3)切换默认 → 4)清理旧
@@ -277,6 +326,9 @@ async def retrieve(
         compliance_filters["model_version"] = settings.rag.shadow_model_version
     elif request.model_version:
         compliance_filters["model_version"] = request.model_version
+
+    # ── I1-C2: 排除语义 (must_not) ──
+    exclude = dict(request.exclude or {})
 
     fused: list[RetrievedChunk] = []
 
@@ -288,7 +340,7 @@ async def retrieve(
                 query_embedding = await embedding_provider.embed_query(request.query)
                 fused = await _search_es_rrf(
                     es_client, request.query, query_embedding,
-                    expanded_k, compliance_filters, rrf_k,
+                    expanded_k, compliance_filters, rrf_k, exclude,
                 )
             except Exception:
                 logger.exception("hybrid 检索失败，尝试 BM25 only")

@@ -11,7 +11,9 @@ from kb.orm.kb import (  # noqa: E402
     KbIngestionStage,
     KbChunk,
     KbDocument,
+    KbDocumentApproval,
     KbIngestionLog,
+    KbRetrievalAudit,
 )
 
 
@@ -58,3 +60,46 @@ def test_kb_document_has_llm_fields():
     assert hasattr(KbDocument, "llm_summary")
     assert hasattr(KbDocument, "llm_keywords")
     assert hasattr(KbDocument, "llm_entities")
+
+
+# ── I1-C1: 多租户 / PII / 业务审计字段 ──
+
+
+def test_kb_document_has_tenant_id_and_pii_fields():
+    """KbDocument 需有 tenant_id / is_pii / redacted 字段 (I1-C1)"""
+    assert hasattr(KbDocument, "tenant_id")
+    assert hasattr(KbDocument, "is_pii")
+    assert hasattr(KbDocument, "redacted")
+
+
+def test_kb_chunk_has_tenant_id():
+    """KbChunk 需有 tenant_id 冗余字段 (I1-C1)"""
+    assert hasattr(KbChunk, "tenant_id")
+
+
+def test_kb_document_approval_has_audit_extension_fields():
+    """KbDocumentApproval 需有审计扩展字段 (I1-C1)"""
+    required = [
+        "tenant_id", "ip", "ua", "request_id",
+        "operation_result", "risk_level", "retention_until",
+    ]
+    for field in required:
+        assert hasattr(KbDocumentApproval, field), f"缺字段: {field}"
+
+
+def test_kb_retrieval_audit_table_exists():
+    """KbRetrievalAudit 表 (I1-C1)"""
+    required = [
+        "request_id", "actor_id", "tenant_id", "query_hash",
+        "top_k", "result_count", "latency_ms", "search_type", "degraded",
+    ]
+    for field in required:
+        assert hasattr(KbRetrievalAudit, field), f"缺字段: {field}"
+    assert KbRetrievalAudit.__tablename__ == "kb_retrieval_audit"
+
+
+def test_kb_ingestion_log_unchanged():
+    """KbIngestionLog 不受 I1-C1 影响"""
+    assert KbIngestionLog.__tablename__ == "kb_ingestion_log"
+    assert hasattr(KbIngestionLog, "stage")
+    assert hasattr(KbIngestionLog, "duration_ms")

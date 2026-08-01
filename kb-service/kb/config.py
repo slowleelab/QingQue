@@ -181,6 +181,32 @@ class SecuritySettings(BaseSettings):
     allowed_file_extensions: str = ".pdf,.docx,.html,.htm,.md,.markdown,.txt,.xlsx"
     # 限流
     rate_limit_per_minute: int = 60
+    # 默认租户 (单租户回退值; JWT 无 tenant_id claim 时使用)
+    default_tenant_id: str = "default"
+
+
+class JWTSettings(BaseSettings):
+    """JWT 鉴权配置 (I1-C2)
+
+    JWT 模式优先, API Key 模式兜底.
+    claim 结构:
+      sub: actor_id (必填)
+      tenant_id: 租户 ID (可选, 缺省走 default_tenant_id)
+      roles: list[str] (可选, 与 allowed_roles 配对)
+      actor_role: 单角色 (可选, 审计日志用)
+      tier: VIP/normal/internal (限流分层用)
+      exp / iat: 标准过期
+    """
+
+    model_config = SettingsConfigDict(env_prefix="JWT_")
+
+    # 关闭时跳过 JWT 校验 (走 API Key 兜底)
+    enabled: bool = True
+    secret: str = "dev-secret-change-in-prod"
+    algorithm: str = "HS256"
+    audience: str = "kb-service"
+    issuer: str = "smartcs-auth"
+    leeway_seconds: int = 30
 
 
 class Settings(BaseSettings):
@@ -213,6 +239,7 @@ class Settings(BaseSettings):
     rag: RAGSettings = Field(default_factory=RAGSettings)
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
+    jwt: JWTSettings = Field(default_factory=JWTSettings)
 
     @property
     def api_keys_list(self) -> list[str]:
