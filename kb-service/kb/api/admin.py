@@ -14,7 +14,7 @@ import uuid_utils
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from kb.api.deps import ApiKeyDep, DbSession
 from kb.orm.kb import (
@@ -63,7 +63,7 @@ async def diagnostics(
                 func.avg(KbIngestionLog.duration_ms).label("avg_ms"),
                 func.max(KbIngestionLog.duration_ms).label("max_ms"),
                 func.sum(
-                    func.case((KbIngestionLog.status == "failed", 1), else_=0)
+                    case((KbIngestionLog.status == "failed", 1), else_=0)
                 ).label("failures"),
             )
             .where(KbIngestionLog.created_at >= seven_days_ago)
@@ -81,7 +81,7 @@ async def diagnostics(
                 "failure_rate": round(failures / n, 4) if n else 0.0,
             }
     except Exception as e:
-        logger.warning("阶段统计查询失败", error=str(e))
+        logger.warning("阶段统计查询失败: %s", str(e))
         stage_stats = {"_error": {"message": str(e)}}
 
     # ── 文档分布 ──
@@ -95,7 +95,7 @@ async def diagnostics(
         for status, count in result.all():
             doc_distribution[status.value if hasattr(status, "value") else str(status)] = int(count)
     except Exception as e:
-        logger.warning("文档分布查询失败", error=str(e))
+        logger.warning("文档分布查询失败: %s", str(e))
 
     # ── 依赖健康快照 ──
     health: dict[str, str] = {}
@@ -202,7 +202,7 @@ async def reindex_all(
             await publish_ingest_request(str(doc.id), payload)
             planned += 1
         except Exception as e:
-            logger.warning("reindex-all 投递失败", doc_id=str(doc.id), error=str(e))
+            logger.warning("reindex-all 投递失败: doc_id=%s error=%s", str(doc.id), str(e))
 
     return {
         "planned": planned,

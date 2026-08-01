@@ -25,7 +25,7 @@ from datetime import date
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 
-from kb.api.deps import ApiKeyDep, DbSession, ESClient
+from kb.api.deps import DbSession, PrincipalDep
 from kb.config import get_settings
 from kb.orm.kb import KbDocStatus, KbDocument, KbSourceType
 from kb.pipeline.parser import detect_source_type
@@ -46,7 +46,7 @@ _ALLOWED_EXTENSIONS = {".pdf", ".docx", ".html", ".htm", ".md", ".markdown", ".t
 @router.post("", status_code=202)
 async def upload_document(
     db: DbSession,
-    _api_key: ApiKeyDep,
+    principal: PrincipalDep,
     file: UploadFile = File(...),
     category: str = Form("OTHER"),
     doc_type: str = Form("faq"),
@@ -145,7 +145,8 @@ async def upload_document(
         expiry_date=exp_date,
         status=KbDocStatus.PENDING,
         is_deleted=False,
-        created_by="api",
+        tenant_id=principal.tenant_id,  # I1-C1: 多租户从 JWT 注入
+        created_by=principal.actor_id,  # I1-C3: 双签需要真实 created_by
     )
     db.add(doc)
     await db.commit()
@@ -155,6 +156,7 @@ async def upload_document(
         "doc_id": str(doc_id),
         "file_path": object_key,
         "source_type": source_type.value,
+        "tenant_id": principal.tenant_id,  # I1-C1: 多租户透传到 ETL
         "metadata": {
             "title": doc.title,
             "category": category,
@@ -184,7 +186,7 @@ async def upload_document(
 
 
 @router.get("/{doc_id}")
-async def get_document(doc_id: str, db: DbSession, _api_key: ApiKeyDep):
+async def get_document(doc_id: str, db: DbSession, principal: PrincipalDep):
     """查询文档状态"""
     try:
         uid = uuid_utils.UUID(doc_id)
@@ -212,7 +214,7 @@ async def get_document(doc_id: str, db: DbSession, _api_key: ApiKeyDep):
 @router.get("")
 async def list_documents(
     db: DbSession,
-    _api_key: ApiKeyDep,
+    principal: PrincipalDep,
     category: str | None = None,
     status: str | None = None,
     limit: int = 50,
@@ -260,7 +262,7 @@ async def list_documents(
 
 
 @router.post("/{doc_id}/reindex")
-async def reindex_document(doc_id: str, db: DbSession, es: ESClient, _api_key: ApiKeyDep):
+async def reindex_document(doc_id: str, db: DbSession, es: ESClient, principal: PrincipalDep):
     """重建 ES 索引（从 PG 读取 chunk 重灌 ES，不需重跑嵌入模型）"""
     from kb.orm.kb import KbChunk
     from kb.pipeline.writer import (
@@ -295,6 +297,7 @@ async def reindex_document(doc_id: str, db: DbSession, es: ESClient, _api_key: A
         "customer_tier": doc.customer_tier or "",
         "security_level": doc.security_level,
         "version": doc.version,
+        "tenant_id": doc.tenant_id,
         "keywords": doc.llm_keywords or [],
         "approval_status": doc.approval_status.value,
         "is_current_version": doc.is_current_version,
