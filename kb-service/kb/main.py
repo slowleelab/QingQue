@@ -81,6 +81,13 @@ async def lifespan(app: FastAPI):
     # LLM 抽取器
     app.state.llm_extractor = LLMExtractor()
 
+    # I2-C4: 嵌入漂移监控器
+    from kb.retrieval.drift import DriftMonitor, ShadowComparator
+
+    drift_monitor = DriftMonitor(window_size=100, drift_threshold=0.15)
+    app.state.drift_monitor = drift_monitor
+    app.state.shadow_comparator = ShadowComparator(monitor=drift_monitor)
+
     app.state.es_client = es_client
     logger.info("KB Service API 启动完成")
 

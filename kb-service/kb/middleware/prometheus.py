@@ -73,6 +73,26 @@ RATE_LIMIT_EXCEEDED = Counter(
     ["tier", "path_group"],
 )
 
+# I2-C4: 嵌入漂移监控
+EMBEDDING_DRIFT_SCORE = Histogram(
+    "kb_embedding_drift_score",
+    "嵌入漂移 score (cosine distance to centroid, 越大越漂移)",
+    buckets=(0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0),
+)
+
+EMBEDDING_DRIFT_DETECTED = Counter(
+    "kb_embedding_drift_detected_total",
+    "嵌入漂移告警触发次数 (超过阈值)",
+    ["severity"],  # info (>=0.1) / warn (>=0.15) / critical (>=0.3)
+)
+
+# I2-C4: 影子索引对比一致性
+SHADOW_DIVERGENCE = Histogram(
+    "kb_shadow_divergence",
+    "影子 vs 主索引 Jaccard 距离 (1 - similarity, 越大越不一致)",
+    buckets=(0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0),
+)
+
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
     """Prometheus 指标采集中间件"""

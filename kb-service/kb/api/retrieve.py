@@ -69,6 +69,37 @@ async def retrieve_documents(
         embedding_breaker=embedding_breaker,
     )
 
+    # I2-C4: 嵌入漂移监控 — 每次 retrieve 记录 query embedding, 触发指标
+    try:
+        from kb.middleware.prometheus import (
+            EMBEDDING_DRIFT_DETECTED,
+            EMBEDDING_DRIFT_SCORE,
+        )
+        from kb.retrieval.drift import DriftMonitor
+
+        monitor: DriftMonitor | None = getattr(request.app.state, "drift_monitor", None)
+        if monitor and embedding is not None:
+            # 取得 query embedding (有缓存时也再算一次, 计入漂移)
+            try:
+                q_emb = await embedding.embed_query(request_body.query)
+                if q_emb:
+                    monitor.add(q_emb)
+                    signal = monitor.compute_drift()
+                    EMBEDDING_DRIFT_SCORE.observe(signal.drift_score)
+                    if signal.drift_score >= 0.3:
+                        EMBEDDING_DRIFT_DETECTED.labels(severity="critical").inc()
+                        logger.warning(
+                            "embedding_drift_critical",
+                            drift_score=signal.drift_score,
+                            sample_size=signal.sample_size,
+                        )
+                    elif signal.drift_score >= 0.15:
+                        EMBEDDING_DRIFT_DETECTED.labels(severity="warn").inc()
+            except Exception:
+                logger.debug("drift monitor embed_query 失败, 跳过")
+    except Exception:
+        logger.debug("drift monitor 集成异常, 不影响检索响应")
+
     # I1-C4: 业务审计 (检索事件)
     try:
         audit = AuditService(db)

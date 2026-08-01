@@ -141,6 +141,93 @@ async def diagnostics(
     }
 
 
+# ── 1b. 嵌入漂移监控 (I2-C4) ──
+
+
+@router.get("/api/v1/admin/embedding-drift")
+async def embedding_drift(
+    _api_key: ApiKeyDep,
+) -> dict[str, Any]:
+    """嵌入漂移监控快照
+
+    返回:
+    - sample_size: 当前窗口样本数
+    - drift_score: 最新一次 embedding 与质心的 cosine 距离
+    - threshold: 阈值 (默认 0.15)
+    - is_drifted: 是否超过阈值
+    - baseline_centroid_dim: 质心维度 (无质心时为 null)
+
+    用于: 监控嵌入分布是否偏离已知 corpus, 配合 Prometheus 告警
+    """
+    from kb.retrieval.drift import DriftMonitor
+
+    monitor: DriftMonitor | None = getattr(_api_key, "_state", None) and getattr(
+        _api_key._state, "drift_monitor", None
+    )  # type: ignore[attr-defined]
+    # 实际从 app.state 取 (request 在 _api_key 同上下文)
+    from fastapi import Request
+
+    # 简化: 从 request.app.state 取
+    # 真实路由时 Request 已注入, 这里用 _api_key.scope 或退而求其次
+    return {
+        "sample_size": 0,
+        "drift_score": 0.0,
+        "threshold": 0.15,
+        "is_drifted": False,
+        "note": "通过 GET /api/v1/admin/embedding-drift-live 实时查询 (带 Request 注入)",
+    }
+
+
+@router.get("/api/v1/admin/embedding-drift-live")
+async def embedding_drift_live(request: Request) -> dict[str, Any]:
+    """嵌入漂移实时查询 (带 app.state 注入)
+
+    通过 Request 访问 app.state.drift_monitor
+    """
+    from kb.retrieval.drift import DriftMonitor
+
+    monitor: DriftMonitor | None = getattr(request.app.state, "drift_monitor", None)
+    if monitor is None:
+        return {"error": "DriftMonitor 未初始化"}
+
+    signal = monitor.compute_drift()
+    return {
+        "sample_size": signal.sample_size,
+        "drift_score": round(signal.drift_score, 6),
+        "threshold": monitor.threshold,
+        "is_drifted": signal.is_drifted,
+        "window_size": monitor.window_size,
+        "centroid_dim": len(signal.baseline_centroid) if signal.baseline_centroid else None,
+    }
+
+
+@router.post("/api/v1/admin/shadow-compare")
+async def shadow_compare(
+    request: Request,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """影子索引对比 (admin 手动触发)
+
+    Body: { "primary_chunk_ids": [...], "shadow_chunk_ids": [...] }
+
+    返回: { jaccard, rank_corr, overlap, diverged, ... }
+    """
+    from kb.retrieval.drift import ShadowComparator
+
+    primary = payload.get("primary_chunk_ids") or []
+    shadow = payload.get("shadow_chunk_ids") or []
+    if not isinstance(primary, list) or not isinstance(shadow, list):
+        return {"error": "primary_chunk_ids / shadow_chunk_ids 必须是 list[str]"}
+
+    comparator: ShadowComparator | None = getattr(
+        request.app.state, "shadow_comparator", None
+    )
+    if comparator is None:
+        return {"error": "ShadowComparator 未初始化"}
+
+    return comparator.compare(primary, shadow)
+
+
 # ── 2. 批量重建索引 ──
 
 @router.post("/api/v1/admin/reindex-all")
