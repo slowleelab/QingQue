@@ -18,14 +18,13 @@
 
 from __future__ import annotations
 
-import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import uuid_utils
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from kb.api.deps import DbSession, PrincipalDep
 from kb.logging import get_logger
@@ -126,7 +125,7 @@ def _record_approval(
     request_id: str | None,
 ) -> KbDocumentApproval:
     """写入 KbDocumentApproval + 更新 KbDocument.approval_status + retention_until (5y)"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     retention = now + timedelta(days=365 * _AUDIT_RETENTION_YEARS)
 
     record = KbDocumentApproval(
@@ -379,4 +378,116 @@ async def list_approvals(
             )
             for r in records
         ],
+    )
+
+
+# ── 待审批队列 (P0-2.1) ──
+
+
+class PendingApprovalItem(BaseModel):
+    """待审批文档摘要"""
+
+    doc_id: str
+    title: str
+    category: str | None
+    approval_status: str
+    updated_at: str | None
+    current_version: str
+    last_actor_id: str | None
+    last_action_at: str | None
+
+
+class PendingApprovalListResponse(BaseModel):
+    items: list[PendingApprovalItem]
+    total: int
+    limit: int
+    offset: int
+
+
+@router.get("/approvals/pending", response_model=PendingApprovalListResponse)
+async def list_pending_approvals(
+    db: DbSession,
+    principal: PrincipalDep,
+    status: str = Query("IN_REVIEW", description="过滤的审批状态: DRAFT/IN_REVIEW/APPROVED/REJECTED/PUBLISHED"),
+    limit: int = 50,
+    offset: int = 0,
+):
+    """待审批队列 — 审核员工作台
+
+    默认 status=IN_REVIEW (待审核); 同一接口可查 DRAFT (草稿) / APPROVED (待发布) /
+    REJECTED (已驳回) / PUBLISHED (已发布). 终态 ARCHIVED 不在本接口暴露
+    (用 /documents?status=ARCHIVED 查文档列表).
+
+    租户隔离: 强制 principal.tenant_id, 不接受 query 覆盖 (P0-1 一致).
+    """
+    try:
+        target = KbApprovalStatus(status)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"未知 status: {status}, 必须是 DRAFT/IN_REVIEW/APPROVED/REJECTED/PUBLISHED",
+        )
+
+    if target == KbApprovalStatus.ARCHIVED:
+        # 终态不走队列, 避免误把已下架文档推送给审核员
+        raise HTTPException(status_code=422, detail="ARCHIVED 是终态, 不进入待审批队列")
+
+    limit = min(limit, 200)
+    offset = max(offset, 0)
+
+    base_query = (
+        select(KbDocument)
+        .where(KbDocument.is_deleted.is_(False))
+        .where(KbDocument.tenant_id == principal.tenant_id)
+        .where(KbDocument.approval_status == target)
+    )
+
+    # total: 不受 limit/offset 影响
+    total = (
+        await db.execute(select(func.count()).select_from(base_query.subquery()))
+    ).scalar_one()
+
+    docs = (
+        await db.execute(
+            base_query.order_by(KbDocument.updated_at.desc()).limit(limit).offset(offset)
+        )
+    ).scalars().all()
+
+    # 副表: 每个 doc 的最近一次审批 (单次 IN 查询, 避免 N+1)
+    last_by_doc: dict[Any, tuple[str | None, Any]] = {}
+    if docs:
+        doc_ids = [d.id for d in docs]
+        latest_q = (
+            select(
+                KbDocumentApproval.document_id,
+                KbDocumentApproval.actor_id,
+                KbDocumentApproval.created_at,
+            )
+            .where(KbDocumentApproval.document_id.in_(doc_ids))
+            .order_by(KbDocumentApproval.created_at.desc())
+        )
+        rows = (await db.execute(latest_q)).all()
+        for doc_id, actor_id, created_at in rows:
+            if doc_id not in last_by_doc:
+                last_by_doc[doc_id] = (actor_id, created_at)
+
+    return PendingApprovalListResponse(
+        items=[
+            PendingApprovalItem(
+                doc_id=str(d.id),
+                title=d.title or "",
+                category=d.category,
+                approval_status=d.approval_status.value,
+                updated_at=d.updated_at.isoformat() if d.updated_at else None,
+                current_version=d.version or "1.0",
+                last_actor_id=last_by_doc.get(d.id, (None, None))[0],
+                last_action_at=(
+                    last_by_doc[d.id][1].isoformat() if last_by_doc.get(d.id, (None, None))[1] else None
+                ),
+            )
+            for d in docs
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
