@@ -11,8 +11,8 @@ from fastapi import APIRouter, Request
 
 from kb.api.deps import (
     DbSession,
-    ESClient,
     EmbeddingProviderDep,
+    ESClient,
     PrincipalDep,
     RedisClient,
     RerankerDep,
@@ -69,6 +69,7 @@ async def retrieve_documents(
 
     # P1-3.2: 失败路径计入 SLO 错误率 (status="failed")
     # 旧实现: engine.retrieve() 抛异常时无任何 metric, SLO 端点看到 0 失败 → 误报 100% 可用
+    # H2 fix: 失败时 logger.exception 记 traceback, SRE 可查根因
     try:
         response = await retrieve(
             request=request_body,
@@ -78,16 +79,22 @@ async def retrieve_documents(
             redis_client=redis,
             embedding_breaker=embedding_breaker,
         )
-    except Exception:
+    except Exception as err:
         # 打点: status="failed" (与 success/degraded 区分, 给 PromQL availability SLO 用)
         try:
             from kb.middleware.prometheus import RETRIEVE_COUNT
 
-            RETRIEVE_COUNT.labels(
-                search_type=request_body.search_type, status="failed"
-            ).inc()
+            # L3 fix: 限制 search_type 到已知枚举, 避免 label cardinality DoS
+            valid_search_types = {"hybrid", "bm25", "vector"}
+            st = request_body.search_type if request_body.search_type in valid_search_types else "unknown"
+            RETRIEVE_COUNT.labels(search_type=st, status="failed").inc()
         except Exception:
             logger.debug("RETRIEVE_COUNT(failed) 记录失败, 不影响主流程")
+        # H2: 记 traceback 给 SRE 排查
+        logger.exception(
+            "retrieve engine 异常, status='failed' 已记录: %s",
+            err,
+        )
         raise
 
     # I2-C4: 嵌入漂移监控 — 每次 retrieve 记录 query embedding, 触发指标

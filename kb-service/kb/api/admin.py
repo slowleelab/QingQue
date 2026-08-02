@@ -14,10 +14,10 @@ from datetime import UTC
 from typing import Any
 
 import uuid_utils
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import case, func, select
 
-from kb.api.deps import ApiKeyDep, DbSession
+from kb.api.deps import ApiKeyDep, DbSession, PrincipalDep
 from kb.orm.kb import (
     KbApprovalStatus,
     KbDocument,
@@ -25,6 +25,7 @@ from kb.orm.kb import (
     KbIngestionLog,
     KbRetrievalAudit,
 )
+from kb.security.auth import require_role
 from kb.storage.redis import get_redis
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ router = APIRouter(tags=["admin"])
 
 
 # ── 1. 诊断 / 统计 ──
+
 
 @router.get("/api/v1/diagnostics")
 async def diagnostics(
@@ -54,6 +56,7 @@ async def diagnostics(
     try:
         # 按阶段聚合 duration_ms (按 created_at 近 7 天过滤, schema 没有 started_at)
         from datetime import datetime, timedelta
+
         seven_days_ago = datetime.now(UTC) - timedelta(days=7)
         query = (
             select(
@@ -61,9 +64,7 @@ async def diagnostics(
                 func.count().label("n"),
                 func.avg(KbIngestionLog.duration_ms).label("avg_ms"),
                 func.max(KbIngestionLog.duration_ms).label("max_ms"),
-                func.sum(
-                    case((KbIngestionLog.status == "failed", 1), else_=0)
-                ).label("failures"),
+                func.sum(case((KbIngestionLog.status == "failed", 1), else_=0)).label("failures"),
             )
             .where(KbIngestionLog.created_at >= seven_days_ago)
             .group_by(KbIngestionLog.stage)
@@ -87,9 +88,7 @@ async def diagnostics(
     doc_distribution: dict[str, int] = {}
     try:
         result = await db.execute(
-            select(KbDocument.status, func.count())
-            .where(KbDocument.is_deleted.is_(False))
-            .group_by(KbDocument.status)
+            select(KbDocument.status, func.count()).where(KbDocument.is_deleted.is_(False)).group_by(KbDocument.status)
         )
         for status, count in result.all():
             doc_distribution[status.value if hasattr(status, "value") else str(status)] = int(count)
@@ -103,6 +102,7 @@ async def diagnostics(
         from sqlalchemy import text
 
         from kb.database import get_engine
+
         engine = get_engine()
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
@@ -144,9 +144,9 @@ async def diagnostics(
 # ── 1a. SLO 实时查询 (P1-3.3) ──
 
 
-@router.get("/api/v1/admin/slo")
+@router.get("/api/v1/admin/slo", dependencies=[Depends(require_role("admin"))])
 async def admin_slo(
-    _api_key: ApiKeyDep,
+    principal: PrincipalDep,
 ) -> dict[str, Any]:
     """SLO 实时状态 + 触发的告警 + error budget 剩余 + Prometheus rules YAML
 
@@ -155,12 +155,21 @@ async def admin_slo(
     - 新实现: 本端点把 slo.py 全部能力 (AlertEvaluator / compute_error_budget /
       generate_prometheus_rules) 接入生产, 供运维 / 监控使用
 
+    C2 fix: 加 require_role("admin") 二次防护
+    - 旧 _api_key: ApiKeyDep 在 dev 模式 + api_keys 未配置时裸奔
+    - admin 端点必须要求 admin 角色, 与 P0-3 双签收紧策略一致
+
+    C3 文档: 返回全平台 SLO, 不分租户
+    - 客户端不要拿此值反映特定租户健康度
+    - 多租户拆分需后续加 tenant_id label (大改, 留 P1-2 下一阶段)
+
     返回:
-    - slos: 各 SLO 当前 error/total/p95/p99
+    - slos: 各 SLO 当前 error/total/p95/p99 (全平台聚合)
     - active_alerts: 触发的 4 档告警列表
     - error_budgets: 各 SLO budget 剩余
     - prometheus_rules_yaml: 可直接 cat > alerts.yml 的字符串
     - burn_rate_enabled: 来自 ObservabilitySettings
+    - registry_status: cold-start 诊断 (counter/histogram 是否已注册)
     """
     from kb.config import get_settings
     from kb.observability.slo import (
@@ -176,16 +185,26 @@ async def admin_slo(
     # 开关: 关闭时不计算 alerts (但仍返回 metrics 快照)
     burn_rate_enabled = settings.observability.burn_rate_enabled
 
-    # 用配置覆盖 LATENCY 阈值 (来自 .env)
-    slos = list(DEFAULT_SLOS)
-    for slo in slos:
-        if slo.sli == SLI.LATENCY_P95:
-            slo.latency_threshold_s = settings.observability.retrieve_p95_threshold_s
-        elif slo.sli == SLI.LATENCY_P99:
-            slo.latency_threshold_s = settings.observability.retrieve_p99_threshold_s
+    # C5 fix: 用 dataclasses.replace 创建新实例, 不 mutate DEFAULT_SLOS
+    # 旧实现 list() 浅拷贝 + 赋值, 实际改的是原 SLOTarget, 跨请求状态泄漏
+    from dataclasses import replace
 
-    # 读当前指标
-    metrics = read_slo_metrics()
+    slos = [
+        replace(
+            slo,
+            latency_threshold_s=(
+                settings.observability.retrieve_p95_threshold_s
+                if slo.sli == SLI.LATENCY_P95
+                else settings.observability.retrieve_p99_threshold_s
+                if slo.sli == SLI.LATENCY_P99
+                else slo.latency_threshold_s
+            ),
+        )
+        for slo in DEFAULT_SLOS
+    ]
+
+    # 读当前指标 (C3: 全平台聚合, 不分租户)
+    metrics, registry_status = read_slo_metrics()
 
     # 评估告警 (仅 availability 可基于 error/total 计算; latency 留给 Prometheus 算 quantile)
     active_alerts: list[dict[str, Any]] = []
@@ -255,6 +274,9 @@ async def admin_slo(
         "active_alerts": active_alerts,
         "error_budgets": budgets,
         "prometheus_rules_yaml": generate_prometheus_rules(slos),
+        "registry_status": registry_status,
+        "tenant_id": principal.tenant_id,  # 调用方租户, 标注本响应针对哪个身份
+        "note": "本响应为全平台聚合 SLO, 不分租户. 多租户拆分见 P1-2 待办.",
     }
 
 
@@ -306,9 +328,7 @@ async def shadow_compare(
     if not isinstance(primary, list) or not isinstance(shadow, list):
         return {"error": "primary_chunk_ids / shadow_chunk_ids 必须是 list[str]"}
 
-    comparator: ShadowComparator | None = getattr(
-        request.app.state, "shadow_comparator", None
-    )
+    comparator: ShadowComparator | None = getattr(request.app.state, "shadow_comparator", None)
     if comparator is None:
         return {"error": "ShadowComparator 未初始化"}
 
@@ -316,6 +336,7 @@ async def shadow_compare(
 
 
 # ── 2. 批量重建索引 ──
+
 
 @router.post("/api/v1/admin/reindex-all")
 async def reindex_all(
@@ -386,6 +407,7 @@ async def reindex_all(
 
 
 # ── 3. 清空检索缓存 ──
+
 
 @router.post("/api/v1/admin/clear-cache")
 async def clear_cache(_api_key: ApiKeyDep) -> dict[str, Any]:

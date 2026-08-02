@@ -27,9 +27,8 @@ Google SRE 多窗口 burn-rate 模式:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 
 class SLI(str, Enum):
@@ -200,9 +199,7 @@ class AlertEvaluator:
         """
         alerts: list[BurnRateSnapshot] = []
         for (slo_name, sli), (err, total) in metrics.items():
-            snaps = self.evaluate(
-                slo_name=slo_name, sli=sli, error_count=err, total_count=total
-            )
+            snaps = self.evaluate(slo_name=slo_name, sli=sli, error_count=err, total_count=total)
             alerts.extend(s for s in snaps if s.triggered)
         return alerts
 
@@ -240,17 +237,23 @@ DEFAULT_SLOS: list[SLOTarget] = [
 # ── Prometheus rules 生成 ──
 
 
-def _build_availability_promql(window_min: int, target: float) -> str:
-    """availability SLO PromQL: 错误率 / 允许错误率
+def _build_availability_error_rate(window_min: int) -> str:
+    """availability 错误率子表达式 (rate 分子/分母)
 
     P1-3.1: 对齐 prometheus.py:41-45 实际指标 kb_retrieve_total{status="failed"}
     (旧实现误用 kb_retrieve_errors_total, 实际不存在)
     """
     return (
-        f'(sum(rate(kb_retrieve_total{{status="failed"}}[{window_min}m])) '
-        f'/ sum(rate(kb_retrieve_total[{window_min}m]))) '
-        f'> (1 - {target})'
+        f'sum(rate(kb_retrieve_total{{status="failed"}}[{window_min}m])) / sum(rate(kb_retrieve_total[{window_min}m]))'
     )
+
+
+def _build_availability_promql(window_min: int, target: float) -> str:
+    """完整 availability 告警表达式 (错误率 > 1 - target)
+
+    保留供外部直接调用 (单条 SLO 单条规则); 主路径在 generate_prometheus_rules 用 _build_availability_error_rate
+    """
+    return f"{_build_availability_error_rate(window_min)} > (1 - {target})"
 
 
 def _build_latency_promql(window_min: int, target: float, threshold_s: float) -> str:
@@ -262,9 +265,9 @@ def _build_latency_promql(window_min: int, target: float, threshold_s: float) ->
     """
     quantile = target  # 0.95/0.99 直接作为分位数
     return (
-        f'histogram_quantile({quantile}, '
-        f'sum by (le) (rate(kb_retrieve_duration_seconds_bucket[{window_min}m]))) '
-        f'> {threshold_s}'
+        f"histogram_quantile({quantile}, "
+        f"sum by (le) (rate(kb_retrieve_duration_seconds_bucket[{window_min}m]))) "
+        f"> {threshold_s}"
     )
 
 
@@ -286,19 +289,22 @@ def generate_prometheus_rules(slos: list[SLOTarget] | None = None) -> str:
             for window_min, threshold in configs:
                 # 按 SLI 类型选择 PromQL
                 if slo.sli == SLI.AVAILABILITY:
-                    base_expr = _build_availability_promql(window_min, slo.target)
-                    # burn rate 比较: 实际 / 阈值
-                    expr = f"({base_expr.split(' > ')[0]}) / (1 - {slo.target}) > {threshold}"
+                    # availability: 标准 burn rate 比较
+                    #   error_rate / (1 - target) = 当前消耗速率
+                    #   > threshold (1×/3×/6×/14.4×) = 触发对应档
+                    error_rate = _build_availability_error_rate(window_min)
+                    expr = f"({error_rate}) / (1 - {slo.target}) > {threshold}"
                     summary_suffix = f"error rate {severity} 超阈值"
                 else:  # LATENCY_P95 / LATENCY_P99
-                    threshold_s = slo.latency_threshold_s or 1.5
-                    base_expr = _build_latency_promql(window_min, slo.target, threshold_s)
-                    # latency 不走 burn rate, 直接阈值 × 比例
-                    # 简化: 阈值按 burn rate 等比放大, 短窗口更严格
-                    scaled_threshold = threshold_s * (1 + (threshold - 1) * 0.1)
-                    expr = base_expr.replace(
-                        f"> {threshold_s}", f"> {scaled_threshold:.3f}"
-                    )
+                    # latency: 所有窗口统一用 base 阈值, 紧急度靠 for: 区分
+                    # 旧实现误用 (1 + (threshold-1)*0.1) 放大阈值, 短窗口反而更宽松 (与 Google SRE 相反)
+                    # Google SRE 模式: 短窗口 page 告警的"严格"靠 (a) for: 短, (b) 短窗口采样更敏感,
+                    # 不靠放大阈值. 阈值固定 = 真实 SLO 阈值, 才是正确语义.
+                    threshold_s = slo.latency_threshold_s
+                    if threshold_s <= 0:
+                        # 防御: DATACLASS default 是 0, 但 SLO 不应未配就生效
+                        continue
+                    expr = _build_latency_promql(window_min, slo.target, threshold_s)
                     summary_suffix = f"latency {severity} 超阈值"
 
                 rules.append(

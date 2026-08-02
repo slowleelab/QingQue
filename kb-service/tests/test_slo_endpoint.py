@@ -64,14 +64,15 @@ class TestExtractHistogramQuantile:
     """P1-3.3: histogram bucket 算 p-quantile"""
 
     def test_no_count_returns_none(self):
-        from kb.observability.slo_metrics import _extract_histogram_quantile
+        from kb.observability.slo_metrics import _extract_histogram_quantiles
 
         metric = MagicMock()
         metric.samples = []
-        assert _extract_histogram_quantile(metric, 0.95) is None
+        result = _extract_histogram_quantiles(metric, (0.95, 0.99))
+        assert result == {0.95: None, 0.99: None}
 
     def test_basic_p95(self):
-        from kb.observability.slo_metrics import _extract_histogram_quantile
+        from kb.observability.slo_metrics import _extract_histogram_quantiles
 
         # 模拟 100 个请求, 95% 在 1.0s 以内
         s_count = MagicMock()
@@ -94,14 +95,12 @@ class TestExtractHistogramQuantile:
         metric = MagicMock()
         metric.samples = [s_count, s_b1, s_b2, s_b3]
         # p95 = 95/100 = 0.95, 落在 [0.5, 1.0] 区间
-        # fraction = (95-50) / (95-50) = 1.0, prev_upper=0.5
-        # result = 0.5 + 1.0 * (1.0 - 0.5) = 1.0
-        p95 = _extract_histogram_quantile(metric, 0.95)
-        assert p95 is not None
-        assert abs(p95 - 1.0) < 0.01
+        result = _extract_histogram_quantiles(metric, (0.95, 0.99))
+        assert result[0.95] is not None
+        assert abs(result[0.95] - 1.0) < 0.01
 
     def test_p99_above_buckets(self):
-        from kb.observability.slo_metrics import _extract_histogram_quantile
+        from kb.observability.slo_metrics import _extract_histogram_quantiles
 
         s_count = MagicMock()
         s_count.name = "kb_retrieve_duration_seconds_count"
@@ -118,9 +117,9 @@ class TestExtractHistogramQuantile:
         metric = MagicMock()
         metric.samples = [s_count, s_b1, s_b2]
         # p99 = 99, 落在 [1.0, +Inf] 区间, 返回 prev_upper=1.0
-        p99 = _extract_histogram_quantile(metric, 0.99)
-        assert p99 is not None
-        assert abs(p99 - 1.0) < 0.01
+        result = _extract_histogram_quantiles(metric, (0.95, 0.99))
+        assert result[0.99] is not None
+        assert abs(result[0.99] - 1.0) < 0.01
 
 
 class TestReadSLOMetrics:
@@ -131,7 +130,9 @@ class TestReadSLOMetrics:
 
         fake = MagicMock()
         fake.collect.return_value = []
-        assert read_slo_metrics(fake) == {}
+        metrics, status = read_slo_metrics(fake)
+        assert metrics == {}
+        assert status == {"counter": False, "histogram": False}
 
     def test_returns_availability_when_counter_present(self):
         from kb.observability.slo_metrics import read_slo_metrics
@@ -154,7 +155,9 @@ class TestReadSLOMetrics:
         fake = MagicMock()
         fake.collect.return_value = [metric]
 
-        result = read_slo_metrics(fake)
+        result, status = read_slo_metrics(fake)
+        assert status["counter"] is True
+        assert status["histogram"] is False
         avail = result[("retrieve_availability", "availability")]
         assert avail.error_count == 5.0
         assert avail.total_count == 108.0
@@ -180,7 +183,8 @@ class TestReadSLOMetrics:
         fake = MagicMock()
         fake.collect.return_value = [metric]
 
-        result = read_slo_metrics(fake)
+        result, status = read_slo_metrics(fake)
+        assert status["histogram"] is True
         p95 = result[("retrieve_p95_latency", "latency_p95")]
         assert p95.p95_latency is not None
         assert abs(p95.p95_latency - 1.5) < 0.01
@@ -201,8 +205,8 @@ class TestAdminSLOEndpoint:
             mock_settings.return_value.observability.burn_rate_enabled = True
             mock_settings.return_value.observability.retrieve_p95_threshold_s = 1.5
             mock_settings.return_value.observability.retrieve_p99_threshold_s = 2.0
-            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value={}):
-                result = await admin_slo(_api_key="test-key")
+            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=({}, {"counter": False, "histogram": False})):
+                result = await admin_slo(principal=MagicMock(actor_id="test", tenant_id="default", roles=["admin"]))
         assert result["burn_rate_enabled"] is True
         assert result["slos"] == []
         assert result["active_alerts"] == []
@@ -228,8 +232,8 @@ class TestAdminSLOEndpoint:
             mock_settings.return_value.observability.burn_rate_enabled = True
             mock_settings.return_value.observability.retrieve_p95_threshold_s = 1.5
             mock_settings.return_value.observability.retrieve_p99_threshold_s = 2.0
-            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=fake_metrics):
-                result = await admin_slo(_api_key="test-key")
+            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=(fake_metrics, {"counter": True, "histogram": True})):
+                result = await admin_slo(principal=MagicMock(actor_id="test", tenant_id="default", roles=["admin"]))
 
         assert len(result["active_alerts"]) == 4  # page/ticket/warning/info 全触发
         severities = {a["severity"] for a in result["active_alerts"]}
@@ -256,8 +260,8 @@ class TestAdminSLOEndpoint:
             mock_settings.return_value.observability.burn_rate_enabled = True
             mock_settings.return_value.observability.retrieve_p95_threshold_s = 1.5
             mock_settings.return_value.observability.retrieve_p99_threshold_s = 2.0
-            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=fake_metrics):
-                result = await admin_slo(_api_key="test-key")
+            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=(fake_metrics, {"counter": True, "histogram": True})):
+                result = await admin_slo(principal=MagicMock(actor_id="test", tenant_id="default", roles=["admin"]))
 
         assert result["active_alerts"] == []
 
@@ -280,8 +284,8 @@ class TestAdminSLOEndpoint:
             mock_settings.return_value.observability.burn_rate_enabled = True
             mock_settings.return_value.observability.retrieve_p95_threshold_s = 1.5
             mock_settings.return_value.observability.retrieve_p99_threshold_s = 2.0
-            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=fake_metrics):
-                result = await admin_slo(_api_key="test-key")
+            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=(fake_metrics, {"counter": True, "histogram": True})):
+                result = await admin_slo(principal=MagicMock(actor_id="test", tenant_id="default", roles=["admin"]))
 
         # 100 请求, 1% 允许 → budget=1, 消耗 50 → 0 剩余
         assert len(result["error_budgets"]) == 1
@@ -309,8 +313,8 @@ class TestAdminSLOEndpoint:
             mock_settings.return_value.observability.burn_rate_enabled = False
             mock_settings.return_value.observability.retrieve_p95_threshold_s = 1.5
             mock_settings.return_value.observability.retrieve_p99_threshold_s = 2.0
-            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=fake_metrics):
-                result = await admin_slo(_api_key="test-key")
+            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=(fake_metrics, {"counter": True, "histogram": True})):
+                result = await admin_slo(principal=MagicMock(actor_id="test", tenant_id="default", roles=["admin"]))
 
         assert result["burn_rate_enabled"] is False
         assert result["active_alerts"] == []  # 关闭时不计算
@@ -326,8 +330,8 @@ class TestAdminSLOEndpoint:
             mock_settings.return_value.observability.burn_rate_enabled = True
             mock_settings.return_value.observability.retrieve_p95_threshold_s = 1.5
             mock_settings.return_value.observability.retrieve_p99_threshold_s = 2.0
-            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value={}):
-                result = await admin_slo(_api_key="test-key")
+            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=({}, {"counter": False, "histogram": False})):
+                result = await admin_slo(principal=MagicMock(actor_id="test", tenant_id="default", roles=["admin"]))
 
         parsed = yaml.safe_load(result["prometheus_rules_yaml"])
         assert len(parsed["groups"]) == 3  # 3 个 SLO
@@ -341,8 +345,8 @@ class TestAdminSLOEndpoint:
             mock_settings.return_value.observability.burn_rate_enabled = True
             mock_settings.return_value.observability.retrieve_p95_threshold_s = 3.0  # 自定义
             mock_settings.return_value.observability.retrieve_p99_threshold_s = 5.0
-            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value={}):
-                result = await admin_slo(_api_key="test-key")
+            with patch("kb.observability.slo_metrics.read_slo_metrics", return_value=({}, {"counter": False, "histogram": False})):
+                result = await admin_slo(principal=MagicMock(actor_id="test", tenant_id="default", roles=["admin"]))
 
         # 检查 prometheus_rules_yaml 用了 3.0 / 5.0 而非默认 1.5 / 2.0
         yaml_str = result["prometheus_rules_yaml"]

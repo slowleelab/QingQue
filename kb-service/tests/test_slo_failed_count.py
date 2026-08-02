@@ -26,37 +26,38 @@ class TestRetrieveFailureMetric:
 
         # mock labels() 返回可 inc 的对象
         mock_labels = MagicMock()
-        with patch.object(RETRIEVE_COUNT, "labels", return_value=mock_labels) as mock_labels_call:
-            # 模拟 retrieve() 抛异常
-            with patch("kb.api.retrieve.retrieve", new=AsyncMock(side_effect=RuntimeError("engine boom"))):
-                from kb.api.retrieve import retrieve_documents
-                from kb.retrieval.models import RetrieveRequest
+        with (
+            patch.object(RETRIEVE_COUNT, "labels", return_value=mock_labels) as mock_labels_call,
+            patch("kb.api.retrieve.retrieve", new=AsyncMock(side_effect=RuntimeError("engine boom"))),
+        ):
+            from kb.api.retrieve import retrieve_documents
+            from kb.retrieval.models import RetrieveRequest
 
-                req_body = RetrieveRequest(query="test", top_k=5)
-                # mock 全部 deps
-                es = MagicMock()
-                embedding = MagicMock()
-                reranker = MagicMock()
-                redis = MagicMock()
-                db = MagicMock()
-                principal = MagicMock(tenant_id="default", roles=["user"])
-                request = MagicMock()
-                request.app.state.embedding_breaker = None
-                request.app.state.drift_monitor = None
+            req_body = RetrieveRequest(query="test", top_k=5)
+            # mock 全部 deps
+            es = MagicMock()
+            embedding = MagicMock()
+            reranker = MagicMock()
+            redis = MagicMock()
+            db = MagicMock()
+            principal = MagicMock(tenant_id="default", roles=["user"])
+            request = MagicMock()
+            request.app.state.embedding_breaker = None
+            request.app.state.drift_monitor = None
 
-                with pytest.raises(RuntimeError, match="engine boom"):
-                    await retrieve_documents(
-                        request_body=req_body,
-                        es=es, embedding=embedding, reranker=reranker, redis=redis, db=db,
-                        principal=principal, request=request,
-                    )
+            with pytest.raises(RuntimeError, match="engine boom"):
+                await retrieve_documents(
+                    request_body=req_body,
+                    es=es, embedding=embedding, reranker=reranker, redis=redis, db=db,
+                    principal=principal, request=request,
+                )
 
-                # 验证 RETRIEVE_COUNT.labels(status="failed").inc() 被调用
-                assert mock_labels_call.called
-                call_kwargs = mock_labels_call.call_args.kwargs
-                assert call_kwargs.get("status") == "failed"
-                assert call_kwargs.get("search_type") == "hybrid"
-                mock_labels.inc.assert_called_once()
+            # 验证 RETRIEVE_COUNT.labels(status="failed").inc() 被调用
+            assert mock_labels_call.called
+            call_kwargs = mock_labels_call.call_args.kwargs
+            assert call_kwargs.get("status") == "failed"
+            assert call_kwargs.get("search_type") == "hybrid"
+            mock_labels.inc.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_success_path_unchanged(self):
@@ -147,11 +148,11 @@ class TestSLOAvailabilityIntegration:
     def test_three_status_values_documented(self):
         """记录: P1-3.2 引入 status='failed', 现在 status 取值有 3 个"""
         # 这是文档性测试, 防止以后无意中删掉 status='failed' 分支
-        from kb.api.retrieve import retrieve_documents
-        from kb.retrieval.engine import retrieve as engine_retrieve
-
         # 验证 retrieve.py 失败路径显式 import RETRIEVE_COUNT
         import inspect
+
+        from kb.api.retrieve import retrieve_documents
+        from kb.retrieval.engine import retrieve as engine_retrieve
 
         source = inspect.getsource(retrieve_documents)
         assert 'status="failed"' in source

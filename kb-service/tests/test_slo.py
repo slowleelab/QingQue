@@ -14,17 +14,14 @@ from __future__ import annotations
 import yaml
 
 from kb.observability.slo import (
-    BURN_RATE_THRESHOLDS,
     DEFAULT_SLOS,
-    SLOTarget,
     SLI,
     AlertEvaluator,
-    BurnRateSnapshot,
+    SLOTarget,
     compute_burn_rate,
     compute_error_budget,
     generate_prometheus_rules,
 )
-
 
 # ── compute_burn_rate ──
 
@@ -332,6 +329,40 @@ class TestPrometheusRulesNaming:
             # P99 阈值 2.0s 缩放后 (短窗口更严格) 但仍 > 1.5
             # 检查 hist quantile 0.99
             assert "histogram_quantile(0.99" in rule["expr"]
+
+    def test_latency_threshold_not_scaled_up(self):
+        """C1 fix: latency 阈值不能再被 (1 + (threshold-1)*0.1) 放大
+
+        旧实现 page 窗口阈值 1.5*2.34=3.51s (比 base 1.5s 还宽, 反了)
+        新实现所有 4 档窗口都用 base 阈值, for: 区分紧急度
+        """
+        import re
+
+        yaml_str = generate_prometheus_rules()
+        parsed = yaml.safe_load(yaml_str)
+        p95_group = next(
+            g for g in parsed["groups"] if g["name"] == "kb_slo_retrieve_p95_latency"
+        )
+        # 4 档规则, 每档 expr 应该都 > 1.5 (无放大)
+        for rule in p95_group["rules"]:
+            match = re.search(r">\s*([\d.]+)", rule["expr"])
+            assert match, f"无法从 expr 提取阈值: {rule['expr']}"
+            threshold = float(match.group(1))
+            assert threshold == 1.5, (
+                f"latency 阈值不应被放大, 实际={threshold}, 期望=1.5. expr={rule['expr']}"
+            )
+
+    def test_latency_for_duration_varies(self):
+        """C1 fix: 4 档告警的紧急度靠 for: 区分 (短窗口 for 短)"""
+        yaml_str = generate_prometheus_rules()
+        parsed = yaml.safe_load(yaml_str)
+        p95_group = next(
+            g for g in parsed["groups"] if g["name"] == "kb_slo_retrieve_p95_latency"
+        )
+        fors = {rule["labels"]["severity"]: rule["for"] for rule in p95_group["rules"]}
+        # page(5min) → for 1m, warning(6h=360min) → for 90m
+        assert fors["page"] == "1m"  # max(1, 5//4)
+        assert fors["warning"] == "90m"  # max(1, 360//4)
 
 
 class TestSLOTargetLatencyField:
