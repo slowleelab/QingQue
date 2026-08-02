@@ -910,9 +910,10 @@ class TestT17BreakerOpenTriggersL2:
         test_app.state.embedding_provider = embed
         test_app.state.redis_client = fake_redis
 
+        # P0-1: 不再传 tenant_id (strict override, 客户端不能伪造)
         r = client.post("/api/v1/retrieve", json={
             "query": "信用卡年费", "top_k": 3, "search_type": "hybrid", "timeout_ms": 1500,
-            "tenant_id": "bank-a", "actor_roles": ["cs"],
+            "actor_roles": ["cs"],
         }, headers={"Authorization": f"Bearer {jwt_alice}"})
 
         assert r.status_code == 200
@@ -954,7 +955,7 @@ class TestT18EmbedTimeoutTriggersL2:
 
         r = client.post("/api/v1/retrieve", json={
             "query": "q", "top_k": 3, "search_type": "hybrid", "timeout_ms": 100,
-            "tenant_id": "bank-a", "actor_roles": ["cs"],
+            "actor_roles": ["cs"],
         }, headers={"Authorization": f"Bearer {jwt_alice}"})
 
         assert r.status_code == 200
@@ -964,51 +965,29 @@ class TestT18EmbedTimeoutTriggersL2:
 
 
 class TestT19CrossTenantCacheIsolation:
-    """T19: 跨租户缓存隔离 — alice (tenant=A) 与 bob (tenant=B) 同 query 不命中对方"""
+    """T19: P0-1 起改为"严格 override" — 客户端伪造 tenant_id 必 403
 
-    def test_cross_tenant_does_not_pollute_cache(self, app, client, jwt_alice, jwt_bob, monkeypatch):
-        test_app, fake_db, fake_redis, fake_es, _, _ = app
-        from kb.retrieval.models import RetrievedChunk
+    原版用 soft override 测跨租户缓存隔离, P0-1 后该路径不再合法.
+    新版验证: alice (tenant=default) 请求体里传 bank-a → 403.
+    跨租户缓存隔离场景由 test_p0_tenant_isolation.py 覆盖.
+    """
 
-        # monkeypatch BM25 返 shared 结果, 计数 search 调用
-        call_count = {"n": 0}
-        async def fake_bm25(es_client, query, top_k, filters):
-            call_count["n"] += 1
-            return [RetrievedChunk(chunk_id=f"c{call_count['n']}", content="shared",
-                                    score=0.5, source_doc="d1")]
-        monkeypatch.setattr("kb.retrieval.engine._search_bm25_only", fake_bm25)
-
-        embed = _FakeEmbedProvider()
-        test_app.state.embedding_provider = embed
-        test_app.state.embedding_breaker = None
-        # 重要: 用全新的 redis (清掉上轮测试残留)
-        test_app.state.redis_client = _FakeRedis()
-
-        # alice (bank-a) 检索
-        r1 = client.post("/api/v1/retrieve", json={
+    def test_cross_tenant_override_rejected(self, app, client, jwt_alice):
+        """alice (default) 试图检索 bank-a 数据 → 403"""
+        r = client.post("/api/v1/retrieve", json={
             "query": "信用卡", "top_k": 3, "search_type": "bm25_only", "timeout_ms": 1500,
-            "tenant_id": "bank-a", "actor_roles": ["cs"],
+            "tenant_id": "bank-a",
         }, headers={"Authorization": f"Bearer {jwt_alice}"})
-        assert r1.status_code == 200
+        assert r.status_code == 403
+        assert "tenant_id" in r.json()["detail"]
 
-        # bob (bank-b) 同 query 检索 — 应有独立缓存 key
-        r2 = client.post("/api/v1/retrieve", json={
+    def test_matching_tenant_passes(self, app, client, jwt_alice):
+        """alice 传 tenant_id=default (跟 principal 一致) → 200"""
+        r = client.post("/api/v1/retrieve", json={
             "query": "信用卡", "top_k": 3, "search_type": "bm25_only", "timeout_ms": 1500,
-            "tenant_id": "bank-b", "actor_roles": ["cs"],
-        }, headers={"Authorization": f"Bearer {jwt_bob}"})
-        assert r2.status_code == 200
-
-        # 验证: 2 次请求, BM25 被打 2 次 (如果跨租户缓存命中, 第二次会复用)
-        assert call_count["n"] == 2
-        # Redis 中有 2 个不同 key
-        redis = test_app.state.redis_client
-        assert len(redis.store) >= 2
-        keys = list(redis.store.keys())
-        for k in keys:
-            assert k.startswith("kp:rag:cache:bm25_only:")
-        # 但 hash 部分不同 (tenant 隔离)
-        hashes = [k.split(":")[-1] for k in keys]
-        assert len(set(hashes)) >= 2  # 至少 2 个不同 hash
+            "tenant_id": "default",
+        }, headers={"Authorization": f"Bearer {jwt_alice}"})
+        assert r.status_code == 200
 
 
 class TestT20DegradedResultInAudit:
@@ -1034,7 +1013,7 @@ class TestT20DegradedResultInAudit:
 
         r = client.post("/api/v1/retrieve", json={
             "query": "信用卡", "top_k": 3, "search_type": "hybrid", "timeout_ms": 1500,
-            "tenant_id": "bank-a", "actor_roles": ["cs"],
+            "actor_roles": ["cs"],
         }, headers={"Authorization": f"Bearer {jwt_alice}"})
 
         assert r.status_code == 200

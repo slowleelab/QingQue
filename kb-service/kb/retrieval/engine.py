@@ -31,24 +31,36 @@ from kb.retrieval.models import RetrievedChunk, RetrieveRequest, RetrieveRespons
 logger = get_logger(__name__)
 
 # ES keyword 过滤字段
+# 包含 P0-1 新增的 tenant_id / allowed_roles
+# allowed_roles 设计语义: 空列表 = 全员可见 (Confluence/SharePoint 默认)
 _ES_KEYWORD_FIELDS = {
     "category", "doc_type", "card_type", "customer_tier",
     "security_level", "version", "chunk_type",
     "approval_status", "is_current_version", "doc_group",
-    "model_version", "tenant_id",
+    "model_version", "tenant_id", "allowed_roles",
 }
 # ES date 过滤字段
 _ES_DATE_FIELDS = {"effective_date", "expiry_date"}
 
 
 def build_es_filters(filters: dict) -> list[dict]:
-    """将 filters 转换为 ES bool.filter 子句列表"""
+    """将 filters 转换为 ES bool.filter 子句列表
+
+    P0-1: _ES_KEYWORD_FIELDS 内的字段支持 list → terms 子句
+      - 单值: term
+      - list:  terms (ES 7+ 标准, 适用 allowed_roles / keywords 等数组字段)
+    """
     clauses: list[dict] = []
     for key, value in filters.items():
         if value is None:
             continue
         if key in _ES_KEYWORD_FIELDS:
-            clauses.append({"term": {key: value}})
+            if isinstance(value, list):
+                if not value:
+                    continue  # 空列表 = 全员可见, 不生成过滤
+                clauses.append({"terms": {key: value}})
+            else:
+                clauses.append({"term": {key: value}})
         elif key in _ES_DATE_FIELDS:
             if isinstance(value, dict):
                 range_clause: dict[str, Any] = {}
@@ -208,6 +220,8 @@ async def _search_es_rrf(
             "version", "chunk_type", "parent_chunk_id", "heading_path",
             "approval_status", "is_current_version", "doc_group",
             "effective_date", "expiry_date", "model_version",
+            # P0-1: 多租户 + 角色审计 + 前端展示
+            "tenant_id", "allowed_roles",
         ],
     }
 

@@ -4,52 +4,21 @@
 - IK 分词器 (ik_max_word 索引, ik_smart 搜索) — 中文 BM25
 - dense_vector 字段 (1024 维, HNSW, cosine) — kNN 向量召回
 - 原生 RRF retriever 融合 BM25 ‖ kNN
+- P0-1: tenant_id + allowed_roles 多租户隔离
 
 使用方式: python scripts/init_elasticsearch.py
 """
 
 import sys
+from typing import Any
 
 
-def init_elasticsearch() -> None:
-    from elasticsearch import Elasticsearch
+def _build_chunks_mapping(settings: Any) -> dict:
+    """构建 chunks index mapping (提取为可复用函数, 供测试断言)
 
-    from kb.config import get_settings
-
-    settings = get_settings()
-    index_name = settings.elasticsearch.chunks_index
-
-    print("连接 Elasticsearch...")
-    try:
-        es = Elasticsearch([settings.elasticsearch.hosts])
-        if not es.ping():
-            raise ConnectionError("ES ping 失败")
-    except Exception as e:
-        print(f"连接 Elasticsearch 失败: {e}")
-        sys.exit(1)
-
-    info = es.info()
-    print(f"连接成功: ES {info['version']['number']}")
-
-    # 验证 IK 分词器
-    print("\n验证 IK 分词器...")
-    try:
-        result = es.indices.analyze(
-            body={"analyzer": "ik_max_word", "text": "信用卡年费减免条件"},
-        )
-        tokens = [t["token"] for t in result["tokens"]]
-        print(f"  ik_max_word 分词: {tokens}")
-    except Exception as e:
-        print(f"  IK 分词器未安装: {e}")
-        print("  安装: bin/elasticsearch-plugin install analysis-ik (版本须匹配)")
-
-    if es.indices.exists(index=index_name):
-        print(f"\n索引 '{index_name}' 已存在，跳过创建")
-        return
-
-    print(f"\n创建索引 '{index_name}'...")
-
-    mapping = {
+    P0-1: 含 tenant_id / allowed_roles 字段
+    """
+    return {
         "settings": {
             "number_of_shards": 1,
             "number_of_replicas": 0,
@@ -93,9 +62,54 @@ def init_elasticsearch() -> None:
                 "effective_date": {"type": "date", "format": "epoch_second"},
                 "expiry_date": {"type": "date", "format": "epoch_second"},
                 "created_at": {"type": "date"},
+                # P0-1: 多租户隔离 + 角色访问控制
+                # tenant_id 强制 (默认 "default"), allowed_roles 空 = 全员可见
+                "tenant_id": {"type": "keyword"},
+                "allowed_roles": {"type": "keyword"},
             },
         },
     }
+
+
+def init_elasticsearch() -> None:
+    from elasticsearch import Elasticsearch
+
+    from kb.config import get_settings
+
+    settings = get_settings()
+    index_name = settings.elasticsearch.chunks_index
+
+    print("连接 Elasticsearch...")
+    try:
+        es = Elasticsearch([settings.elasticsearch.hosts])
+        if not es.ping():
+            raise ConnectionError("ES ping 失败")
+    except Exception as e:
+        print(f"连接 Elasticsearch 失败: {e}")
+        sys.exit(1)
+
+    info = es.info()
+    print(f"连接成功: ES {info['version']['number']}")
+
+    # 验证 IK 分词器
+    print("\n验证 IK 分词器...")
+    try:
+        result = es.indices.analyze(
+            body={"analyzer": "ik_max_word", "text": "信用卡年费减免条件"},
+        )
+        tokens = [t["token"] for t in result["tokens"]]
+        print(f"  ik_max_word 分词: {tokens}")
+    except Exception as e:
+        print(f"  IK 分词器未安装: {e}")
+        print(f"  安装: bin/elasticsearch-plugin install analysis-ik (版本须匹配)")
+
+    if es.indices.exists(index=index_name):
+        print(f"\n索引 '{index_name}' 已存在，跳过创建")
+        return
+
+    print(f"\n创建索引 '{index_name}'...")
+
+    mapping = _build_chunks_mapping(settings)
 
     es.indices.create(index=index_name, body=mapping)
     print(f"索引 '{index_name}' 创建成功!")

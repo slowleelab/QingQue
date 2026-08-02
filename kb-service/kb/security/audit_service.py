@@ -86,6 +86,18 @@ class AuditService:
             )
             self.db.add(record)
             self._pending_count += 1
+            # P0-1: 额外记 actor_roles 到 structlog (不落 DB, 避免 alembic 迁移)
+            # 风控需要"谁以什么角色查了"的可观测性, 但角色列表变更频繁不存主表
+            logger.info(
+                "retrieval_audit",
+                actor_id=principal.actor_id,
+                tenant_id=principal.tenant_id,
+                actor_roles=list(getattr(principal, "roles", []) or []),
+                result_count=result_count,
+                search_type=search_type,
+                degraded=degraded,
+                request_id=request_id,
+            )
         except Exception:
             # 审计落表失败不阻塞业务, 仅记 ERROR
             logger.exception("检索审计落表失败", actor_id=principal.actor_id)

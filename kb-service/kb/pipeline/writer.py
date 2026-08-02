@@ -166,6 +166,9 @@ async def write_chunks_to_es(
                     "doc_group": doc_metadata.get("doc_group", doc_id),
                     "effective_date": _date_to_epoch(doc_metadata.get("effective_date")),
                     "expiry_date": _date_to_epoch(doc_metadata.get("expiry_date")),
+                    # P0-1: 多租户隔离 + 角色访问控制
+                    "tenant_id": doc_metadata.get("tenant_id", "default"),
+                    "allowed_roles": doc_metadata.get("allowed_roles") or [],
                 },
             )
             success += 1

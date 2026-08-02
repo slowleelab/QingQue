@@ -51,11 +51,18 @@ async def retrieve_documents(
     if es is None:
         return RetrieveResponse(results=[], total_candidates=0, latency_ms=0)
 
-    # 自动从 principal 注入多租户/角色上下文 (业务侧未显式提供时)
-    if request_body.tenant_id is None:
-        request_body.tenant_id = principal.tenant_id
-    if not request_body.actor_roles:
-        request_body.actor_roles = list(principal.roles)
+    # P0-1: 严格 override 防御 — 身份是唯一真相源
+    # 客户端不能伪造 tenant_id 跨租户检索, 任何不一致直接 403
+    from fastapi import HTTPException
+
+    if request_body.tenant_id is not None and request_body.tenant_id != principal.tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail="tenant_id 不匹配: 请求体 tenant_id 必须等于当前身份 tenant_id",
+        )
+    # 强制覆盖: tenant_id 与 actor_roles 一律以 principal 为准
+    request_body.tenant_id = principal.tenant_id
+    request_body.actor_roles = list(principal.roles)
 
     # I2-C2: 注入嵌入熔断器 (后台探测, 不可用时跳过 embed → 走 bm25)
     embedding_breaker = get_embedding_breaker(request)
