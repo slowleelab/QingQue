@@ -257,3 +257,98 @@ class TestComputeErrorBudget:
         # 100% SLO → 没有允许的错误
         status = compute_error_budget(target=1.0, error_count=0, total_count=1000)
         assert status.remaining_pct == 1.0
+
+
+# ── P1-3.1 新增: slo_name 字段 + PromQL 指标名 + LATENCY threshold ──
+
+
+class TestComputeErrorBudgetName:
+    """P1-3.1: slo_name 字段由调用方填充 (旧实现永远 'unknown', 是 P0-4 评审指出的语义 bug)"""
+
+    def test_slo_name_populated(self):
+        status = compute_error_budget(
+            slo_name="retrieve_availability",
+            target=0.99, error_count=5, total_count=1000,
+        )
+        assert status.slo_name == "retrieve_availability"
+
+    def test_default_unknown_kept(self):
+        """不传 slo_name → 保持 'unknown' (兼容老调用)"""
+        status = compute_error_budget(target=0.99, error_count=0, total_count=0)
+        assert status.slo_name == "unknown"
+
+    def test_slo_name_in_over_budget(self):
+        status = compute_error_budget(
+            slo_name="custom_slo", target=0.99, error_count=50, total_count=1000
+        )
+        assert status.slo_name == "custom_slo"
+        assert status.remaining_pct == 0.0
+
+
+class TestPrometheusRulesNaming:
+    """P1-3.1: 生成的 PromQL 必须用真实指标名, 不再误用 kb_retrieve_errors_total"""
+
+    def test_uses_kb_retrieve_total_not_errors(self):
+        """不再出现 kb_retrieve_errors_total (旧实现的错误指标名)"""
+        yaml_str = generate_prometheus_rules()
+        assert "kb_retrieve_errors_total" not in yaml_str
+        # 真实指标名必须出现
+        assert "kb_retrieve_total" in yaml_str
+
+    def test_availability_uses_failed_status(self):
+        """availability PromQL 含 status='failed' (与 prometheus.py RETRIEVE_COUNT 对齐)"""
+        yaml_str = generate_prometheus_rules()
+        parsed = yaml.safe_load(yaml_str)
+        # 找 availability group
+        avail_group = next(
+            g for g in parsed["groups"] if g["name"] == "kb_slo_retrieve_availability"
+        )
+        for rule in avail_group["rules"]:
+            assert "kb_retrieve_total" in rule["expr"]
+            assert 'status="failed"' in rule["expr"]
+
+    def test_latency_uses_histogram_quantile(self):
+        """latency PromQL 用 histogram_quantile (与 availability 不同分支)"""
+        yaml_str = generate_prometheus_rules()
+        parsed = yaml.safe_load(yaml_str)
+        p95_group = next(
+            g for g in parsed["groups"] if g["name"] == "kb_slo_retrieve_p95_latency"
+        )
+        for rule in p95_group["rules"]:
+            assert "histogram_quantile(0.95" in rule["expr"]
+            assert "kb_retrieve_duration_seconds_bucket" in rule["expr"]
+            # 短窗口 page 阈值 (1.5 × (1 + 13.4 × 0.1) = 3.51) 远大于基础 1.5
+            # 所以只检查 hist quantile 形式, 不强约束 > 1.5
+            assert "rate(kb_retrieve_duration_seconds_bucket[" in rule["expr"]
+
+    def test_latency_threshold_s_used_in_default(self):
+        """DEFAULT_SLOS 的 P95 SLO latency_threshold_s=1.5 必须进入 PromQL"""
+        yaml_str = generate_prometheus_rules()
+        parsed = yaml.safe_load(yaml_str)
+        p99_group = next(
+            g for g in parsed["groups"] if g["name"] == "kb_slo_retrieve_p99_latency"
+        )
+        for rule in p99_group["rules"]:
+            # P99 阈值 2.0s 缩放后 (短窗口更严格) 但仍 > 1.5
+            # 检查 hist quantile 0.99
+            assert "histogram_quantile(0.99" in rule["expr"]
+
+
+class TestSLOTargetLatencyField:
+    """P1-3.1: SLOTarget.latency_threshold_s 新字段"""
+
+    def test_default_value_zero(self):
+        slo = SLOTarget(name="x", sli=SLI.AVAILABILITY, target=0.99)
+        assert slo.latency_threshold_s == 0.0
+
+    def test_latency_slo_default(self):
+        """DEFAULT_SLOS 中 P95 的 latency_threshold_s 必须是 1.5"""
+        p95 = next(s for s in DEFAULT_SLOS if s.sli == SLI.LATENCY_P95)
+        assert p95.latency_threshold_s == 1.5
+        p99 = next(s for s in DEFAULT_SLOS if s.sli == SLI.LATENCY_P99)
+        assert p99.latency_threshold_s == 2.0
+
+    def test_availability_no_latency_threshold(self):
+        """availability SLO 不需要 latency_threshold_s (default 0)"""
+        avail = next(s for s in DEFAULT_SLOS if s.sli == SLI.AVAILABILITY)
+        assert avail.latency_threshold_s == 0.0

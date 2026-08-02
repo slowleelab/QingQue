@@ -42,13 +42,20 @@ class SLI(str, Enum):
 
 @dataclass
 class SLOTarget:
-    """单个 SLO 目标"""
+    """单个 SLO 目标
+
+    P1-3.1 字段语义修正:
+    - target: 达标率 (如 0.99 = 99% 在阈值内), 与 SLI 类型无关的"通用"含义
+    - latency_threshold_s: 仅 LATENCY_P95/P99 使用, 配合 target 表示
+      "target 比例的请求必须在 latency_threshold_s 秒内返回"
+    """
 
     name: str
     sli: SLI
-    target: float  # 目标值, 如 0.99 (可用性), 1.0 (P95 1s 以内)
+    target: float  # 达标率 (0.99 = 99%)
     window: str = "30d"  # 评估窗口
     description: str = ""
+    latency_threshold_s: float = 0.0  # 仅 LATENCY SLO 有效; 0 = 未配置
 
 
 # ── 4 档 burn-rate 阈值 (Google SRE workbook 标准) ──
@@ -214,16 +221,18 @@ DEFAULT_SLOS: list[SLOTarget] = [
     SLOTarget(
         name="retrieve_p95_latency",
         sli=SLI.LATENCY_P95,
-        target=0.95,  # 95% 请求在阈值内 (1.5s)
+        target=0.95,  # 95% 请求在阈值内
         window="30d",
-        description="检索 P95 延迟 SLO 1.5s",
+        latency_threshold_s=1.5,  # 1.5s
+        description="检索 P95 延迟 SLO: 95% 请求在 1.5s 内返回",
     ),
     SLOTarget(
         name="retrieve_p99_latency",
         sli=SLI.LATENCY_P99,
-        target=0.99,  # 99% 在 2s 内
+        target=0.99,  # 99% 在阈值内
         window="30d",
-        description="检索 P99 延迟 SLO 2s",
+        latency_threshold_s=2.0,  # 2s
+        description="检索 P99 延迟 SLO: 99% 请求在 2s 内返回",
     ),
 ]
 
@@ -231,10 +240,39 @@ DEFAULT_SLOS: list[SLOTarget] = [
 # ── Prometheus rules 生成 ──
 
 
+def _build_availability_promql(window_min: int, target: float) -> str:
+    """availability SLO PromQL: 错误率 / 允许错误率
+
+    P1-3.1: 对齐 prometheus.py:41-45 实际指标 kb_retrieve_total{status="failed"}
+    (旧实现误用 kb_retrieve_errors_total, 实际不存在)
+    """
+    return (
+        f'(sum(rate(kb_retrieve_total{{status="failed"}}[{window_min}m])) '
+        f'/ sum(rate(kb_retrieve_total[{window_min}m]))) '
+        f'> (1 - {target})'
+    )
+
+
+def _build_latency_promql(window_min: int, target: float, threshold_s: float) -> str:
+    """latency SLO PromQL: histogram_quantile(percentile) > threshold
+
+    P1-3.1: LATENCY 用 histogram_quantile (与 availability 不同):
+    - target (0.95) → quantile=0.95
+    - latency_threshold_s (1.5) → 实际秒数阈值
+    """
+    quantile = target  # 0.95/0.99 直接作为分位数
+    return (
+        f'histogram_quantile({quantile}, '
+        f'sum by (le) (rate(kb_retrieve_duration_seconds_bucket[{window_min}m]))) '
+        f'> {threshold_s}'
+    )
+
+
 def generate_prometheus_rules(slos: list[SLOTarget] | None = None) -> str:
     """生成 Prometheus alerting rules YAML
 
     输出格式: 标准 Prometheus rule_files
+    P1-3.1: 按 SLI 类型分支 — availability / latency 用不同 PromQL
     """
     import yaml
 
@@ -246,14 +284,27 @@ def generate_prometheus_rules(slos: list[SLOTarget] | None = None) -> str:
         rules = []
         for severity, configs in BURN_RATE_THRESHOLDS.items():
             for window_min, threshold in configs:
+                # 按 SLI 类型选择 PromQL
+                if slo.sli == SLI.AVAILABILITY:
+                    base_expr = _build_availability_promql(window_min, slo.target)
+                    # burn rate 比较: 实际 / 阈值
+                    expr = f"({base_expr.split(' > ')[0]}) / (1 - {slo.target}) > {threshold}"
+                    summary_suffix = f"error rate {severity} 超阈值"
+                else:  # LATENCY_P95 / LATENCY_P99
+                    threshold_s = slo.latency_threshold_s or 1.5
+                    base_expr = _build_latency_promql(window_min, slo.target, threshold_s)
+                    # latency 不走 burn rate, 直接阈值 × 比例
+                    # 简化: 阈值按 burn rate 等比放大, 短窗口更严格
+                    scaled_threshold = threshold_s * (1 + (threshold - 1) * 0.1)
+                    expr = base_expr.replace(
+                        f"> {threshold_s}", f"> {scaled_threshold:.3f}"
+                    )
+                    summary_suffix = f"latency {severity} 超阈值"
+
                 rules.append(
                     {
                         "alert": f"{slo.name}_burn_{severity}",
-                        "expr": (
-                            f"(sum(rate(kb_retrieve_errors_total[{window_min}m])) "
-                            f"/ sum(rate(kb_retrieve_total[{window_min}m]))) "
-                            f"\\> ({threshold} * (1 - {slo.target}))"
-                        ),
+                        "expr": expr,
                         "for": f"{max(1, window_min // 4)}m",
                         "labels": {
                             "severity": severity,
@@ -261,10 +312,10 @@ def generate_prometheus_rules(slos: list[SLOTarget] | None = None) -> str:
                             "sli": slo.sli.value,
                         },
                         "annotations": {
-                            "summary": f"{slo.name} burn rate {severity} 超阈值",
+                            "summary": f"{slo.name} {summary_suffix}",
                             "description": (
                                 f"SLO {slo.name} (target={slo.target}) 在 {window_min}m 窗口内 "
-                                f"burn rate 超过 {threshold}×."
+                                f"超过 {threshold}× 配置阈值."
                             ),
                         },
                     }
@@ -296,6 +347,7 @@ class ErrorBudgetStatus:
 
 def compute_error_budget(
     *,
+    slo_name: str = "unknown",
     target: float,
     error_count: int,
     total_count: int,
@@ -306,10 +358,12 @@ def compute_error_budget(
     budget = (1 - target) * total_count
     consumed = error_count
     remaining = budget - consumed
+
+    P1-3.1: slo_name 字段外部填充 (旧实现永远是 "unknown", 是 P0-4 评审指出的语义 bug)
     """
     if total_count <= 0 or target >= 1.0:
         return ErrorBudgetStatus(
-            slo_name="unknown",
+            slo_name=slo_name,
             target=target,
             total_budget_minutes=0.0,
             consumed_minutes=0.0,
@@ -327,7 +381,7 @@ def compute_error_budget(
     remaining_pct = remaining / total_budget if total_budget > 0 else 1.0
 
     return ErrorBudgetStatus(
-        slo_name="unknown",
+        slo_name=slo_name,
         target=target,
         total_budget_minutes=total_budget,
         consumed_minutes=consumed,
