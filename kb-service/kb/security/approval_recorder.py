@@ -45,15 +45,14 @@ def record_approval(
     ip: str | None = None,
     ua: str | None = None,
     request_id: str | None = None,
+    operation_id: str | None = None,
 ) -> KbDocumentApproval:
     """写入 KbDocumentApproval + 同步 KbDocument.approval_status + updated_at
 
     参数:
       tenant_id: 默认从 doc.tenant_id 取, 但 takedown/rollback 等场景下可显式覆盖
       ip/ua/request_id: 审计三元组, 由调用方从 Request 提取
-
-    返回:
-      写入的 KbDocumentApproval 实例 (id 已分配)
+      operation_id: P0-3.C — 多步操作串联 (不落库, 仅 log; ORM 无此列)
     """
     now = datetime.now(timezone.utc)
     retention = now + timedelta(days=365 * AUDIT_RETENTION_YEARS)
@@ -81,6 +80,105 @@ def record_approval(
     doc.approval_status = to_status
     doc.updated_by = actor_id
     doc.updated_at = now
+
+    # P0-3.C: 串联多步 (PG 落库 + structlog 同 operation_id)
+    logger.info(
+        "kb.approval.recorded",
+        approval_id=str(record.id),
+        operation_id=operation_id,
+        document_id=str(doc.id),
+        action=action.value,
+        from_status=record.from_status,
+        to_status=record.to_status,
+        actor_id=actor_id,
+        actor_role=actor_role,
+        request_id=request_id,
+    )
+
+    return record
+
+
+async def get_last_actor(db: Any, doc_id: uuid_utils.UUID) -> str | None:
+    """P0-3.B: 查 doc 的最近一次 KbDocumentApproval.actor_id
+
+    修复 4-eyes 漏洞: 旧 last_actor 永远用 doc.created_by, 跨版本场景下双签失效.
+    现在 last_actor = 最近一次审批人 (含 ARCHIVE / SUPERSEDE), 真正的 4-eyes.
+
+    Returns:
+      - None: doc 从未走过审批 (首次 SUBMIT, caller 用 created_by 兜底)
+      - actor_id: 最近一次审批人 (跨状态机所有动作)
+    """
+    from sqlalchemy import select
+
+    stmt = (
+        select(KbDocumentApproval.actor_id)
+        .where(KbDocumentApproval.document_id == doc_id)
+        .order_by(KbDocumentApproval.created_at.desc())
+        .limit(1)
+    )
+    result = (await db.execute(stmt)).scalar_one_or_none()
+    return result
+
+
+def record_approval_partial(
+    db: Any,
+    *,
+    doc: KbDocument,
+    action: KbApprovalAction,
+    from_status: KbApprovalStatus,
+    to_status: KbApprovalStatus,
+    actor_id: str,
+    actor_role: str,
+    comment: str,
+    operation_id: str | None = None,
+    risk_level: str = "high",
+) -> KbDocumentApproval:
+    """P0-3.D: ES 重建审计变体, 强制 comment (合规留痕)
+
+    区别于 record_approval:
+    - 强制 comment 非空 (ES 重建详情必填, 含 success/pg_count/op_id)
+    - operation_result='partial' (区分正常审批)
+    - risk_level 默认 'high' (ES 重建失败是合规盲区)
+    - 不接受 ip/ua/request_id (system 身份, 不是用户操作)
+
+    设计权衡: 不引入新 KbApprovalAction.ES_REINDEX, 复用 PUBLISH 动作,
+    用 operation_result='partial' 区分 (避免 7 状态变 8 状态).
+    """
+    if not comment or not comment.strip():
+        raise ValueError("ES 重建审计必须填 comment (含重建详情)")
+
+    now = datetime.now(timezone.utc)
+    retention = now + timedelta(days=365 * AUDIT_RETENTION_YEARS)
+
+    record = KbDocumentApproval(
+        id=uuid_utils.uuid7(),
+        document_id=doc.id,
+        action=action,
+        from_status=from_status.value if hasattr(from_status, "value") else str(from_status),
+        to_status=to_status.value if hasattr(to_status, "value") else str(to_status),
+        actor_id=actor_id,
+        actor_role=actor_role,
+        comment=comment,
+        tenant_id=doc.tenant_id,
+        ip=None,
+        ua=None,
+        request_id=None,
+        operation_result="partial",
+        risk_level=risk_level,
+        retention_until=retention,
+    )
+    db.add(record)
+
+    logger.info(
+        "kb.approval.partial",
+        approval_id=str(record.id),
+        operation_id=operation_id,
+        document_id=str(doc.id),
+        action=action.value,
+        actor_id=actor_id,
+        actor_role=actor_role,
+        comment=comment,
+    )
     return record
 
 

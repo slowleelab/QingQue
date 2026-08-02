@@ -44,7 +44,25 @@ def _make_db_with_docs(docs: dict[str, MagicMock]) -> MagicMock:
         return docs.get(str(pk))
 
     db.get = fake_get
+
+    # P0-3.B: get_last_actor 调用 db.execute(select(KbDocumentApproval.actor_id))
+    # 默认返回 None (没有历史审批) — last_actor 走 created_by 兜底
+    async def fake_execute(stmt):
+        return MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+
+    db.execute = fake_execute
     return db
+
+
+def _make_request(headers: dict | None = None) -> MagicMock:
+    """P0-3.A: 构造 fake Request, 用于测试 IP/UA/request_id 提取"""
+    req = MagicMock()
+    req.client = MagicMock()
+    req.client.host = "10.0.0.1"
+    req.headers = headers or {"user-agent": "test-agent/1.0", "x-request-id": "test-rid-1"}
+    req.state = MagicMock()
+    req.state.request_id = None  # 头里有, 优先用头
+    return req
 
 
 def _make_version_doc(
@@ -162,8 +180,9 @@ class TestRollbackDocument:
         principal.roles = ["admin"]
         principal.tenant_id = "default"
 
-        request = RollbackRequest(target_doc_id=DOC_V1, comment="回滚到 v1")
-        response = await rollback_document(DOC_V2, request, db, principal)
+        payload = RollbackRequest(target_doc_id=DOC_V1, comment="回滚到 v1")
+        fake_req = _make_request()
+        response = await rollback_document(DOC_V2, payload, fake_req, db, principal)
 
         assert current.is_current_version is False
         assert target.is_current_version is True
@@ -186,9 +205,9 @@ class TestRollbackDocument:
         principal.actor_role = "admin"
         principal.roles = ["admin"]
 
-        request = RollbackRequest(target_doc_id=DOC_X, comment="test")
+        payload = RollbackRequest(target_doc_id=DOC_X, comment="test")
         with pytest.raises(HTTPException) as exc:
-            await rollback_document(DOC_V2, request, db, principal)
+            await rollback_document(DOC_V2, payload, _make_request(), db, principal)
         assert exc.value.status_code == 422
         assert "文档组" in exc.value.detail or "doc_group" in exc.value.detail.lower()
 
@@ -205,9 +224,9 @@ class TestRollbackDocument:
         principal.roles = ["admin"]
         principal.actor_role = "admin"
 
-        request = RollbackRequest(target_doc_id=DOC_V1, comment="x")
+        payload = RollbackRequest(target_doc_id=DOC_V1, comment="x")
         with pytest.raises(HTTPException) as exc:
-            await rollback_document(DOC_V2, request, db, principal)
+            await rollback_document(DOC_V2, payload, _make_request(), db, principal)
         assert exc.value.status_code == 422
         assert "已发布" in exc.value.detail or "PUBLISHED" in exc.value.detail
 
@@ -225,9 +244,9 @@ class TestRollbackDocument:
         principal.actor_role = "editor"
         principal.actor_id = "alice"
 
-        request = RollbackRequest(target_doc_id=DOC_V1, comment="x")
+        payload = RollbackRequest(target_doc_id=DOC_V1, comment="x")
         with pytest.raises(HTTPException) as exc:
-            await rollback_document(DOC_V2, request, db, principal)
+            await rollback_document(DOC_V2, payload, _make_request(), db, principal)
         assert exc.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -299,7 +318,7 @@ class TestEmergencyTakedown:
         principal.roles = ["admin"]
 
         payload = TakedownRequest(comment="合规问题紧急下架", reason="regulatory")
-        response = await emergency_takedown(DOC_V1, payload, db, principal)
+        response = await emergency_takedown(DOC_V1, payload, _make_request(), db, principal)
 
         assert response.actor_id == "admin_user"
         assert response.reason == "regulatory"
@@ -321,7 +340,7 @@ class TestEmergencyTakedown:
 
         payload = TakedownRequest(comment="test reason long enough", reason="other")
         with pytest.raises(HTTPException) as exc:
-            await emergency_takedown(DOC_V1, payload, db, principal)
+            await emergency_takedown(DOC_V1, payload, _make_request(), db, principal)
         assert exc.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -338,7 +357,7 @@ class TestEmergencyTakedown:
 
         payload = TakedownRequest(comment="test reason long enough", reason="other")
         with pytest.raises(HTTPException) as exc:
-            await emergency_takedown(DOC_V1, payload, db, principal)
+            await emergency_takedown(DOC_V1, payload, _make_request(), db, principal)
         assert exc.value.status_code == 422
         # P0-2.2: 终态 ARCHIVED 由状态机拒绝 (而非旧代码的 explicit "已下架" 检查)
         assert "ARCHIVED" in exc.value.detail or "不能执行" in exc.value.detail

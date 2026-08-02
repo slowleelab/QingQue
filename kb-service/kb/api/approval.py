@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import uuid as _uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -35,7 +36,7 @@ from kb.orm.kb import (
     KbDocumentApproval,
 )
 from kb.security.approval_recorder import record_approval as _record_approval  # P0-2.2: 单点真相
-from kb.security.audit_service import AuditService
+from kb.security.audit_service import AuditService, extract_request_meta
 from kb.security.workflow import (
     WorkflowError,
     get_allowed_actions,
@@ -104,11 +105,8 @@ class ApprovalListResponse(BaseModel):
 
 
 def _extract_request_meta(request: Request) -> tuple[str | None, str | None, str | None]:
-    """从 FastAPI Request 提取 IP / UA / request_id (与 AuditMiddleware 字段保持一致)"""
-    ip = request.client.host if request.client else None
-    ua = request.headers.get("user-agent")
-    rid = request.headers.get("x-request-id") or getattr(request.state, "request_id", None)
-    return ip, ua, rid
+    """P0-3: 薄包装, 委托给 audit_service.extract_request_meta (跨模块复用)"""
+    return extract_request_meta(request)
 
 
 # ── P0-2.3 publish ES 同步 ──
@@ -118,6 +116,8 @@ async def _ensure_es_in_sync(
     doc_id: str,
     db: Any,
     es: Any,
+    *,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     """publish 收尾: 比对 ES doc_count vs PG chunk_count, 不一致就 reindex
 
@@ -183,6 +183,9 @@ async def _ensure_es_in_sync(
     if es_count == pg_count:
         return {"es_count": es_count, "pg_count": pg_count, "reindexed": False, "added": 0, "skipped": None}
 
+    # P0-3.D: ES count 查询异常 (-1) 也算需要重建, 落 partial 审计 (视为失败)
+    es_count_error = es_count == -1
+
     # 重建
     await delete_chunks_from_es(es, doc_id)
     chunks_q = (
@@ -208,6 +211,42 @@ async def _ensure_es_in_sync(
         es, doc_id, chunk_ids, chunks_data, embeddings, metadata, chunks_q[0].model_version or "unknown",
     )
     await mark_es_indexed(db, chunk_ids)
+
+    # P0-3.D: 重建部分失败 / ES count 查询异常 → 落 high risk partial 审计
+    if success != pg_count or es_count_error:
+        from kb.security.approval_recorder import record_approval_partial
+
+        try:
+            reason = (
+                f"es_count_error" if es_count_error
+                else f"es_sync partial: success={success}/{pg_count}"
+            )
+            record_approval_partial(
+                db,
+                doc=doc,
+                action=KbApprovalAction.PUBLISH,  # 复用动作 (7 状态不变)
+                from_status=doc.approval_status,
+                to_status=doc.approval_status,  # 状态未变
+                actor_id="system",
+                actor_role="service",
+                comment=(
+                    f"{reason}, es_count_before={es_count}, pg_count={pg_count}, "
+                    f"op_id={operation_id}"
+                ),
+                operation_id=operation_id,
+                risk_level="high",
+            )
+            logger.warning(
+                "publish es sync 异常, 落 partial 审计",
+                doc_id=doc_id,
+                success=success,
+                pg_count=pg_count,
+                es_count_error=es_count_error,
+                operation_id=operation_id,
+            )
+        except Exception:
+            logger.exception("es_sync partial 审计落库失败", doc_id=doc_id)
+
     await db.commit()
 
     logger.info(
@@ -216,6 +255,7 @@ async def _ensure_es_in_sync(
         es_count_before=es_count,
         pg_count=pg_count,
         added=success,
+        operation_id=operation_id,
     )
     return {"es_count": es_count, "pg_count": pg_count, "reindexed": True, "added": success, "skipped": None}
 
@@ -247,7 +287,10 @@ async def _execute_action(
             detail=f"文档处于终态 {doc.approval_status.value}, 不能执行任何审批动作",
         )
 
-    # 状态机校验
+    # 状态机校验 (P0-3.B: last_actor 查最近一次 KbDocumentApproval, 兜底 created_by)
+    from kb.security.approval_recorder import get_last_actor
+
+    last_actor = await get_last_actor(db, doc.id) or doc.created_by
     try:
         new_status = validate_transition(
             current_status=doc.approval_status,
@@ -255,7 +298,7 @@ async def _execute_action(
             actor_id=principal.actor_id,
             actor_role=principal.actor_role,
             comment=payload.comment,
-            last_actor=doc.created_by,
+            last_actor=last_actor,
         )
     except WorkflowError as e:
         # 双签违规是 403, 其余 422
@@ -263,8 +306,9 @@ async def _execute_action(
             raise HTTPException(status_code=403, detail=e.message) from e
         raise HTTPException(status_code=e.http_status, detail=e.message) from e
 
-    # 落审计 + 同步状态
+    # 落审计 + 同步状态 (P0-3.C: operation_id 串联多步)
     ip, ua, rid = _extract_request_meta(request)
+    operation_id = str(_uuid.uuid4())
     record = _record_approval(
         db,
         doc=doc,
@@ -277,9 +321,10 @@ async def _execute_action(
         ip=ip,
         ua=ua,
         request_id=rid,
+        operation_id=operation_id,
     )
 
-    # I1-C4: 业务审计事件 (structlog)
+    # I1-C4: 业务审计事件 (structlog) — operation_id 串联
     try:
         audit = AuditService(db)
         await audit.log(
@@ -297,6 +342,7 @@ async def _execute_action(
             request_id=rid,
             ip=ip,
             ua=ua,
+            operation_id=operation_id,
         )
     except Exception:
         # 审计日志失败不阻塞主流程
@@ -380,11 +426,13 @@ async def publish_document(
              不一致就调 reindex 重建 (PG 真理 + 已有 embedding, 不重跑 LLM)
     """
     resp = await _execute_action(doc_id, KbApprovalAction.PUBLISH, payload, db, principal, request)
-    sync = await _ensure_es_in_sync(doc_id, db, es)
+    # P0-3.C: 从响应里拿 approval_id 派生 operation_id, 串联 _ensure_es_in_sync 的审计
+    op_id = f"publish:{resp.approval_id}"
+    sync = await _ensure_es_in_sync(doc_id, db, es, operation_id=op_id)
     if sync.get("reindexed"):
-        logger.info("publish es sync 重建", doc_id=doc_id, added=sync["added"])
+        logger.info("publish es sync 重建", doc_id=doc_id, added=sync["added"], operation_id=op_id)
     elif sync.get("skipped"):
-        logger.info("publish es sync 跳过", doc_id=doc_id, reason=sync["skipped"])
+        logger.info("publish es sync 跳过", doc_id=doc_id, reason=sync["skipped"], operation_id=op_id)
     # 响应保持 WorkflowActionResponse 统一, 同步结果走 logger + 审计事件
     return resp
 

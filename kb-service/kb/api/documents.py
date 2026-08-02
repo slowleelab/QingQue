@@ -27,11 +27,12 @@ import io
 import json
 import logging
 import os
+import uuid
 import uuid_utils
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -47,7 +48,7 @@ from kb.orm.kb import (
     KbSourceType,
 )
 from kb.pipeline.parser import detect_source_type
-from kb.security.audit_service import AuditService
+from kb.security.audit_service import AuditService, extract_request_meta
 from kb.security.sensitive_filter import get_sensitive_filter
 from kb.storage.kafka import publish_ingest_request
 from kb.storage.minio import get_minio
@@ -548,6 +549,7 @@ async def list_versions(
 async def rollback_document(
     doc_id: str,
     payload: RollbackRequest,
+    request: Request,  # P0-3.A: 透传 IP/UA/request_id
     db: DbSession,
     principal: PrincipalDep,
 ):
@@ -611,7 +613,14 @@ async def rollback_document(
         raise HTTPException(status_code=403, detail="ROLLBACK 仅 admin 可执行")
 
     # P0-2.2: 状态机校验 — 强制 target PUBLISHED → SUPERSEDED
-    from kb.security.approval_recorder import record_approval, validate_or_raise
+    from kb.security.approval_recorder import get_last_actor, record_approval, validate_or_raise
+
+    # P0-3.A + C: 提取 IP/UA/request_id + operation_id
+    ip, ua, rid = extract_request_meta(request)
+    operation_id = str(uuid.uuid4())
+
+    # P0-3.B: last_actor 取 target_doc 的最近一次审批人, 兜底 created_by
+    last_actor = await get_last_actor(db, target_doc.id) or target_doc.created_by
 
     # 兼容: 旧 mock 测试里 target_status 是 MagicMock(value=...), 真代码是 enum
     target_status_value = (
@@ -623,7 +632,7 @@ async def rollback_document(
         actor_id=principal.actor_id,
         actor_role=principal.actor_role,
         comment=payload.comment,  # SUPERSEDE 强制 comment 校验
-        last_actor=target_doc.created_by,
+        last_actor=last_actor,
     )
     now = datetime.now(timezone.utc)
 
@@ -646,6 +655,10 @@ async def rollback_document(
         actor_id=principal.actor_id,
         actor_role=principal.actor_role,
         comment=f"[ROLLBACK] {payload.comment} (从 {doc_id} 切到 {payload.target_doc_id})",
+        ip=ip,  # P0-3.A
+        ua=ua,
+        request_id=rid,
+        operation_id=operation_id,  # P0-3.C
     )
 
     # 业务审计
@@ -664,6 +677,10 @@ async def rollback_document(
                 "to_version": target_doc.version,
                 "comment": payload.comment,
             },
+            request_id=rid,  # P0-3.A
+            ip=ip,
+            ua=ua,
+            operation_id=operation_id,  # P0-3.C
         )
     except Exception:
         logger.exception("rollback 审计事件记录失败", doc_id=str(target_doc.id))
@@ -677,6 +694,7 @@ async def rollback_document(
         from_version=current_doc.version,
         to_version=target_doc.version,
         actor_id=principal.actor_id,
+        operation_id=operation_id,
     )
 
     return RollbackResponse(
@@ -777,6 +795,7 @@ async def diff_versions(
 async def emergency_takedown(
     doc_id: str,
     payload: TakedownRequest,
+    request: Request,  # P0-3.A: 透传 IP/UA/request_id
     db: DbSession,
     principal: PrincipalDep,
 ):
@@ -811,7 +830,14 @@ async def emergency_takedown(
         raise HTTPException(status_code=422, detail="reason 必须是 regulatory/security/quality/other 之一")
 
     # P0-2.2: 状态机校验 — 强制 PUBLISHED/SUPERSEDED → ARCHIVED
-    from kb.security.approval_recorder import record_approval, validate_or_raise
+    from kb.security.approval_recorder import get_last_actor, record_approval, validate_or_raise
+
+    # P0-3.A + C: 提取 IP/UA/request_id + operation_id
+    ip, ua, rid = extract_request_meta(request)
+    operation_id = str(uuid.uuid4())
+
+    # P0-3.B: last_actor 取 doc 的最近一次审批人, 兜底 created_by
+    last_actor = await get_last_actor(db, doc.id) or doc.created_by
 
     from_status = doc.approval_status
     from_status_value = (
@@ -823,7 +849,7 @@ async def emergency_takedown(
         actor_id=principal.actor_id,
         actor_role=principal.actor_role,
         comment=payload.comment,  # ARCHIVE 强制 comment 校验
-        last_actor=doc.created_by,
+        last_actor=last_actor,
     )
 
     # 写审批记录 (action=ARCHIVE, high risk) — 复用 approval_recorder
@@ -836,6 +862,10 @@ async def emergency_takedown(
         actor_id=principal.actor_id,
         actor_role=principal.actor_role,
         comment=f"[TAKEDOWN/{payload.reason}] {payload.comment}",
+        ip=ip,  # P0-3.A
+        ua=ua,
+        request_id=rid,
+        operation_id=operation_id,  # P0-3.C
     )
 
     # takedown 额外副作用: 立即停用当前版本 (P0-2.2 与旧行为一致)
@@ -856,6 +886,10 @@ async def emergency_takedown(
                 "reason": payload.reason,
                 "comment": payload.comment,
             },
+            request_id=rid,  # P0-3.A
+            ip=ip,
+            ua=ua,
+            operation_id=operation_id,  # P0-3.C
         )
     except Exception:
         logger.exception("takedown 审计事件记录失败", doc_id=doc_id)
@@ -868,6 +902,7 @@ async def emergency_takedown(
         reason=payload.reason,
         actor_id=principal.actor_id,
         comment=payload.comment,
+        operation_id=operation_id,
     )
 
     return TakedownResponse(

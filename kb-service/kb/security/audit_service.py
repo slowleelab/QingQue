@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import uuid_utils
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,12 +23,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from kb.logging import get_logger
 from kb.orm.kb import KbRetrievalAudit
 
+if TYPE_CHECKING:
+    from fastapi import Request
+
 logger = get_logger(__name__)
 
 
 def _hash_query(query: str) -> str:
     """md5(query) — 存 hash 不存原文 (防 PII 进日志)"""
     return hashlib.md5(query.encode("utf-8")).hexdigest()  # noqa: S324
+
+
+def extract_request_meta(request: "Request") -> tuple[str | None, str | None, str | None]:
+    """P0-3: 从 FastAPI Request 提取 IP / UA / request_id (跨模块复用)
+
+    优先级:
+    - IP:  client.host (如有反向代理需后续加 X-Forwarded-For, P0-4 留)
+    - UA:  request.headers['user-agent']
+    - RID: X-Request-ID 头 > request.state.request_id (由 AuditMiddleware 注入)
+
+    Returns:
+      (ip, ua, request_id) — 任一可缺失 (返回 None)
+    """
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
+    rid = request.headers.get("x-request-id") or getattr(request.state, "request_id", None)
+    return ip, ua, rid
 
 
 class AuditService:
@@ -150,6 +170,7 @@ class AuditService:
         request_id: str | None = None,
         ip: str | None = None,
         ua: str | None = None,
+        operation_id: str | None = None,
     ) -> None:
         """通用业务事件审计
 
@@ -164,6 +185,7 @@ class AuditService:
           result: success / denied / failed
           detail: 补充字段 (敏感信息需自行 redact)
           request_id / ip / ua: 与 AuditMiddleware 串联
+          operation_id: P0-3 — 多步操作串联 (一次业务旅程共用一个 id)
         """
         logger.info(
             "business_audit",
@@ -177,6 +199,7 @@ class AuditService:
             request_id=request_id,
             ip=ip,
             ua=ua,
+            operation_id=operation_id,
             detail=detail or {},
         )
 
@@ -186,4 +209,4 @@ class AuditService:
         return self._pending_count
 
 
-__all__ = ["AuditService", "_hash_query"]
+__all__ = ["AuditService", "_hash_query", "extract_request_meta"]

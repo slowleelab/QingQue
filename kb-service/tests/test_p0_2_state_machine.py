@@ -72,6 +72,13 @@ def _make_db(docs: dict[str, MagicMock]) -> MagicMock:
 
     db.get = fake_get
 
+    # P0-3.B: get_last_actor 调 db.execute(select(KbDocumentApproval.actor_id))
+    # 默认返回 None → last_actor 走 doc.created_by 兜底
+    async def fake_execute(stmt):
+        return MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+
+    db.execute = fake_execute
+
     # Capture KbDocumentApproval added
     db.approvals_added: list[Any] = []
 
@@ -95,6 +102,17 @@ def _admin_principal() -> MagicMock:
     return p
 
 
+def _make_request() -> MagicMock:
+    """P0-3.A: fake Request for IP/UA/request_id 提取"""
+    req = MagicMock()
+    req.client = MagicMock()
+    req.client.host = "10.0.0.1"
+    req.headers = {"user-agent": "test-agent/1.0", "x-request-id": "test-rid-1"}
+    req.state = MagicMock()
+    req.state.request_id = None
+    return req
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # T1 takedown DRAFT 文档 → 422
 # ═══════════════════════════════════════════════════════════════════════
@@ -113,7 +131,7 @@ class TestTakedownStateMachine:
         payload = TakedownRequest(comment="合规问题紧急下架", reason="regulatory")
 
         with pytest.raises(HTTPException) as exc:
-            await emergency_takedown(doc.id, payload, db, principal)
+            await emergency_takedown(doc.id, payload, _make_request(), db, principal)
         assert exc.value.status_code == 422
         # 状态机报错: 状态 DRAFT 不能执行 ARCHIVE
         assert "DRAFT" in exc.value.detail
@@ -137,7 +155,7 @@ class TestTakedownStateMachine:
             principal = _admin_principal()
             payload = TakedownRequest(comment="合规问题紧急下架", reason="regulatory")
 
-            response = await emergency_takedown(doc.id, payload, db, principal)
+            response = await emergency_takedown(doc.id, payload, _make_request(), db, principal)
 
             assert response.actor_id == "admin_user"
             assert response.reason == "regulatory"
@@ -168,7 +186,7 @@ class TestTakedownStateMachine:
         payload = TakedownRequest(comment="合规问题紧急下架", reason="regulatory")
 
         with pytest.raises(HTTPException) as exc:
-            await emergency_takedown(doc.id, payload, db, principal)
+            await emergency_takedown(doc.id, payload, _make_request(), db, principal)
         assert exc.value.status_code == 422
         # 状态机报错
         assert "ARCHIVED" in exc.value.detail
@@ -192,7 +210,7 @@ class TestTakedownStateMachine:
         payload = TakedownRequest.model_construct(comment="   ", reason="other")
 
         with pytest.raises(HTTPException) as exc:
-            await emergency_takedown(doc.id, payload, db, principal)
+            await emergency_takedown(doc.id, payload, _make_request(), db, principal)
         # 状态机 comment_required → 422
         assert exc.value.status_code == 422
 
@@ -209,7 +227,7 @@ class TestTakedownStateMachine:
         payload = TakedownRequest.model_construct(comment="合规问题紧急下架", reason="bogus")
 
         with pytest.raises(HTTPException) as exc:
-            await emergency_takedown(doc.id, payload, db, principal)
+            await emergency_takedown(doc.id, payload, _make_request(), db, principal)
         assert exc.value.status_code == 422
         assert "reason" in exc.value.detail.lower() or "regulatory" in exc.value.detail.lower()
 
@@ -233,7 +251,7 @@ class TestRollbackStateMachine:
 
         request = RollbackRequest(target_doc_id=target.id, comment="回滚测试")
         with pytest.raises(HTTPException) as exc:
-            await rollback_document(current.id, request, db, principal)
+            await rollback_document(current.id, request, _make_request(), db, principal)
         assert exc.value.status_code == 422
         # 状态机报错: DRAFT 不能执行 SUPERSEDE
         assert "DRAFT" in exc.value.detail or "已发布" in exc.value.detail
@@ -255,7 +273,7 @@ class TestRollbackStateMachine:
         try:
             principal = _admin_principal()
             request = RollbackRequest(target_doc_id=target.id, comment="回滚到 v1")
-            response = await rollback_document(current.id, request, db, principal)
+            response = await rollback_document(current.id, request, _make_request(), db, principal)
 
             assert response.from_doc_id == current.id
             assert response.to_doc_id == target.id
@@ -279,7 +297,7 @@ class TestRollbackStateMachine:
         try:
             principal = _admin_principal()
             request = RollbackRequest(target_doc_id=target.id, comment="rollback test")
-            await rollback_document(current.id, request, db, principal)
+            await rollback_document(current.id, request, _make_request(), db, principal)
 
             assert len(db.approvals_added) == 1
             record = db.approvals_added[0]
@@ -308,7 +326,7 @@ class TestRollbackStateMachine:
         try:
             principal = _admin_principal()
             request = RollbackRequest(target_doc_id=target.id, comment="rollback")
-            await rollback_document(current.id, request, db, principal)
+            await rollback_document(current.id, request, _make_request(), db, principal)
 
             assert current.is_current_version is False
             assert target.is_current_version is True
@@ -336,7 +354,7 @@ class TestRollbackStateMachine:
         try:
             principal = _admin_principal()
             request = RollbackRequest(target_doc_id=target.id, comment="rollback")
-            await rollback_document(current.id, request, db, principal)
+            await rollback_document(current.id, request, _make_request(), db, principal)
 
             assert len(db.approvals_added) == 1
             record = db.approvals_added[0]

@@ -292,7 +292,7 @@ class TestApprovalEndpointLogic:
         db.add = MagicMock()
         db.commit = AsyncMock()
 
-        principal = SimpleNamespace(actor_id="alice", actor_role="editor", roles=["editor"])
+        principal = SimpleNamespace(actor_id="alice", actor_role="editor", roles=["editor"], tenant_id="default")
         request = MagicMock()
         request.client.host = "127.0.0.1"
         request.headers = {"user-agent": "test/1.0", "x-request-id": "req-1"}
@@ -319,8 +319,13 @@ class TestApprovalEndpointLogic:
         doc = _make_mock_doc(approval_status=KbApprovalStatus.IN_REVIEW, created_by="alice")
         db = AsyncMock()
         db.get = AsyncMock(return_value=doc)
+        # P0-3.B: get_last_actor 调 db.execute(select(KbDocumentApproval.actor_id))
+        # 默认返回 None → last_actor 走 doc.created_by 兜底
+        db.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+        )
 
-        principal = SimpleNamespace(actor_id="alice", actor_role="editor", roles=["editor"])
+        principal = SimpleNamespace(actor_id="alice", actor_role="editor", roles=["editor"], tenant_id="default")
         request = MagicMock()
         request.client.host = "127.0.0.1"
         request.headers = {"user-agent": "test"}

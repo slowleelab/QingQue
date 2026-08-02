@@ -67,5 +67,16 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         except Exception:
             latency_ms = int((time.perf_counter() - start) * 1000)
-            logger.exception("api_request_error", latency_ms=latency_ms)
+            # P0-3: 异常路径也要带 principal (反查"谁失败了")
+            principal = getattr(request.state, "principal", None)
+            actor_id = principal.actor_id if principal else "anonymous"
+            actor_role = principal.actor_role if principal else "anonymous"
+            tenant_id = principal.tenant_id if principal else "default"
+            logger.exception(
+                "api_request_error",
+                latency_ms=latency_ms,
+                actor_id=actor_id,
+                actor_role=actor_role,
+                tenant_id=tenant_id,
+            )
             raise
