@@ -67,14 +67,28 @@ async def retrieve_documents(
     # I2-C2: 注入嵌入熔断器 (后台探测, 不可用时跳过 embed → 走 bm25)
     embedding_breaker = get_embedding_breaker(request)
 
-    response = await retrieve(
-        request=request_body,
-        es_client=es,
-        embedding_provider=embedding,
-        reranker=reranker,
-        redis_client=redis,
-        embedding_breaker=embedding_breaker,
-    )
+    # P1-3.2: 失败路径计入 SLO 错误率 (status="failed")
+    # 旧实现: engine.retrieve() 抛异常时无任何 metric, SLO 端点看到 0 失败 → 误报 100% 可用
+    try:
+        response = await retrieve(
+            request=request_body,
+            es_client=es,
+            embedding_provider=embedding,
+            reranker=reranker,
+            redis_client=redis,
+            embedding_breaker=embedding_breaker,
+        )
+    except Exception:
+        # 打点: status="failed" (与 success/degraded 区分, 给 PromQL availability SLO 用)
+        try:
+            from kb.middleware.prometheus import RETRIEVE_COUNT
+
+            RETRIEVE_COUNT.labels(
+                search_type=request_body.search_type, status="failed"
+            ).inc()
+        except Exception:
+            logger.debug("RETRIEVE_COUNT(failed) 记录失败, 不影响主流程")
+        raise
 
     # I2-C4: 嵌入漂移监控 — 每次 retrieve 记录 query embedding, 触发指标
     try:
