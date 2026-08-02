@@ -62,6 +62,38 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 _ALLOWED_EXTENSIONS = {".pdf", ".docx", ".html", ".htm", ".md", ".markdown", ".txt", ".xlsx"}
 
 
+def _build_reindex_metadata(doc: Any, doc_id_fallback: str | None = None) -> dict[str, Any]:
+    """P0-2.3: 构造 reindex / publish 同步用的 ES metadata
+
+    单一构造点, 防 reindex_document / publish es_sync / upload 三个路径
+    各自 inline metadata dict 出现漂移.
+
+    字段:
+      - category / doc_type / card_type / customer_tier / security_level: 业务属性
+      - version: doc.version
+      - tenant_id: doc.tenant_id (P0-1)
+      - keywords: doc.llm_keywords (LLM 抽取)
+      - approval_status: doc.approval_status.value (合规过滤, 必须跟 PG 一致)
+      - is_current_version: doc.is_current_version (版本管理)
+      - doc_group: doc.doc_group or doc_id_fallback (I2-C3)
+      - allowed_roles: doc.allowed_roles (P0-1 角色访问控制)
+    """
+    return {
+        "category": doc.category,
+        "doc_type": doc.doc_type,
+        "card_type": doc.card_type or "",
+        "customer_tier": doc.customer_tier or "",
+        "security_level": doc.security_level,
+        "version": doc.version,
+        "tenant_id": doc.tenant_id,
+        "keywords": doc.llm_keywords or [],
+        "approval_status": doc.approval_status.value if hasattr(doc.approval_status, "value") else str(doc.approval_status),
+        "is_current_version": doc.is_current_version,
+        "doc_group": doc.doc_group or doc_id_fallback or str(doc.id),
+        "allowed_roles": doc.allowed_roles or [],
+    }
+
+
 def _parse_allowed_roles(raw: str | None) -> list[str]:
     """P0-1: 解析上传表单里的 allowed_roles 字段
 
@@ -350,21 +382,8 @@ async def reindex_document(doc_id: str, db: DbSession, es: ESClient, principal: 
         raise HTTPException(status_code=404, detail="文档无分块数据")
 
     doc = await db.get(KbDocument, uid)
-    metadata = {
-        "category": doc.category,
-        "doc_type": doc.doc_type,
-        "card_type": doc.card_type or "",
-        "customer_tier": doc.customer_tier or "",
-        "security_level": doc.security_level,
-        "version": doc.version,
-        "tenant_id": doc.tenant_id,
-        "keywords": doc.llm_keywords or [],
-        "approval_status": doc.approval_status.value,
-        "is_current_version": doc.is_current_version,
-        "doc_group": doc.doc_group or doc_id,
-        # P0-1: reindex 时同步角色访问控制 (从 PG 读取, 不接受请求体覆盖)
-        "allowed_roles": doc.allowed_roles or [],
-    }
+    # P0-2.3: 复用 _build_reindex_metadata, 避免 inline 漂移
+    metadata = _build_reindex_metadata(doc, doc_id_fallback=doc_id)
 
     chunk_ids = []
     chunks_data = []
