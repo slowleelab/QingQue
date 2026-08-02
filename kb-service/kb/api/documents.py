@@ -587,12 +587,26 @@ async def rollback_document(
     if current_doc.is_current_version and str(current_doc.id) == str(target_doc.id):
         raise HTTPException(status_code=422, detail="该版本已经是当前版本, 无需回滚")
 
-    # 权限: rollback 是高风险操作, 仅 admin 可执行 (双签豁免角色也可)
-    if "admin" not in principal.roles and principal.actor_role not in {"admin", "service"}:
-        raise HTTPException(status_code=403, detail="ROLLBACK 仅 admin / service 可执行")
-    from_status = current_doc.approval_status
+    # 权限: rollback 是高风险操作, 仅 admin 可执行 (P0-2.4: 移除 service 豁免)
+    if "admin" not in principal.roles and principal.actor_role != "admin":
+        raise HTTPException(status_code=403, detail="ROLLBACK 仅 admin 可执行")
+
+    # P0-2.2: 状态机校验 — 强制 target PUBLISHED → SUPERSEDED
+    from kb.security.approval_recorder import record_approval, validate_or_raise
+
+    # 兼容: 旧 mock 测试里 target_status 是 MagicMock(value=...), 真代码是 enum
+    target_status_value = (
+        target_status.value if hasattr(target_status, "value") else str(target_status)
+    )
+    new_status = validate_or_raise(
+        current_status=target_status_value,
+        action=KbApprovalAction.SUPERSEDE,
+        actor_id=principal.actor_id,
+        actor_role=principal.actor_role,
+        comment=payload.comment,  # SUPERSEDE 强制 comment 校验
+        last_actor=target_doc.created_by,
+    )
     now = datetime.now(timezone.utc)
-    retention = now + timedelta(days=365 * 5)
 
     # 原子切换 is_current_version
     current_doc.is_current_version = False
@@ -603,22 +617,17 @@ async def rollback_document(
     target_doc.updated_at = now
     target_doc.updated_by = principal.actor_id
 
-    # 写审批记录 (用 SUPERSEDE 表示版本切换语义)
-    record = KbDocumentApproval(
-        id=uuid_utils.uuid7(),
-        document_id=target_doc.id,
+    # 写审批记录 (action=SUPERSEDE, high risk) — 复用 approval_recorder
+    record = record_approval(
+        db,
+        doc=target_doc,
         action=KbApprovalAction.SUPERSEDE,
-        from_status=from_status.value,
-        to_status=target_doc.approval_status.value,
+        from_status=target_status,
+        to_status=new_status,
         actor_id=principal.actor_id,
         actor_role=principal.actor_role,
         comment=f"[ROLLBACK] {payload.comment} (从 {doc_id} 切到 {payload.target_doc_id})",
-        tenant_id=target_doc.tenant_id,
-        operation_result="success",
-        risk_level="high",
-        retention_until=retention,
     )
-    db.add(record)
 
     # 业务审计
     try:
@@ -754,13 +763,14 @@ async def emergency_takedown(
 ):
     """紧急下架 — 高风险操作, 仅 admin, 强留痕
 
-    与 /archive 区别:
-    - takedown 是独立端点, 不走审批工作流, 直接生效
-    - 强制 comment 至少 5 字符
-    - 必须选 reason 分类 (regulatory/security/quality/other)
-    - 高 risk_level, 5 年留存
+    P0-2.2: 走状态机校验, 强制 PUBLISHED/SUPERSEDED → ARCHIVED
+    (旧代码允许 DRAFT 直接 takedown, 是漏洞)
 
-    下架语义: approval_status → ARCHIVED + is_current_version = False
+    与 /archive 区别:
+    - takedown 强制 reason 分类 (regulatory/security/quality/other)
+    - takedown 强制 comment 至少 5 字符
+    - takedown 额外翻 is_current_version = False (紧急下架往往要立即停用当前版本)
+    - retention 5y (跟 archive 统一, 旧代码 10y 过严, P0-2.2 改齐)
     """
     try:
         uid = uuid_utils.UUID(doc_id)
@@ -776,41 +786,41 @@ async def emergency_takedown(
         raise HTTPException(status_code=404, detail="文档不存在")
     if doc.is_deleted:
         raise HTTPException(status_code=410, detail="文档已删除")
-    cur_status = doc.approval_status
-    cur_status_str = cur_status.value if hasattr(cur_status, "value") else str(cur_status)
-    if cur_status_str == KbApprovalStatus.ARCHIVED.value:
-        raise HTTPException(status_code=422, detail="文档已下架, 重复操作")
 
     # reason 合法性
     if payload.reason not in {"regulatory", "security", "quality", "other"}:
         raise HTTPException(status_code=422, detail="reason 必须是 regulatory/security/quality/other 之一")
 
+    # P0-2.2: 状态机校验 — 强制 PUBLISHED/SUPERSEDED → ARCHIVED
+    from kb.security.approval_recorder import record_approval, validate_or_raise
+
     from_status = doc.approval_status
-    now = datetime.now(timezone.utc)
-    retention = now + timedelta(days=365 * 10)  # takedown 留存 10 年 (更严)
-
-    # 状态变更
-    doc.approval_status = KbApprovalStatus.ARCHIVED
-    doc.is_current_version = False
-    doc.updated_at = now
-    doc.updated_by = principal.actor_id
-
-    # 写审批记录 (action=ARCHIVE, high risk)
-    record = KbDocumentApproval(
-        id=uuid_utils.uuid7(),
-        document_id=doc.id,
+    from_status_value = (
+        from_status.value if hasattr(from_status, "value") else str(from_status)
+    )
+    new_status = validate_or_raise(
+        current_status=from_status_value,
         action=KbApprovalAction.ARCHIVE,
-        from_status=from_status.value,
-        to_status=KbApprovalStatus.ARCHIVED.value,
+        actor_id=principal.actor_id,
+        actor_role=principal.actor_role,
+        comment=payload.comment,  # ARCHIVE 强制 comment 校验
+        last_actor=doc.created_by,
+    )
+
+    # 写审批记录 (action=ARCHIVE, high risk) — 复用 approval_recorder
+    record = record_approval(
+        db,
+        doc=doc,
+        action=KbApprovalAction.ARCHIVE,
+        from_status=from_status,
+        to_status=new_status,
         actor_id=principal.actor_id,
         actor_role=principal.actor_role,
         comment=f"[TAKEDOWN/{payload.reason}] {payload.comment}",
-        tenant_id=doc.tenant_id,
-        operation_result="success",
-        risk_level="high",
-        retention_until=retention,
     )
-    db.add(record)
+
+    # takedown 额外副作用: 立即停用当前版本 (P0-2.2 与旧行为一致)
+    doc.is_current_version = False
 
     # 业务审计
     try:
@@ -823,7 +833,7 @@ async def emergency_takedown(
             result="success",
             detail={
                 "from_status": from_status.value,
-                "to_status": KbApprovalStatus.ARCHIVED.value,
+                "to_status": new_status.value,
                 "reason": payload.reason,
                 "comment": payload.comment,
             },
@@ -847,5 +857,5 @@ async def emergency_takedown(
         actor_id=principal.actor_id,
         comment=payload.comment,
         reason=payload.reason,
-        created_at=record.created_at.isoformat() if record.created_at else now.isoformat(),
+        created_at=record.created_at.isoformat() if record.created_at else "",
     )

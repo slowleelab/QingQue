@@ -34,6 +34,7 @@ from kb.orm.kb import (
     KbDocument,
     KbDocumentApproval,
 )
+from kb.security.approval_recorder import record_approval as _record_approval  # P0-2.2: 单点真相
 from kb.security.audit_service import AuditService
 from kb.security.workflow import (
     WorkflowError,
@@ -108,50 +109,6 @@ def _extract_request_meta(request: Request) -> tuple[str | None, str | None, str
     ua = request.headers.get("user-agent")
     rid = request.headers.get("x-request-id") or getattr(request.state, "request_id", None)
     return ip, ua, rid
-
-
-def _record_approval(
-    db: Any,
-    *,
-    doc: KbDocument,
-    action: KbApprovalAction,
-    from_status: KbApprovalStatus,
-    to_status: KbApprovalStatus,
-    actor_id: str,
-    actor_role: str,
-    comment: str | None,
-    ip: str | None,
-    ua: str | None,
-    request_id: str | None,
-) -> KbDocumentApproval:
-    """写入 KbDocumentApproval + 更新 KbDocument.approval_status + retention_until (5y)"""
-    now = datetime.now(UTC)
-    retention = now + timedelta(days=365 * _AUDIT_RETENTION_YEARS)
-
-    record = KbDocumentApproval(
-        id=uuid_utils.uuid7(),
-        document_id=doc.id,
-        action=action,
-        from_status=from_status.value,
-        to_status=to_status.value,
-        actor_id=actor_id,
-        actor_role=actor_role,
-        comment=comment,
-        tenant_id=doc.tenant_id,
-        ip=ip,
-        ua=(ua[:256] if ua else None),
-        request_id=request_id,
-        operation_result="success",
-        risk_level="high" if action in _HIGH_RISK_ACTIONS else "normal",
-        retention_until=retention,
-    )
-    db.add(record)
-
-    # 同步文档表状态
-    doc.approval_status = to_status
-    doc.updated_by = actor_id
-    doc.updated_at = now
-    return record
 
 
 async def _execute_action(

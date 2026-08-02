@@ -340,7 +340,8 @@ class TestEmergencyTakedown:
         with pytest.raises(HTTPException) as exc:
             await emergency_takedown(DOC_V1, payload, db, principal)
         assert exc.value.status_code == 422
-        assert "下架" in exc.value.detail
+        # P0-2.2: 终态 ARCHIVED 由状态机拒绝 (而非旧代码的 explicit "已下架" 检查)
+        assert "ARCHIVED" in exc.value.detail or "不能执行" in exc.value.detail
 
     @pytest.mark.asyncio
     async def test_takedown_comment_min_length(self):
