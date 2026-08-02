@@ -322,6 +322,7 @@ make clean        # 清理缓存
 | Sprint 4 | 大模型集成 + 降级策略 | ✅ 已完成 |
 | Sprint 5 | 坐席辅助服务 + 坐席辅助引擎 | ✅ 已完成 |
 | Sprint 6 | chat-svc 集成 + 超级图 | ✅ 已完成 |
+| Sprint 7 | kb-service P0 业务审计增强 + P1-3 SLO 端点 | ✅ 已完成 |
 
 ## 文档
 

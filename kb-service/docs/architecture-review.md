@@ -1,9 +1,9 @@
 # kb-service 企业级银行 KB 系统对标评审
 
-> 评审日期: 2026-07-29
+> 评审日期: 2026-07-29 (v1.2 更新 P1-3 落地记录)
 > 评审范围: `kb-service/` 全量 (3504 LOC 业务代码 + 测试)
 > 评审基准: 国有大行/股份制银行客服中心知识库系统 (招行/工行/建行) 的成熟度维度
-> 评审结论: **已达到生产级骨架**, 但在多租户隔离、强合规审计、嵌入模型漂移治理三个维度仍有明显缺口
+> 评审结论: **已达到生产级骨架**, P0 + P1-3 落地; P1-1/P1-2/P1-4 仍有部分缺口 (见 A.7.5)
 
 ---
 
@@ -311,6 +311,50 @@ kb-service 的**工程完成度**已经超过 lumio 早期 RAG, 在**工程能�
 - 敏感词命中放行 → 落 `KbDocumentApproval` (P0-3 评审建议, 实际未做)
 
 **评审周期建议**: v1.2 评审时间 = P1-1 + P1-2 + P1-3 落地后 (预计 2-3 周).
+
+---
+
+## A.7 P1-3 SLO 端点 + PromQL 修复 (Sprint 6, 4 commits, +33 测试)
+
+### A.7.1 评审建议 vs 实际落地
+
+| 评审建议 (v1.0) | 实际落地 | 评估 |
+|---|---|---|
+| 检索超时降级 + SLO 告警 (P1-3) | `slo.py` 25+ 单测全过, 但 0 生产调用 → 修 | **半真半假** — 函数层完整, 集成层完全缺失 |
+| `/api/v1/admin/slo` 端点 (slo.py:25 docstring 承诺) | **完全缺失** → 落地 | **真洞**, 与 P0-4 "audit_service.log_degradation 0 调用" 同病 |
+| burn-rate 告警规则 (Prometheus YAML) | 函数 `generate_prometheus_rules()` 存在但**指标名错** (`kb_retrieve_errors_total` 不存在) → 修 | **真洞** — 即便生成也无法在生产匹配 |
+| 检索失败计入 SLO 错误率 | RETRIEVE_COUNT{status="failed"} 完全**没打点** → 加 | **真洞** — availability SLO 永远看到 0 失败 |
+| SLO 配置化 (P95/P99 阈值) | slo.py hard-code → 走 ObservabilitySettings + .env | 落地 |
+
+### A.7.2 落地清单 (4 commits, Sprint 6)
+
+| Commit | 内容 | 行数 | 测试 |
+|---|---|---|---|
+| P1-3.1 修 slo.py 指标名 + 字段语义 | `kb_retrieve_errors_total` → `kb_retrieve_total{status="failed"}`; availability/latency PromQL 分支; SLOTarget.latency_threshold_s; compute_error_budget slo_name 字段 | 164 | +10 |
+| P1-3.2 检索失败计入 SLO 错误率 | retrieve.py 失败路径 try/except 调 engine.retrieve(); 异常时打 RETRIEVE_COUNT{status="failed"}; metric 失败不掩盖原异常 | 184 | +5 |
+| P1-3.3 实现 /api/v1/admin/slo 端点 | 新增 `kb/observability/slo_metrics.py` (从 REGISTRY 读 counter/histogram); admin_slo 端点 (slos/active_alerts/error_budgets/prometheus_rules_yaml); ObservabilitySettings 子配置 | 684 | +18 |
+| P1-3.4 删除 embedding-drift stub | admin.py:264-294 旧端点返回 mock 数据 → 删; .env.example 补 KB_OBSERVABILITY_* 3 行 | 44 | +3 |
+| **合计** | | **+1076** | **+36** |
+
+### A.7.3 评审夸大纠正 (本次新发现)
+
+1. **3 级降级链 (engine.py:392) 不是 P1-3 修复, 是 I2-C2 已完成** — 评审 v1.0 当时未细分. 实际 P1-3 真实缺口集中在 "可观测" 侧 (slo.py 是死代码, PromQL 指标名错, status="failed" 不打点).
+2. **P1-3 与 P1-1/P1-2 独立** — 评审把它们归一组, 实际 P1-3 是纯可观测问题 (后端 + 端点 + 配置), P1-1/P1-2 是核心功能问题.
+3. **prometheus_client REGISTRY.collect() 直接读数** 比 HTTP 拉 /metrics 更安全 (无循环依赖, 进程内一致) — 这是调研时发现的最优解.
+
+### A.7.4 维度重打分 (P1-3)
+
+| 维度 | v1.1 评分 | v1.2 评分 | 变化原因 |
+|---|---|---|---|
+| 检索超时降级 | ★★ (3 级降级链已实现) | ★★★ | + SLO 告警接入生产 |
+| SLO 可观测性 | ◐ (slo.py 死代码) | ★★ | 端点暴露 + 配置化 + PromQL 正确 |
+| Prometheus 指标命名一致性 | ✗ (PromQL 错) | ★★ | availability/latency 两条分支都用真实指标名 |
+
+### A.7.5 后续可继续 (P1-1 / P1-2 / P1-4 评审没动的部分)
+
+- **P1-1**: SHADOW_DIVERGENCE 指标 0 调用; DriftMonitor threshold/window 未配置化; admin/shadow-compare 端点需手动传 chunk_ids
+- **P1-2**: fail-open 是默认无开关; tier_quotas 不可 env 覆盖; fail-open 路径不打点
+- **P1-4**: admin 一键回滚未做; content_unified_diff 是占位; rollback/takedown 不触发 ES 重新索引
 
 ---
 
