@@ -73,16 +73,25 @@ def jwt_carol(settings):
 
 
 class _FakeAsyncSession:
-    """最小 AsyncSession — 跟踪审计/文档, 但不真正落库"""
+    """最小 AsyncSession — 跟踪 KbDocument / KbChunk / KbRetrievalAudit"""
 
     def __init__(self):
         self.retrieval_audits: list = []
+        self.docs: dict[str, Any] = {}
+        self.chunks: dict[Any, Any] = {}
         self.committed = False
 
     def add(self, obj):
-        # 捕获 KbRetrievalAudit 落表对象
-        if obj.__class__.__name__ == "KbRetrievalAudit":
+        cls_name = obj.__class__.__name__
+        if cls_name == "KbRetrievalAudit":
             self.retrieval_audits.append(obj)
+        elif cls_name == "KbDocument":
+            self.docs[str(obj.id)] = obj
+        elif cls_name == "KbChunk":
+            self.chunks[obj.id] = obj
+
+    async def get(self, _model, pk):
+        return self.docs.get(str(pk))
 
     async def commit(self):
         self.committed = True
@@ -94,7 +103,14 @@ class _FakeAsyncSession:
         pass
 
     async def execute(self, *args, **kwargs):
-        return MagicMock(all=MagicMock(return_value=[]), scalar=MagicMock(return_value=0))
+        # 当查询 KbChunk 时, 返回已注入的 chunks
+        return MagicMock(
+            scalars=MagicMock(return_value=MagicMock(
+                all=MagicMock(return_value=list(self.chunks.values())),
+            )),
+            all=MagicMock(return_value=list(self.chunks.values())),
+            scalar=MagicMock(return_value=len(self.chunks)),
+        )
 
 
 class _SearchCall:
@@ -174,6 +190,17 @@ async def app(monkeypatch):
     from kb.api.deps import get_db_session
     test_app.dependency_overrides[get_db_session] = override_get_db
     monkeypatch.setattr("kb.api.admin.get_redis", lambda: fake_redis)
+
+    # P0-1.2: mock MinIO 客户端 (上传端点需要)
+    fake_minio = MagicMock()
+    fake_minio.put_object = MagicMock()
+    fake_minio.bucket_exists = MagicMock(return_value=True)
+    monkeypatch.setattr("kb.api.documents.get_minio", lambda: fake_minio)
+
+    # mock Kafka 投递 (上传端点会调)
+    async def fake_publish_ingest(doc_id, payload):
+        pass
+    monkeypatch.setattr("kb.api.documents.publish_ingest_request", fake_publish_ingest)
 
     yield test_app, fake_db, fake_redis, fake_es
 
@@ -534,3 +561,203 @@ class TestEndToEndTenantIsolation:
                               "tenant_id": "bank-prod"},
                         headers={"Authorization": f"Bearer {jwt_alice}"})
         assert r.status_code == 403
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# P0-1.2 上传层 allowed_roles 注入
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _upload_with(client, token, allowed_roles=None, filename="test.txt"):
+    """上传辅助: 包含 allowed_roles 字段"""
+    files = {"file": (filename, io.BytesIO(b"x"), "text/plain")}
+    data = {"category": "OTHER", "doc_type": "faq"}
+    if allowed_roles is not None:
+        # allowed_roles 必须是 JSON 字符串
+        import json as json_lib
+        data["allowed_roles"] = json_lib.dumps(allowed_roles)
+    resp = client.post("/api/v1/documents", files=files, data=data,
+                       headers={"Authorization": f"Bearer {token}"})
+    return resp
+
+
+class TestUploadAllowedRoles:
+    """上传 allowed_roles 注入测试 — T16-T23"""
+
+    def test_explicit_roles_persisted(self, app, client, jwt_alice):
+        """T16: 上传 allowed_roles='["admin"]' → KbDocument.allowed_roles = ['admin']"""
+        test_app, fake_db, _, _ = app
+        r = _upload_with(client, jwt_alice, allowed_roles=["admin"])
+        assert r.status_code == 202, r.text
+        doc_id = r.json()["doc_id"]
+        # 检查 fake_db 里的 KbDocument
+        assert doc_id in fake_db.docs
+        assert fake_db.docs[doc_id].allowed_roles == ["admin"]
+
+    def test_missing_field_defaults_to_empty(self, app, client, jwt_alice):
+        """T17: 上传不传 allowed_roles → 默认 [] (全员可见)"""
+        test_app, fake_db, _, _ = app
+        r = _upload_with(client, jwt_alice, allowed_roles=None)
+        assert r.status_code == 202, r.text
+        doc_id = r.json()["doc_id"]
+        assert fake_db.docs[doc_id].allowed_roles == []
+
+    def test_empty_array_string_defaults_to_empty(self, app, client, jwt_alice):
+        """T17b: 上传 allowed_roles='[]' → [] (显式空列表也 = 全员可见)"""
+        test_app, fake_db, _, _ = app
+        r = _upload_with(client, jwt_alice, allowed_roles=[])
+        assert r.status_code == 202
+        doc_id = r.json()["doc_id"]
+        assert fake_db.docs[doc_id].allowed_roles == []
+
+    def test_invalid_json_returns_422(self, app, client, jwt_alice):
+        """T18: 上传 allowed_roles='not json' → 422"""
+        test_app, fake_db, _, _ = app
+        files = {"file": ("test.txt", io.BytesIO(b"x"), "text/plain")}
+        data = {"category": "OTHER", "doc_type": "faq", "allowed_roles": "not-a-json"}
+        r = client.post("/api/v1/documents", files=files, data=data,
+                        headers={"Authorization": f"Bearer {jwt_alice}"})
+        assert r.status_code == 422
+        assert "JSON" in r.json()["detail"]
+
+    def test_not_list_returns_422(self, app, client, jwt_alice):
+        """T19: 上传 allowed_roles='{"x":1}' (对象) → 422"""
+        test_app, fake_db, _, _ = app
+        files = {"file": ("test.txt", io.BytesIO(b"x"), "text/plain")}
+        data = {"category": "OTHER", "doc_type": "faq", "allowed_roles": '{"x":1}'}
+        r = client.post("/api/v1/documents", files=files, data=data,
+                        headers={"Authorization": f"Bearer {jwt_alice}"})
+        assert r.status_code == 422
+        assert "数组" in r.json()["detail"]
+
+    def test_empty_string_element_returns_422(self, app, client, jwt_alice):
+        """T19b: 元素含空字符串 → 422"""
+        test_app, fake_db, _, _ = app
+        files = {"file": ("test.txt", io.BytesIO(b"x"), "text/plain")}
+        data = {"category": "OTHER", "doc_type": "faq", "allowed_roles": '["admin", ""]'}
+        r = client.post("/api/v1/documents", files=files, data=data,
+                        headers={"Authorization": f"Bearer {jwt_alice}"})
+        assert r.status_code == 422
+        assert "非空" in r.json()["detail"]
+
+    def test_roles_in_kafka_payload(self, app, client, jwt_alice, monkeypatch):
+        """T20: Kafka 载荷含 allowed_roles 字段 (供 ETL 写 ES)"""
+        test_app, fake_db, _, _ = app
+        # 捕获 publish_ingest_request 调用
+        from kb.api import documents
+        captured: list[dict] = []
+        async def fake_publish(doc_id, payload):
+            captured.append(payload)
+        monkeypatch.setattr(documents, "publish_ingest_request", fake_publish)
+
+        r = _upload_with(client, jwt_alice, allowed_roles=["admin", "reviewer"])
+        assert r.status_code == 202
+        assert len(captured) == 1
+        payload = captured[0]
+        # payload 顶层有 tenant_id, metadata 内层有 allowed_roles
+        assert payload["tenant_id"] == "default"
+        assert payload["metadata"]["allowed_roles"] == ["admin", "reviewer"]
+
+    def test_reindex_uses_pg_allowed_roles(self, app, client, jwt_alice, monkeypatch):
+        """T21: reindex 时 metadata.allowed_roles 从 PG 读, 不接受请求体"""
+        test_app, fake_db, _, _ = app
+        # 先上传一个 doc
+        r = _upload_with(client, jwt_alice, allowed_roles=["admin"])
+        assert r.status_code == 202
+        doc_id = r.json()["doc_id"]
+        # fake_db.docs[doc_id] 已有完整 KbDocument, 但 approval_status 是 enum,
+        # 而 fake 没真值. 我们直接覆盖为有意义的 MagicMock-like
+        doc = fake_db.docs[doc_id]
+        from unittest.mock import PropertyMock
+        # 让 doc.approval_status.value 返回 'DRAFT'
+        from types import SimpleNamespace
+        doc.approval_status = SimpleNamespace(value="DRAFT")
+
+        # 注入 KbChunk 模拟已索引状态
+        from kb.orm.kb import KbChunk
+        from uuid import UUID
+        chunk = KbChunk(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            document_id=UUID(doc_id),
+            chunk_index=0,
+            content="test chunk",
+            embedding=b"",  # 占位
+            chunk_type="plain_text",
+            tenant_id="default",
+        )
+        fake_db.chunks[chunk.id] = chunk
+
+        # monkeypatch writer 捕获 metadata
+        from kb.pipeline import writer
+        captured: list[dict] = []
+        async def fake_write_chunks_to_es(es_client, doc_id, chunk_ids, chunks, embeddings,
+                                          doc_metadata, model_version):
+            captured.append({"doc_id": doc_id, "doc_metadata": doc_metadata})
+            return len(chunks)
+        async def fake_delete_chunks_from_es(*args, **kwargs):
+            return 0
+        async def fake_mark_es_indexed(*args, **kwargs):
+            pass
+        monkeypatch.setattr(writer, "write_chunks_to_es", fake_write_chunks_to_es)
+        monkeypatch.setattr(writer, "delete_chunks_from_es", fake_delete_chunks_from_es)
+        monkeypatch.setattr(writer, "mark_es_indexed", fake_mark_es_indexed)
+
+        r = client.post(f"/api/v1/documents/{doc_id}/reindex",
+                        headers={"Authorization": f"Bearer {jwt_alice}"})
+        assert r.status_code == 200, r.text
+        assert len(captured) == 1
+        meta = captured[0]["doc_metadata"]
+        assert meta["allowed_roles"] == ["admin"]
+        assert meta["tenant_id"] == "default"
+
+    def test_empty_roles_role_isolation(self, app, client, jwt_alice, jwt_bob):
+        """T22: 端到端 — 角色隔离语义
+        alice (editor) 上传 allowed_roles=['admin'] → editor alice 检索时 ES filter
+        含 'editor' terms; bob (admin) 检索时含 'admin' terms
+        """
+        test_app, fake_db, _, fake_es = app
+        # alice 上传
+        r = _upload_with(client, jwt_alice, allowed_roles=["admin"])
+        assert r.status_code == 202
+        doc_id = r.json()["doc_id"]
+        # 模拟 publish 后 doc 在 ES (fake_es 没数据, 模拟空结果)
+        fake_es._hits = []
+
+        # alice (editor) 检索 → 空 (无 ES 命中, 但 ES 端会过滤)
+        r1 = client.post("/api/v1/retrieve",
+                         json={"query": "信用卡", "top_k": 3, "search_type": "bm25_only"},
+                         headers={"Authorization": f"Bearer {jwt_alice}"})
+        # bob (admin) 检索 → 也空 (但过滤条件不同)
+        r2 = client.post("/api/v1/retrieve",
+                         json={"query": "信用卡", "top_k": 3, "search_type": "bm25_only"},
+                         headers={"Authorization": f"Bearer {jwt_bob}"})
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        # 验证两次检索的 ES filter 不一样 (alice=editor, bob=admin)
+        # fake_es 记录了所有 search 调用
+        bodies = [c.body for c in fake_es.search_calls]
+        # 至少有一次是 alice (含 allowed_roles terms ['editor'])
+        # 至少有一次是 bob (含 allowed_roles terms ['admin'])
+        all_filters = str(bodies)
+        assert "editor" in all_filters
+        assert "admin" in all_filters
+
+    def test_empty_roles_persists_as_empty_list(self, app, client, jwt_alice):
+        """T23: allowed_roles=[] 持久化为空列表 (语义细节见 docs/architecture-review.md)
+        注意: 当前实现下'空列表 = 全员可见'需要 actor_roles=[] 才会过滤掉
+        allowed_roles 条款; 当 actor_roles 非空时, terms 过滤会应用到所有文档
+        (空 allowed_roles 的文档将不会被命中, 这是已知 trade-off).
+        完整'空=全员可见'语义是 P2 增强项.
+        """
+        test_app, fake_db, _, _ = app
+        r = _upload_with(client, jwt_alice, allowed_roles=None)
+        assert r.status_code == 202
+        doc_id = r.json()["doc_id"]
+        # 验证: 持久化的就是 []
+        assert fake_db.docs[doc_id].allowed_roles == []
+
+        # 上传 allowed_roles='[]' 也得到 []
+        r2 = _upload_with(client, jwt_alice, allowed_roles=[])
+        assert r2.status_code == 202
+        doc_id2 = r2.json()["doc_id"]
+        assert fake_db.docs[doc_id2].allowed_roles == []

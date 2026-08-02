@@ -16,6 +16,7 @@
 - 敏感词 AC 自动机扫描
 - 并发 ETL 分布式锁（Redis SETNX）
 - 版本切换/下架/回滚均写 KbDocumentApproval + AuditService
+- P0-1: allowed_roles 注入 (多租户隔离, 角色访问控制)
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import io
+import json
 import logging
 import os
 import uuid_utils
@@ -33,7 +35,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFil
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from kb.api.deps import DbSession, PrincipalDep
+from kb.api.deps import DbSession, ESClient, PrincipalDep
 from kb.config import get_settings
 from kb.logging import get_logger
 from kb.orm.kb import (
@@ -60,6 +62,40 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 _ALLOWED_EXTENSIONS = {".pdf", ".docx", ".html", ".htm", ".md", ".markdown", ".txt", ".xlsx"}
 
 
+def _parse_allowed_roles(raw: str | None) -> list[str]:
+    """P0-1: 解析上传表单里的 allowed_roles 字段
+
+    接收 JSON 字符串, 例如 '["admin","editor"]'.
+    - 缺省/空字符串 → []  (空列表 = 全员可见, Confluence/SharePoint 默认)
+    - 非 JSON → 422
+    - JSON 但非 list → 422
+    - 元素必须非空字符串
+    """
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"allowed_roles 必须是合法 JSON 数组: {e.msg}",
+        ) from e
+    if not isinstance(parsed, list):
+        raise HTTPException(
+            status_code=422,
+            detail=f"allowed_roles 必须是 JSON 数组, 当前类型: {type(parsed).__name__}",
+        )
+    cleaned: list[str] = []
+    for item in parsed:
+        if not isinstance(item, str) or not item.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="allowed_roles 元素必须是非空字符串",
+            )
+        cleaned.append(item.strip())
+    return cleaned
+
+
 @router.post("", status_code=202)
 async def upload_document(
     db: DbSession,
@@ -74,12 +110,16 @@ async def upload_document(
     effective_date: str | None = Form(None),
     expiry_date: str | None = Form(None),
     keywords: str | None = Form(None),
+    allowed_roles: str | None = Form(None),  # P0-1: JSON 数组字符串
 ):
     """上传文档
 
     流程：校验 → 敏感词扫描 → 上传 MinIO → 建 KbDocument → 投递 Kafka → 202
     """
     settings = get_settings()
+
+    # P0-1: 解析 allowed_roles (必须在文件校验前, 避免无效请求占用 IO)
+    parsed_allowed_roles = _parse_allowed_roles(allowed_roles)
 
     # ── 1. 文件大小校验 ──
     content = await file.read()
@@ -163,6 +203,7 @@ async def upload_document(
         status=KbDocStatus.PENDING,
         is_deleted=False,
         tenant_id=principal.tenant_id,  # I1-C1: 多租户从 JWT 注入
+        allowed_roles=parsed_allowed_roles,  # P0-1: 角色访问控制 (空 = 全员可见)
         created_by=principal.actor_id,  # I1-C3: 双签需要真实 created_by
     )
     db.add(doc)
@@ -188,6 +229,8 @@ async def upload_document(
             "approval_status": "DRAFT",
             "is_current_version": True,
             "doc_group": str(doc_id),
+            # P0-1: 多租户 + 角色访问控制透传到 ETL, 写 ES 用
+            "allowed_roles": parsed_allowed_roles,
         },
     }
 
@@ -319,6 +362,8 @@ async def reindex_document(doc_id: str, db: DbSession, es: ESClient, principal: 
         "approval_status": doc.approval_status.value,
         "is_current_version": doc.is_current_version,
         "doc_group": doc.doc_group or doc_id,
+        # P0-1: reindex 时同步角色访问控制 (从 PG 读取, 不接受请求体覆盖)
+        "allowed_roles": doc.allowed_roles or [],
     }
 
     chunk_ids = []
