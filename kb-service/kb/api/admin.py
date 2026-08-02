@@ -10,20 +10,19 @@
 from __future__ import annotations
 
 import logging
-import uuid_utils
+from datetime import UTC
 from typing import Any
 
+import uuid_utils
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import case, func, select
 
 from kb.api.deps import ApiKeyDep, DbSession
 from kb.orm.kb import (
     KbApprovalStatus,
-    KbChunk,
     KbDocument,
     KbDocumentApproval,
     KbIngestionLog,
-    KbIngestionStage,
     KbRetrievalAudit,
 )
 from kb.storage.redis import get_redis
@@ -54,8 +53,8 @@ async def diagnostics(
     stage_stats: dict[str, dict[str, float | int]] = {}
     try:
         # 按阶段聚合 duration_ms (按 created_at 近 7 天过滤, schema 没有 started_at)
-        from datetime import datetime, timedelta, timezone
-        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        from datetime import datetime, timedelta
+        seven_days_ago = datetime.now(UTC) - timedelta(days=7)
         query = (
             select(
                 KbIngestionLog.stage,
@@ -102,6 +101,7 @@ async def diagnostics(
 
     try:
         from sqlalchemy import text
+
         from kb.database import get_engine
         engine = get_engine()
         async with engine.connect() as conn:
@@ -129,8 +129,8 @@ async def diagnostics(
     breaker = getattr(request.app.state, "embedding_breaker", None)
     breaker_status = {
         "available": breaker.is_available if breaker else None,
-        "consecutive_failures": breaker._consecutive_failures if breaker else None,  # noqa: SLF001
-        "consecutive_successes": breaker._consecutive_successes if breaker else None,  # noqa: SLF001
+        "consecutive_failures": breaker._consecutive_failures if breaker else None,
+        "consecutive_successes": breaker._consecutive_successes if breaker else None,
     }
 
     return {
@@ -138,6 +138,123 @@ async def diagnostics(
         "doc_distribution": doc_distribution,
         "health": health,
         "embedding_breaker": breaker_status,
+    }
+
+
+# ── 1a. SLO 实时查询 (P1-3.3) ──
+
+
+@router.get("/api/v1/admin/slo")
+async def admin_slo(
+    _api_key: ApiKeyDep,
+) -> dict[str, Any]:
+    """SLO 实时状态 + 触发的告警 + error budget 剩余 + Prometheus rules YAML
+
+    P1-3.3 落地: 修复 P0-4 评审指出的"slo.py 死代码"问题
+    - 旧实现: slo.py 有完整 burn-rate 计算, 但 0 生产调用
+    - 新实现: 本端点把 slo.py 全部能力 (AlertEvaluator / compute_error_budget /
+      generate_prometheus_rules) 接入生产, 供运维 / 监控使用
+
+    返回:
+    - slos: 各 SLO 当前 error/total/p95/p99
+    - active_alerts: 触发的 4 档告警列表
+    - error_budgets: 各 SLO budget 剩余
+    - prometheus_rules_yaml: 可直接 cat > alerts.yml 的字符串
+    - burn_rate_enabled: 来自 ObservabilitySettings
+    """
+    from kb.config import get_settings
+    from kb.observability.slo import (
+        DEFAULT_SLOS,
+        SLI,
+        AlertEvaluator,
+        compute_error_budget,
+        generate_prometheus_rules,
+    )
+    from kb.observability.slo_metrics import read_slo_metrics
+
+    settings = get_settings()
+    # 开关: 关闭时不计算 alerts (但仍返回 metrics 快照)
+    burn_rate_enabled = settings.observability.burn_rate_enabled
+
+    # 用配置覆盖 LATENCY 阈值 (来自 .env)
+    slos = list(DEFAULT_SLOS)
+    for slo in slos:
+        if slo.sli == SLI.LATENCY_P95:
+            slo.latency_threshold_s = settings.observability.retrieve_p95_threshold_s
+        elif slo.sli == SLI.LATENCY_P99:
+            slo.latency_threshold_s = settings.observability.retrieve_p99_threshold_s
+
+    # 读当前指标
+    metrics = read_slo_metrics()
+
+    # 评估告警 (仅 availability 可基于 error/total 计算; latency 留给 Prometheus 算 quantile)
+    active_alerts: list[dict[str, Any]] = []
+    if burn_rate_enabled:
+        evaluator = AlertEvaluator(slos)
+        for (slo_name, sli_value), m in metrics.items():
+            if m.total_count <= 0:
+                continue
+            try:
+                sli = SLI(sli_value)
+            except ValueError:
+                continue
+            snaps = evaluator.evaluate(
+                slo_name=slo_name,
+                sli=sli,
+                error_count=int(m.error_count),
+                total_count=int(m.total_count),
+            )
+            active_alerts.extend(
+                {
+                    "slo": s.slo_name,
+                    "sli": s.sli.value,
+                    "severity": s.severity,
+                    "window_minutes": s.window_minutes,
+                    "burn_rate": round(s.burn_rate, 4),
+                    "threshold": s.threshold,
+                }
+                for s in snaps
+                if s.triggered
+            )
+
+    # 计算 error budget (仅 availability)
+    budgets: list[dict[str, Any]] = []
+    for slo in slos:
+        m = metrics.get((slo.name, slo.sli.value))
+        if m is None or m.total_count <= 0:
+            continue
+        b = compute_error_budget(
+            slo_name=slo.name,
+            target=slo.target,
+            error_count=int(m.error_count),
+            total_count=int(m.total_count),
+        )
+        budgets.append(
+            {
+                "slo": b.slo_name,
+                "target": b.target,
+                "remaining_pct": round(b.remaining_pct, 4),
+                "healthy": b.healthy,
+                "window_days": b.window_days,
+            }
+        )
+
+    return {
+        "burn_rate_enabled": burn_rate_enabled,
+        "slos": [
+            {
+                "name": m.slo_name,
+                "sli": m.sli,
+                "error_count": m.error_count,
+                "total_count": m.total_count,
+                "p95_latency": m.p95_latency,
+                "p99_latency": m.p99_latency,
+            }
+            for m in metrics.values()
+        ],
+        "active_alerts": active_alerts,
+        "error_budgets": budgets,
+        "prometheus_rules_yaml": generate_prometheus_rules(slos),
     }
 
 
@@ -165,7 +282,6 @@ async def embedding_drift(
         _api_key._state, "drift_monitor", None
     )  # type: ignore[attr-defined]
     # 实际从 app.state 取 (request 在 _api_key 同上下文)
-    from fastapi import Request
 
     # 简化: 从 request.app.state 取
     # 真实路由时 Request 已注入, 这里用 _api_key.scope 或退而求其次

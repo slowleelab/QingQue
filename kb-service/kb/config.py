@@ -221,6 +221,22 @@ class JWTSettings(BaseSettings):
     leeway_seconds: int = 30
 
 
+class ObservabilitySettings(BaseSettings):
+    """可观测性配置 (P1-3.3)
+
+    暴露到 .env 的字段:
+    - burn_rate_enabled: 全局开关 (单测可设 false 关闭)
+    - retrieve_p95_threshold_s: P95 延迟 SLO 阈值 (默认 1.5s)
+    - retrieve_p99_threshold_s: P99 延迟 SLO 阈值 (默认 2.0s)
+    """
+
+    model_config = SettingsConfigDict(env_prefix="KB_OBSERVABILITY_")
+
+    burn_rate_enabled: bool = True
+    retrieve_p95_threshold_s: float = 1.5
+    retrieve_p99_threshold_s: float = 2.0
+
+
 class Settings(BaseSettings):
     """全局配置根"""
 
@@ -252,6 +268,7 @@ class Settings(BaseSettings):
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     jwt: JWTSettings = Field(default_factory=JWTSettings)
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
     @property
     def api_keys_list(self) -> list[str]:
