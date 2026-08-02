@@ -261,37 +261,8 @@ async def admin_slo(
 # ── 1b. 嵌入漂移监控 (I2-C4) ──
 
 
-@router.get("/api/v1/admin/embedding-drift")
-async def embedding_drift(
-    _api_key: ApiKeyDep,
-) -> dict[str, Any]:
-    """嵌入漂移监控快照
-
-    返回:
-    - sample_size: 当前窗口样本数
-    - drift_score: 最新一次 embedding 与质心的 cosine 距离
-    - threshold: 阈值 (默认 0.15)
-    - is_drifted: 是否超过阈值
-    - baseline_centroid_dim: 质心维度 (无质心时为 null)
-
-    用于: 监控嵌入分布是否偏离已知 corpus, 配合 Prometheus 告警
-    """
-    from kb.retrieval.drift import DriftMonitor
-
-    monitor: DriftMonitor | None = getattr(_api_key, "_state", None) and getattr(
-        _api_key._state, "drift_monitor", None
-    )  # type: ignore[attr-defined]
-    # 实际从 app.state 取 (request 在 _api_key 同上下文)
-
-    # 简化: 从 request.app.state 取
-    # 真实路由时 Request 已注入, 这里用 _api_key.scope 或退而求其次
-    return {
-        "sample_size": 0,
-        "drift_score": 0.0,
-        "threshold": 0.15,
-        "is_drifted": False,
-        "note": "通过 GET /api/v1/admin/embedding-drift-live 实时查询 (带 Request 注入)",
-    }
+# P1-3.4: 删除原 embedding-drift stub 端点 (line 264-294, 返回 mock 数据 + 错误对象链)
+# 用户应改调 /api/v1/admin/embedding-drift-live (下方, 行为正确)
 
 
 @router.get("/api/v1/admin/embedding-drift-live")

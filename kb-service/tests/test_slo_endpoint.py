@@ -380,3 +380,37 @@ class TestObservabilitySettings:
         s = Settings()
         assert s.observability.burn_rate_enabled is True
         assert s.observability.retrieve_p95_threshold_s == 1.5
+
+
+# ── P1-3.4: 删除 embedding-drift stub 端点 ──
+
+
+class TestEmbeddingDriftStubRemoved:
+    """P1-3.4: 验证 stub 端点已删除, embedding-drift-live 仍可用"""
+
+    def test_stub_endpoint_gone(self):
+        """stub 端点必须从 router 列表中消失 (不再注册)"""
+        from kb.api.admin import router as admin_router
+
+        paths = {route.path for route in admin_router.routes}
+        # 旧 stub 路径不应存在
+        assert "/api/v1/admin/embedding-drift" not in paths
+        # 正确的 live 端点必须存在
+        assert "/api/v1/admin/embedding-drift-live" in paths
+
+    def test_no_mock_response_in_admin(self):
+        """admin.py 中不应再出现返回 mock 数据的代码 (sample_size: 0 占位)"""
+        from pathlib import Path
+
+        admin_path = Path(__file__).parent.parent / "kb" / "api" / "admin.py"
+        source = admin_path.read_text(encoding="utf-8")
+        # stub 端点返回的占位字符串不应再出现
+        assert "通过 GET /api/v1/admin/embedding-drift-live 实时查询" not in source
+
+    def test_drift_live_endpoint_intact(self):
+        """live 端点保留完整逻辑 (sample_size / drift_score 字段)"""
+        from kb.api.admin import embedding_drift_live
+
+        # 函数仍可调用, 不抛
+        # 完整逻辑验证由 test_drift.py 覆盖
+        assert callable(embedding_drift_live)
