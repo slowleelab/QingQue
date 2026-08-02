@@ -162,17 +162,22 @@ class TestDualSign:
         )
         assert new == KbApprovalStatus.APPROVED
 
-    def test_dual_sign_service_exempt(self):
-        """service 角色可自批 (机器审批场景)"""
-        new = validate_transition(
-            current_status=KbApprovalStatus.IN_REVIEW,
-            action=KbApprovalAction.APPROVE,
-            actor_id="svc-1",
-            actor_role="service",
-            comment=None,
-            last_actor="svc-1",
-        )
-        assert new == KbApprovalStatus.APPROVED
+    def test_dual_sign_service_NOT_exempt(self):
+        """P0-2.4 BREAKING: service 角色不再豁免双签, 必须 4-eyes
+
+        之前 service 可自批 (机器审批场景), 现收紧到只 admin 人类管理员可自批
+        """
+        with pytest.raises(WorkflowError) as exc:
+            validate_transition(
+                current_status=KbApprovalStatus.IN_REVIEW,
+                action=KbApprovalAction.APPROVE,
+                actor_id="svc-1",
+                actor_role="service",
+                comment=None,
+                last_actor="svc-1",
+            )
+        assert exc.value.code == "dual_sign_required"
+        assert exc.value.http_status == 403
 
 
 class TestTerminalState:

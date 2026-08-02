@@ -53,8 +53,9 @@ _DUAL_SIGN_ACTIONS = {
     KbApprovalAction.APPROVE,
 }
 
-# 双签豁免角色 (admin 可自批)
-_DUAL_SIGN_EXEMPT_ROLES = {"admin", "service"}
+# 双签豁免角色 (P0-2.4 BREAKING: 移除 service 豁免, 只保留 admin)
+# 背景: service 是 API 服务身份, 不应绕过 4-eyes. 只有 admin 人类管理员可以自批
+_DUAL_SIGN_EXEMPT_ROLES = {"admin"}
 
 
 @dataclass
