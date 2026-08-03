@@ -386,3 +386,45 @@ def test_mcp_server_metrics_in_prometheus_path() -> None:
         assert (
             "mcp_tool_call_duration_seconds" in expr
         ), f"dashboard 引用 mcp_tool_call_duration 未带 _seconds 后缀: {expr}"
+
+
+# ── Commit 8: Sampling 抽到 Settings ──
+
+
+def test_observability_settings_sampling_ratio_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ObservabilitySettings.sampling_ratio 默认 1.0, 显式 0.0/1.0 合法."""
+    from lumio.shared.config import ObservabilitySettings
+
+    cfg = ObservabilitySettings()
+    assert cfg.sampling_ratio == 1.0
+    # 边界值: 0.0 (全丢) 和 1.0 (全采) 都应合法 (ge=0, le=1).
+    # 因字段有 AliasChoices, 用 env 注入验证.
+    monkeypatch.setenv("OBSERVABILITY_SAMPLING_RATIO", "0.0")
+    cfg_lo = ObservabilitySettings()
+    assert cfg_lo.sampling_ratio == 0.0
+    monkeypatch.setenv("OBSERVABILITY_SAMPLING_RATIO", "1.0")
+    cfg_hi = ObservabilitySettings()
+    assert cfg_hi.sampling_ratio == 1.0
+    # LUMIO_TRACING_SAMPLE 别名 (Java compose 习惯) 也应驱动
+    monkeypatch.setenv("OBSERVABILITY_SAMPLING_RATIO", "0.5")
+    monkeypatch.setenv("LUMIO_TRACING_SAMPLE", "0.3")
+    cfg_alias = ObservabilitySettings()
+    # AliasChoices 顺序: 第一个命中即返回; OBSERVABILITY_ 优先 → 0.5
+    assert cfg_alias.sampling_ratio == 0.5
+
+
+def test_observability_settings_sampling_ratio_field_metadata() -> None:
+    """sampling_ratio 字段同时支持 OBSERVABILITY_SAMPLING_RATIO 与 LUMIO_TRACING_SAMPLE.
+
+    通过 Pydantic 模型构造覆盖两种别名, 验证 AliasChoices 注册成功 (零回归承诺).
+    """
+    from pydantic import AliasChoices
+
+    from lumio.shared.config import ObservabilitySettings
+
+    field = ObservabilitySettings.model_fields["sampling_ratio"]
+    choices: AliasChoices = field.validation_alias  # type: ignore[assignment]
+    # AliasChoices 是 Pydantic 特定类, 暴露 choices 属性
+    aliases = list(choices.choices)
+    assert "OBSERVABILITY_SAMPLING_RATIO" in aliases
+    assert "LUMIO_TRACING_SAMPLE" in aliases

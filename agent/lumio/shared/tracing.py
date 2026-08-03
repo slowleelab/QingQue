@@ -55,14 +55,17 @@ def _init_tracing(app_name: str = "lumio") -> None:
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.trace.sampling import ParentBasedTraceIdRatioSampler
 
         # 读 deployment.environment (Settings 可能未就绪, 降级 'unknown')
         try:
             from lumio.shared.config import get_settings
 
             deployment_env = get_settings().environment
+            sampling_ratio = get_settings().observability.sampling_ratio
         except Exception:
             deployment_env = "unknown"
+            sampling_ratio = 1.0
 
         # 读 service.version (pyproject version, LUMIO_VERSION env 优先)
         import os
@@ -77,12 +80,22 @@ def _init_tracing(app_name: str = "lumio") -> None:
                 "deployment.environment": deployment_env,
             }
         )
-        provider = TracerProvider(resource=resource)
+        # ParentBased 包装: 当上游有 traceparent 时跟随上游决策, 否则按 ratio 采样.
+        # 这样跨服务 trace 不会被本地采样率切断.
+        sampler = ParentBasedTraceIdRatioSampler(sampling_ratio)
+        provider = TracerProvider(resource=resource, sampler=sampler)
         endpoint = otlp_endpoint or f"http://{jaeger_host}:4318/v1/traces"
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
         trace.set_tracer_provider(provider)
         _provider_initialized = True
-        logger.info("✅ OpenTelemetry → %s (service=%s, env=%s, version=%s)", endpoint, app_name, deployment_env, service_version)
+        logger.info(
+            "✅ OpenTelemetry → %s (service=%s, env=%s, version=%s, sample=%.2f)",
+            endpoint,
+            app_name,
+            deployment_env,
+            service_version,
+            sampling_ratio,
+        )
     except ImportError:
         logger.debug("opentelemetry 未安装")
     except Exception as e:

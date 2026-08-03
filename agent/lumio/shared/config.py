@@ -348,6 +348,17 @@ class ObservabilitySettings(BaseSettings):
     # 可选: 显式 OTLP endpoint (含 path). 为空时按 jaeger_host 拼
     # http://{jaeger_host}:4318/v1/traces
     otlp_endpoint: str | None = None
+    # 追踪采样率 (0.0~1.0). 默认 1.0 (全采样, dev 友好).
+    # prod 建议 0.1; 用 ParentBasedTraceIdRatioSampler 包装保证跨服务 trace 不被切断.
+    sampling_ratio: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        validation_alias=AliasChoices(
+            "OBSERVABILITY_SAMPLING_RATIO",
+            "LUMIO_TRACING_SAMPLE",  # 与 Java 端 MCP_TRACING_SAMPLE 命名习惯一致
+        ),
+    )
 
 
 class MCPBackend(BaseModel):
