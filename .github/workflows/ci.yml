@@ -29,9 +29,21 @@ jobs:
       - name: Ruff format check
         working-directory: agent
         run: poetry run ruff format --check lumio/
-      - name: Mypy type check
+      - name: Mypy type check (advisory)
         working-directory: agent
-        run: poetry run mypy lumio/ || true
+        # P0-4 整改: 不再 || true 静默, 改为 advisory job.
+        # 报告 mypy 错误数, 但不 fail CI. 等 171 错误收敛 (P1-1b 后续) 再 fail.
+        # 这样新增错误立刻可见, 历史错误不阻塞 PR.
+        run: |
+          set +e
+          poetry run mypy lumio/ > /tmp/mypy.log 2>&1
+          mypy_exit=$?
+          set -e
+          cat /tmp/mypy.log | tail -50
+          echo ""
+          echo "mypy_exit_code=${mypy_exit} (advisory: 不 fail CI)"
+          errors=$(grep -c "error:" /tmp/mypy.log || true)
+          echo "mypy_error_count=${errors}"
 
   unit-tests:
     name: Unit Tests
