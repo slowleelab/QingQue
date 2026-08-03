@@ -18,6 +18,7 @@ from pymilvus import Collection
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lumio.services.common.chat_client import ChatSvcClient
 from lumio.services.common.classifier import IntentClassifier, LLMClassifier, RuleClassifier
 from lumio.services.common.database import get_db
 from lumio.services.common.degradation import (
@@ -37,7 +38,6 @@ from lumio.services.common.reranker import (
     create_reranker_provider,
 )
 from lumio.services.common.session import SessionManager
-from lumio.services.common.chat_client import ChatSvcClient
 from lumio.services.common.transfer import TransferChecker
 from lumio.shared.config import get_settings
 

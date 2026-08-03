@@ -15,8 +15,8 @@ from fastapi.responses import JSONResponse
 from lumio.shared.config import get_settings
 from lumio.shared.exceptions import (
     InvalidTransitionError,
-    SessionNotFoundError,
     LumioError,
+    SessionNotFoundError,
 )
 
 _logger = logging.getLogger(__name__)

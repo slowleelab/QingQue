@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import sys
 from datetime import date, datetime
@@ -103,18 +104,14 @@ def scan_files(base_dir: Path) -> list[dict]:
         if isinstance(raw_effective, date):
             effective_date = raw_effective
         elif isinstance(raw_effective, str) and raw_effective:
-            try:
+            with contextlib.suppress(ValueError):
                 effective_date = date.fromisoformat(raw_effective)
-            except ValueError:
-                pass
 
         if isinstance(raw_expiry, date):
             expiry_date = raw_expiry
         elif isinstance(raw_expiry, str) and raw_expiry:
-            try:
+            with contextlib.suppress(ValueError):
                 expiry_date = date.fromisoformat(raw_expiry)
-            except ValueError:
-                pass
 
         # 关键词
         raw_keywords = meta.get("keywords", [])

@@ -99,7 +99,7 @@ def compute_relevance(
     relevances: list[bool] = []
     for result in results:
         is_relevant = False
-        metadata = result.get("metadata", {})
+        result.get("metadata", {})
 
         if doc_id_to_filename:
             # 精确匹配：通过 doc_id 找文件名
@@ -164,9 +164,8 @@ def format_results_table(results: list[dict]) -> str:
         k for k in all_keys if k not in set(metric_keys) and k in results[0].get("metrics", {})
     )
     all_cols = param_keys + metric_keys + remaining_metric_keys
-    if "avg_latency_ms" in all_keys:
-        if "avg_latency_ms" not in all_cols:
-            all_cols.append("avg_latency_ms")
+    if "avg_latency_ms" in all_keys and "avg_latency_ms" not in all_cols:
+        all_cols.append("avg_latency_ms")
 
     # 表头
     header = "| " + " | ".join(all_cols) + " |"
@@ -185,7 +184,7 @@ def format_results_table(results: list[dict]) -> str:
                 values.append(str(val))
         rows.append("| " + " | ".join(values) + " |")
 
-    return "\n".join([header, separator] + rows)
+    return "\n".join([header, separator, *rows])
 
 
 def save_report(experiment_name: str, results: list[dict], output_dir: str = REPORTS_DIR) -> str:

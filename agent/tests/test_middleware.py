@@ -11,9 +11,9 @@ from lumio.shared.exceptions import (
     InvalidTransitionError,
     KnowledgeMissError,
     LLMTimeoutError,
+    LumioError,
     SessionCorruptedError,
     SessionNotFoundError,
-    LumioError,
 )
 from lumio.shared.middleware import register_exception_handlers
 

@@ -35,8 +35,8 @@ class TestMarkdownStructureParsing:
         # Should have chunks for the chapter
         assert len(chunks) >= 1
         # Parent-child if chapter is large enough
-        has_parent = any(c.is_parent for c in chunks)
-        has_child = any(c.parent_index is not None for c in chunks)
+        any(c.is_parent for c in chunks)
+        any(c.parent_index is not None for c in chunks)
         # Either single section chunk or parent-child split
         assert len(chunks) >= 1
 

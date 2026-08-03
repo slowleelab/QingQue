@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -115,10 +116,8 @@ class SessionTimeoutManager:
         """停止后台轮询任务"""
         if self._poller_task and not self._poller_task.done():
             self._poller_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._poller_task
-            except asyncio.CancelledError:
-                pass
         self._poller_task = None
 
         # 清理所有内存缓存

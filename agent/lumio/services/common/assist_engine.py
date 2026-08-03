@@ -568,7 +568,7 @@ async def run_assist_engine(
         # 意图栈增量（去重追加）
         current_stack = state_snapshot.get("intent_stack", [])
         if intent and intent not in current_stack:
-            state_patches["intent_stack"] = current_stack + [intent]
+            state_patches["intent_stack"] = [*current_stack, intent]
 
         # 风控待审标记
         if risk_action in ("BLOCK", "WARN"):

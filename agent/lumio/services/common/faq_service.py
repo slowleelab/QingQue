@@ -445,9 +445,9 @@ async def _index_faq_to_search(faq: KbFaq, redis_client: aioredis.Redis | None) 
     """
 
     # 构建索引文档
-    all_questions = [faq.question] + faq.variant_questions
+    all_questions = [faq.question, *faq.variant_questions]
     for q in all_questions:
-        doc = {
+        {
             "chunk_id": str(faq.id),
             "doc_id": faq.doc_group or str(faq.id),
             "content": q,
@@ -485,7 +485,7 @@ async def _warm_exact_match_cache(faq: KbFaq, redis_client: aioredis.Redis | Non
     faq_json = json.dumps(faq_data, ensure_ascii=False)
 
     # 主问题 + 所有变体都建立缓存
-    all_queries = [faq.question] + list(faq.variant_questions)
+    all_queries = [faq.question, *list(faq.variant_questions)]
     for q in all_queries:
         cache_k = _cache_key(q)
         await redis_client.setex(cache_k, _FAQ_CACHE_TTL, faq_json)
@@ -496,7 +496,7 @@ async def _remove_faq_from_cache(faq: KbFaq, redis_client: aioredis.Redis | None
     if not redis_client:
         return
 
-    all_queries = [faq.question] + list(faq.variant_questions)
+    all_queries = [faq.question, *list(faq.variant_questions)]
     for q in all_queries:
         cache_k = _cache_key(q)
         await redis_client.delete(cache_k)

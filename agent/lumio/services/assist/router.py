@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from lumio.services.assist.summary import generate_call_summary
-from lumio.shared.exceptions import InvalidTransitionError, SessionNotFoundError, LumioError
+from lumio.shared.exceptions import InvalidTransitionError, LumioError, SessionNotFoundError
 from lumio.shared.models import (
     IntentLabel,
     SentimentLabel,
@@ -1169,7 +1169,6 @@ async def kb_search(body: KbSearchRequest, request: Request):
     from lumio.services.common.retrieval import retrieve
     from lumio.shared.models import RetrieveRequest
 
-    app = request.app
     es_client = get_es_client(request)
     milvus_collection = get_milvus_collection(request)
     embedding_breaker = get_embedding_breaker(request)

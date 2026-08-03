@@ -614,9 +614,8 @@ async def _run_agent(
                 transfer_summary = f"{conversation_summary}\n\n[最近回复] {reply}" if conversation_summary else reply
 
                 # 已知实体随转接传递
-                known_entities = []
                 if state and state.last_entities:
-                    known_entities = [{"type": e.entity_type, "value": e.value} for e in state.last_entities]
+                    [{"type": e.entity_type, "value": e.value} for e in state.last_entities]
 
                 transfer_req = chat_client.build_transfer_request(
                     session_id=session_id,
@@ -791,10 +790,8 @@ async def _monitoring_loop(redis_client) -> None:
                 pass
 
             # Stream 总长度
-            try:
+            with contextlib.suppress(Exception):
                 _metrics["sl"] = await redis_client.xlen(CHAT_STREAM_KEY)
-            except Exception:
-                pass
 
             # 活跃 session worker 数
             _metrics["as"] = len(_session_active)
@@ -1286,10 +1283,7 @@ async def upload_document(
 
     embedding_provider = embedding_breaker.provider if embedding_breaker.is_available else None
 
-    if source_type_str in ("MARKDOWN", "TXT", "HTML"):
-        text_content = content_bytes.decode("utf-8")
-    else:
-        text_content = minio_object_key
+    text_content = content_bytes.decode("utf-8") if source_type_str in ("MARKDOWN", "TXT", "HTML") else minio_object_key
 
     try:
         final_status = await ingest_document(
@@ -1348,15 +1342,13 @@ async def chat_transfer(body: ChatTransferRequest, req: Request):
     """客户主动请求转人工"""
     session_manager = getattr(req.app.state, "session_manager", None)
     if session_manager:
-        try:
+        with contextlib.suppress(Exception):
             await session_manager.transition_phase(
                 body.session_id,
                 SessionPhase.AGENT,
                 new_sub_phase=SessionSubPhase.AG_QUEUED,
                 reason=body.reason,
             )
-        except Exception:
-            pass
 
     # 通知 chat-svc 创建转人工会话
     chat_client = getattr(req.app.state, "chat_client", None)

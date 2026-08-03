@@ -78,7 +78,7 @@ async def learn_customer_profile(
         if not all_content:
             return profiles
 
-        all_lower = all_content.lower()
+        all_content.lower()
 
         # ── 卡种推断 ──
         card_types: list[str] = []
@@ -92,10 +92,9 @@ async def learn_customer_profile(
         best_vip = "普通"
         best_score = 0
         for pattern, level, score in _VIP_SIGNALS:
-            if re.search(pattern, all_content, re.IGNORECASE):
-                if score > best_score:
-                    best_score = score
-                    best_vip = level
+            if re.search(pattern, all_content, re.IGNORECASE) and score > best_score:
+                best_score = score
+                best_vip = level
         if best_vip != "普通":
             profiles["vip_level"] = best_vip
 

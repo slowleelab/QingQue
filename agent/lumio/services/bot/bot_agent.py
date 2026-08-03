@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -813,10 +814,8 @@ class LumioAgent:
 
         # 持久化
         if redis:
-            try:
+            with contextlib.suppress(Exception):
                 await redis.setex(f"lumio:slot:{session_id}", 3600, json.dumps(tracker.to_dict(), ensure_ascii=False))
-            except Exception:
-                pass
 
         return tracker.build_prompt() if tracker.has_slots else ""
 

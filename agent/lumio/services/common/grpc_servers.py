@@ -51,7 +51,7 @@ class ClassificationServicer(classification_pb2_grpc.ClassificationServiceServic
             from lumio.shared.models import ClassifyType
 
             types = {t for t in request.classify_types}
-            intent = intent_result_pb = None
+            intent_result_pb = None
             entities_pb: list = []
             sentiment_pb = None
 

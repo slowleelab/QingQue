@@ -601,7 +601,7 @@ async def retrieve(
     # 6b: dashboard 缺口补齐 — observe 直方图 (search_type 取 request.search_type.value)
     try:
         st = request.search_type.value if hasattr(request.search_type, "value") else str(request.search_type)
-        RETRIEVE_DURATION.labels(search_type=st).observe((time.monotonic() - start_time))
+        RETRIEVE_DURATION.labels(search_type=st).observe(time.monotonic() - start_time)
     except Exception:
         # 指标失败不影响主流程
         logger.debug("RETRIEVE_DURATION observe 失败, 不影响主流程")

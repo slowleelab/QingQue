@@ -24,6 +24,7 @@ from lumio.services.common.database import close_db, init_db
 from lumio.services.common.deps import (
     close_agent,
     close_assist_orchestrator,
+    close_chat_svc_client,
     close_classifier,
     close_degradation_manager,
     close_dependency_breakers,
@@ -37,9 +38,9 @@ from lumio.services.common.deps import (
     close_reranker,
     close_session_manager,
     close_session_timeout_manager,
-    close_chat_svc_client,
     init_agent,
     init_assist_orchestrator,
+    init_chat_svc_client,
     init_classifier,
     init_degradation_manager,
     init_dependency_breakers,
@@ -53,7 +54,6 @@ from lumio.services.common.deps import (
     init_reranker,
     init_session_manager,
     init_session_timeout_manager,
-    init_chat_svc_client,
     init_transfer_checker,
 )
 from lumio.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
