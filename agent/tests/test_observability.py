@@ -457,3 +457,41 @@ def test_observability_settings_sampling_ratio_field_metadata() -> None:
     aliases = list(choices.choices)
     assert "OBSERVABILITY_SAMPLING_RATIO" in aliases
     assert "LUMIO_TRACING_SAMPLE" in aliases
+
+
+# ── Commit P1-3: 3 个 metric 加 dashboard panel ──
+
+
+def test_p1_3_three_metrics_in_overview_dashboard() -> None:
+    """P1-3 整改: 3 个已发射 metric 必须有 dashboard panel.
+
+    防 commit 6a/6b 之前那种'指标在 REGISTRY 但没人看'的回归.
+    3 个新 panel (id=13/14/15) 加在 lumio-overview.json 末行.
+    """
+    from pathlib import Path
+
+    dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / "lumio-overview.json"
+    data = json.loads(dash.read_text(encoding="utf-8"))
+    panels = data.get("panels") or data.get("dashboard", {}).get("panels", [])
+
+    target_metrics = {
+        "tool_confirmations_total",
+        "tool_guard_denials_total",
+        "session_phase_duration_seconds",
+    }
+    found: dict[str, str] = {}  # metric -> first panel title
+    for panel in panels:
+        for tgt in panel.get("targets", []):
+            expr = tgt.get("expr", "")
+            for metric in target_metrics:
+                if metric in found:
+                    continue
+                # 允许 histogram_quantile 引用的 _bucket/_sum/_count 后缀
+                if re.search(rf"\b{re.escape(metric)}(?:_bucket|_sum|_count)?\b", expr):
+                    found[metric] = panel.get("title", "<no-title>")
+
+    missing = target_metrics - found.keys()
+    assert not missing, (
+        f"lumio-overview.json 缺以下 P1-3 metric panel: {sorted(missing)}. "
+        f"实际找到: {found}"
+    )

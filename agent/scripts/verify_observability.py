@@ -96,13 +96,16 @@ def check_dashboard_metric_known() -> tuple[bool, str]:
         "lumio_bot_semaphore_utilization",
         "session_transitions_total",
         "session_timeouts_total",
+        "session_phase_duration_seconds",
+        "tool_confirmations_total",
+        "tool_guard_denials_total",
+        "tool_invocations_total",
+        "tool_invocation_duration_seconds",
         "llm_call_duration_seconds",
         "llm_inference_duration_seconds",
         # Prometheus middleware
         "http_requests_total",
         "http_request_duration_seconds",
-        "tool_invocations_total",
-        "tool_invocation_duration_seconds",
         # Java MCP (Micrometer 命名)
         "mcp_tool_calls_total",
         "mcp_tool_call_duration_seconds",
