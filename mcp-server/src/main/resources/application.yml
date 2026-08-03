@@ -30,12 +30,20 @@ management:
       show-details: when-authorized
   # 全链路追踪：默认低采样（prod 建议 0.1），入站 traceparent 由 Observation 自动抽取。
   # 未部署 Jaeger 时导出静默失败，不影响工具主链路。
+  # Resource attributes 走 OTel 标准 env (service.namespace/version/deployment.environment),
+  # SDK 自动读取. compose 注入默认值; prod 部署时覆盖.
   tracing:
     sampling:
       probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:0.1}
   otlp:
     tracing:
       endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+# OTel Resource 标签 (commit 7 补齐)
+# service.name = spring.application.name=lumio-mcp-server (Spring Boot 自动填)
+# service.namespace / service.version / deployment.environment 走 OTel 标准 env,
+# SDK 自动读取. compose 默认: service.namespace=lumio, deployment.environment=prod
+# (prod profile 强制), 部署时可覆盖:
+#   OTEL_RESOURCE_ATTRIBUTES="service.namespace=lumio,deployment.environment=staging"
 
 logging:
   level:

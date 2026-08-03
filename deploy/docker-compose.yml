@@ -426,6 +426,8 @@ services:
       # 全链路追踪：向 Jaeger 导出 span（缺省关，设端点即启用）
       - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=${MCP_TRACING_SAMPLE:-0.1}
       - MANAGEMENT_OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
+      # OTel Resource 标签 (commit 7 补齐, 便于 Jaeger 按 namespace / env 过滤)
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=lumio,deployment.environment=${LUMIO_ENV:-production}
     ports:
       - "8090:8090"   # MCP SSE 端点（/sse、/mcp/message）
     depends_on:

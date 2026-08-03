@@ -36,8 +36,15 @@ def _load_tracing_config() -> tuple[bool, str, str | None]:
         return False, "localhost", None
 
 
-def _init_tracing() -> None:
-    """初始化全局 TracerProvider（只执行一次）"""
+def _init_tracing(app_name: str = "lumio") -> None:
+    """初始化全局 TracerProvider（只执行一次）
+
+    Resource attributes (commit 7 补齐, 便于 Jaeger 按 service / env 过滤):
+    - service.name: 应用名 (lumio / lumio-bot / lumio-assist)
+    - service.namespace: 业务域, 固定 lumio
+    - service.version: 读 pyproject.toml 或 LUMIO_VERSION env
+    - deployment.environment: 从 Settings.environment 读
+    """
     global _provider_initialized
     enabled, jaeger_host, otlp_endpoint = _load_tracing_config()
     if not enabled or _provider_initialized:
@@ -49,12 +56,33 @@ def _init_tracing() -> None:
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        provider = TracerProvider(resource=Resource.create({"service.name": "lumio"}))
+        # 读 deployment.environment (Settings 可能未就绪, 降级 'unknown')
+        try:
+            from lumio.shared.config import get_settings
+
+            deployment_env = get_settings().environment
+        except Exception:
+            deployment_env = "unknown"
+
+        # 读 service.version (pyproject version, LUMIO_VERSION env 优先)
+        import os
+
+        service_version = os.getenv("LUMIO_VERSION", "0.0.0")
+
+        resource = Resource.create(
+            {
+                "service.name": app_name,
+                "service.namespace": "lumio",
+                "service.version": service_version,
+                "deployment.environment": deployment_env,
+            }
+        )
+        provider = TracerProvider(resource=resource)
         endpoint = otlp_endpoint or f"http://{jaeger_host}:4318/v1/traces"
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
         trace.set_tracer_provider(provider)
         _provider_initialized = True
-        logger.info("✅ OpenTelemetry → %s", endpoint)
+        logger.info("✅ OpenTelemetry → %s (service=%s, env=%s, version=%s)", endpoint, app_name, deployment_env, service_version)
     except ImportError:
         logger.debug("opentelemetry 未安装")
     except Exception as e:
@@ -68,7 +96,7 @@ def instrument_app(app, app_name: str) -> None:
     if not enabled or _instrumented:
         return
 
-    _init_tracing()
+    _init_tracing(app_name=app_name)
     _instrumented = True
 
     try:

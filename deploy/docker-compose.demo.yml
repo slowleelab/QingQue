@@ -66,6 +66,7 @@ services:
       # 全链路追踪：向主 compose 的 Jaeger 导出 span（LUMIO_TRACING_ENABLED=false 可关）
       LUMIO_TRACING_ENABLED: ${LUMIO_TRACING_ENABLED:-true}
       JAEGER_HOST: jaeger
+      LUMIO_VERSION: ${LUMIO_VERSION:-0.1.0}
       POSTGRES_HOST: lumio-postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: lumio
@@ -117,6 +118,7 @@ services:
       # 全链路追踪：向主 compose 的 Jaeger 导出 span（LUMIO_TRACING_ENABLED=false 可关）
       LUMIO_TRACING_ENABLED: ${LUMIO_TRACING_ENABLED:-true}
       JAEGER_HOST: jaeger
+      LUMIO_VERSION: ${LUMIO_VERSION:-0.1.0}
       POSTGRES_HOST: lumio-postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: lumio
