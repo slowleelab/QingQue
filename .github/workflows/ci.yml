@@ -45,6 +45,12 @@ jobs:
           errors=$(grep -c "error:" /tmp/mypy.log || true)
           echo "mypy_error_count=${errors}"
 
+      - name: Observability loop check
+        working-directory: agent
+        # P1-4 整改: verify-observability 入 CI, 防止 dashboard 名字错回归
+        # (commit e86a962 那种 lumio_session_transitions_total → session_transitions_total 错)
+        run: make verify-observability
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
