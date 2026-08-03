@@ -136,6 +136,12 @@ known-first-party = ["lumio"]
 [tool.ruff.format]
 quote-style = "double"
 
+[tool.ruff.lint.per-file-ignores]
+# P1-1b 整改: fire-and-forget asyncio.create_task 是项目显式模式
+# (后台 worker, 不需 await 拿结果, 用完即丢). 加 noqa RUF006.
+"lumio/services/**/*.py" = ["RUF006"]
+"lumio/shared/audit_middleware.py" = ["RUF006"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = false
