@@ -7,12 +7,17 @@
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 import httpx
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from prometheus_client import REGISTRY, generate_latest
 
 from lumio.shared import metrics as _metrics  # noqa: F401  确保指标注册进默认 REGISTRY
 from lumio.shared import tracing
@@ -279,35 +284,121 @@ async def test_mcp_call_tool_error_span_attributes(monkeypatch: pytest.MonkeyPat
 # ── 看板↔代码指标一致性（防漂移） ──
 
 
-def test_dashboard_metric_names_defined() -> None:
-    """Grafana 看板引用的 lumio_*/llm_/http_/session_/tool_ 指标均在代码中定义"""
-    import json
-    import re
-    from pathlib import Path
+def _collect_dashboard_metric_refs(dash_path: Path) -> set[str]:
+    """提取 dashboard JSON 中 panel.targets.expr 引用的指标名 (基名, 去 _bucket/_sum/_count).
 
-    from prometheus_client import REGISTRY, generate_latest
-
-    dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / "lumio-overview.json"
-    text = dash.read_text(encoding="utf-8")
+    兼容两种 Grafana export 格式:
+    - 新: 顶层 {panels: [...]} (如 lumio-overview.json / middleware.json)
+    - 旧: 顶层 {dashboard: {panels: [...]}} (如 lumio-dashboard.json, 旧版 export)
+    """
+    owned = re.compile(
+        r"\b(lumio_[a-z_]+|llm_call_duration_seconds|http_request[a-z_]*"
+        r"|http_requests_total|session_[a-z_]+|tool_calls_total|mcp_tool_call[a-z_]+|mcp_tool_calls_total)"
+    )
+    text = dash_path.read_text(encoding="utf-8")
     data = json.loads(text)
-
+    # 旧 schema: {dashboard: {...}}; 新 schema: {...} 直接含 panels
+    panels = data.get("panels") or data.get("dashboard", {}).get("panels", [])
     exprs: list[str] = []
-    for panel in data.get("panels", []):
+    for panel in panels:
         for tgt in panel.get("targets", []):
             if "expr" in tgt:
                 exprs.append(tgt["expr"])
-
-    metrics_text = generate_latest(REGISTRY).decode()
-    # 本仓库自有指标前缀（排除 Java mcp_* 与 Prometheus 函数名）
-    owned = re.compile(
-        r"\b(lumio_[a-z_]+|llm_call_duration_seconds|http_request[a-z_]*|http_requests_total|session_[a-z_]+|tool_calls_total)"
-    )
     referenced: set[str] = set()
     for expr in exprs:
         for m in owned.findall(expr):
-            # 去掉 _bucket/_sum/_count/_total 便于匹配基名
             base = re.sub(r"_(bucket|sum|count)$", "", m)
             referenced.add(base)
+    return referenced
 
-    missing = [name for name in referenced if name not in metrics_text]
-    assert not missing, f"看板引用了未定义的指标: {missing}"
+
+@pytest.mark.parametrize(
+    "dash_name",
+    [
+        "lumio-overview.json",  # 主面板, Python + Java 混合, 0 缺口
+        "middleware.json",  # 中间件面板, 全是 exporter 指标, 0 业务指标缺口
+    ],
+)
+def test_dashboard_metric_names_defined(dash_name: str) -> None:
+    """Grafana 看板引用的 lumio_*/llm_/http_/session_/tool_ 指标均在代码中定义.
+
+    Java mcp_* 不在 Python REGISTRY, 由 test_mcp_server_metrics_in_prometheus_path
+    单独校验静态路径.
+    """
+    dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / dash_name
+    referenced = _collect_dashboard_metric_refs(dash)
+    metrics_text = generate_latest(REGISTRY).decode()
+
+    missing = [name for name in referenced if name not in metrics_text and not name.startswith("mcp_")]
+    assert not missing, f"{dash_name} 引用了 Python REGISTRY 缺失的指标: {missing}"
+
+
+@pytest.mark.xfail(
+    reason=(
+        "lumio-dashboard.json 是早期 dashboard 重复, 8 缺口 (前缀错/中缀错/未实现) 不在本轮范围, "
+        "见 plan §阶段 2 后续待办 (commit 4 标记 xfail 提醒但不阻塞 CI)"
+    ),
+    strict=True,
+)
+def test_lumio_dashboard_metrics_xfail_known_debt() -> None:
+    """lumio-dashboard.json 8 缺口已知债务 — xfail 提示, 后续 sprint 修复 dashboard 后删此测试"""
+    dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / "lumio-dashboard.json"
+    referenced = _collect_dashboard_metric_refs(dash)
+    metrics_text = generate_latest(REGISTRY).decode()
+    missing = [name for name in referenced if name not in metrics_text and not name.startswith("mcp_")]
+    # strict=True: xfail 期间 missing 非空; 修复后此测试应 xpass, 提醒删除本测试
+    assert not missing, f"lumio-dashboard.json 引用了未定义的指标: {missing}"
+
+
+def test_mcp_server_metrics_in_prometheus_path() -> None:
+    """Java mcp-server 切面产出的 mcp_tool_calls_total / mcp_tool_call_duration 指标,
+    与 config/prometheus.yml scrape job 路径一致 (静态解析, 不连真实服务)
+
+    防止两类漂移:
+    1. Java 切面改了 metric 名, prometheus.yml scrape 仍按旧名 → 抓不到
+    2. prometheus.yml scrape job target 改了, mcp-server 启动后无法被发现
+    3. dashboard 引用 Timer 未带 _seconds 后缀 (Micrometer 命名约定)
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    prom_yml = repo_root / "config" / "prometheus.yml"
+    aspect_java = (
+        repo_root
+        / "mcp-server"
+        / "src"
+        / "main"
+        / "java"
+        / "com"
+        / "lumio"
+        / "mcp"
+        / "observability"
+        / "ToolCallAspect.java"
+    )
+
+    prom_text = prom_yml.read_text(encoding="utf-8")
+    aspect_text = aspect_java.read_text(encoding="utf-8")
+
+    # 1) prometheus.yml: mcp-server job 用 /actuator/prometheus 路径
+    assert 'job_name: "mcp-server"' in prom_text
+    assert "metrics_path: /actuator/prometheus" in prom_text
+    assert "host.docker.internal:8090" in prom_text
+
+    # 2) Java 切面定义的两个 metric 名
+    assert "mcp_tool_calls_total" in aspect_text
+    assert "mcp_tool_call_duration" in aspect_text
+
+    # 3) Micrometer 命名约定: Timer 暴露为 *_seconds_bucket/_sum/_count,
+    #    Counter 暴露为同名. dashboard 引用 Timer 必须带 _seconds 后缀
+    dash_overview = repo_root / "config" / "grafana" / "dashboards" / "lumio-overview.json"
+    dash_data = json.loads(dash_overview.read_text(encoding="utf-8"))
+    panels = dash_data.get("panels") or dash_data.get("dashboard", {}).get("panels", [])
+    exprs: list[str] = []
+    for panel in panels:
+        for tgt in panel.get("targets", []):
+            if "expr" in tgt:
+                exprs.append(tgt["expr"])
+    mcp_timer_refs = [e for e in exprs if "mcp_tool_call_duration" in e]
+    # Timer 引用必须带 _seconds 后缀 (Micrometer 命名约定)
+    for expr in mcp_timer_refs:
+        assert (
+            "mcp_tool_call_duration_seconds" in expr
+        ), f"dashboard 引用 mcp_tool_call_duration 未带 _seconds 后缀: {expr}"
