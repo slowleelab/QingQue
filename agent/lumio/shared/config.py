@@ -479,12 +479,35 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_security(self) -> Settings:
-        """生产环境安全检查: 拒绝使用默认 JWT 密钥启动"""
-        if self.environment == "production":
-            if self.jwt_secret == "lumio-dev-secret-change-in-production":
-                raise ValueError("生产环境必须设置 LUMIO_JWT_SECRET 环境变量，" "不能使用默认开发密钥")
-            if self.jwt_secret and len(self.jwt_secret) < 32:
-                raise ValueError("生产环境 JWT 密钥长度必须 >= 32 字符")
+        """生产环境安全检查: 拒绝使用默认 JWT 密钥 / 弱密钥启动.
+
+        任何环境都禁止使用占位密钥 ('lumio-dev-secret-change-in-production')
+        和 <CHANGE_ME> 占位符 — 这是 P0-2 整改: 漏配 LUMIO_ENVIRONMENT
+        不再让默认密钥静默通过.
+        """
+        # 永远禁止: 占位密钥 (历史 dev 默认 + P0-1 新占位符)
+        forbidden_secrets = {
+            "lumio-dev-secret-change-in-production",
+            "<CHANGE_ME>",
+            "<CHANGE_ME_IF_NEEDED>",
+        }
+        if self.jwt_secret in forbidden_secrets:
+            if self.environment == "production":
+                raise ValueError(
+                    "生产环境必须设置 LUMIO_JWT_SECRET 环境变量, "
+                    f"禁止占位密钥 ({self.jwt_secret!r})"
+                )
+            # dev/test 也不放过, 改 WARNING, 不阻断启动 (兼容现有 dev flow)
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "⚠️  JWT 密钥仍为占位值 %r, 部署到任何对外环境前必改. "
+                "建议: export LUMIO_JWT_SECRET=$(openssl rand -hex 32)",
+                self.jwt_secret,
+            )
+        # 长度检查仅在生产强制
+        if self.environment == "production" and self.jwt_secret and len(self.jwt_secret) < 32:
+            raise ValueError("生产环境 JWT 密钥长度必须 >= 32 字符")
         return self
 
     # 限流
