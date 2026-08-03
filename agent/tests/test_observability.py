@@ -185,6 +185,97 @@ def test_httpx_injects_traceparent() -> None:
     assert captured["traceparent"].startswith("00-")
 
 
+# ── MCP.call_tool span 增强 (server/duration/is_error) ──
+
+
+async def test_mcp_call_tool_span_attributes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """call_tool span 携带 mcp.tool / mcp.server / mcp.duration_ms / mcp.is_error"""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from lumio.services.common import mcp_client
+
+    # 1) 打开 tracing + 注入 InMemorySpanExporter
+    monkeypatch.setattr(mcp_client, "_TRACING_ENABLED", True)
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    saved = trace.get_tracer_provider()
+    trace._TRACER_PROVIDER = provider
+
+    # 2) 构造一个最小 MCPClient: 绕过 connect/list, 只跑 call_tool
+    #    _dispatch 命中表示走多后端, 让 mcp.server 属性有值
+    settings = mcp_client.MCPSettings()
+    client = mcp_client.MCPToolClient(settings)
+    client._connected = True
+    client._dispatch = {"query_demo": ("credit-card", "query_demo")}
+    client._session_by_server = {
+        "credit-card": MagicMock(call_tool=AsyncMock()),
+    }
+    # mock session.call_tool 返回 isError=False 的内容
+    fake_block = SimpleNamespace(text="ok")
+    client._session_by_server["credit-card"].call_tool.return_value = SimpleNamespace(
+        content=[fake_block],
+        structuredContent=None,
+        isError=False,
+    )
+
+    try:
+        result = await client.call_tool("query_demo", {"foo": "bar"})
+    finally:
+        trace._TRACER_PROVIDER = saved
+
+    # 业务返回不受影响
+    assert result == {"is_error": False, "content": "ok", "structured": None}
+
+    # 3) 校验 span 属性
+    spans = exporter.get_finished_spans()
+    mcp_spans = [s for s in spans if s.name == "MCP.call_tool"]
+    assert len(mcp_spans) == 1, f"应产生 1 个 MCP.call_tool span, 实际 {len(mcp_spans)}"
+    attrs = dict(mcp_spans[0].attributes or {})
+    assert attrs.get("mcp.tool") == "query_demo"
+    assert attrs.get("mcp.server") == "credit-card"
+    assert attrs.get("mcp.is_error") is False
+    assert isinstance(attrs.get("mcp.duration_ms"), int)
+    assert attrs["mcp.duration_ms"] >= 0
+
+
+async def test_mcp_call_tool_error_span_attributes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """call_tool 异常时 span 记录 exception + set_status=ERROR + mcp.duration_ms 仍记"""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from lumio.services.common import mcp_client
+
+    monkeypatch.setattr(mcp_client, "_TRACING_ENABLED", True)
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    saved = trace.get_tracer_provider()
+    trace._TRACER_PROVIDER = provider
+
+    settings = mcp_client.MCPSettings()
+    client = mcp_client.MCPToolClient(settings)
+    client._connected = True
+    client._session = MagicMock(call_tool=AsyncMock(side_effect=RuntimeError("boom")))
+
+    try:
+        with pytest.raises(RuntimeError, match="boom"):
+            await client.call_tool("query_demo", {})
+    finally:
+        trace._TRACER_PROVIDER = saved
+
+    spans = exporter.get_finished_spans()
+    mcp_spans = [s for s in spans if s.name == "MCP.call_tool"]
+    assert len(mcp_spans) == 1
+    # 异常路径: status.code 应为 ERROR (值=2)
+    from opentelemetry.trace import StatusCode
+
+    assert mcp_spans[0].status.status_code == StatusCode.ERROR
+    # 记录了异常事件
+    events = mcp_spans[0].events or []
+    assert any(e.name == "exception" for e in events)
+
+
 # ── 看板↔代码指标一致性（防漂移） ──
 
 
@@ -208,7 +299,9 @@ def test_dashboard_metric_names_defined() -> None:
 
     metrics_text = generate_latest(REGISTRY).decode()
     # 本仓库自有指标前缀（排除 Java mcp_* 与 Prometheus 函数名）
-    owned = re.compile(r"\b(lumio_[a-z_]+|llm_call_duration_seconds|http_request[a-z_]*|http_requests_total|session_[a-z_]+|tool_calls_total)")
+    owned = re.compile(
+        r"\b(lumio_[a-z_]+|llm_call_duration_seconds|http_request[a-z_]*|http_requests_total|session_[a-z_]+|tool_calls_total)"
+    )
     referenced: set[str] = set()
     for expr in exprs:
         for m in owned.findall(expr):

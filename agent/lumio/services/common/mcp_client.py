@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Collection
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -22,7 +23,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 from lumio.shared.config import MCPBackend, MCPSettings, get_settings
-from lumio.shared.tracing import traced
+from lumio.shared.tracing import _TRACING_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -305,7 +306,6 @@ class MCPToolClient:
                 return spec
         return None
 
-    @traced("MCP.call_tool", attrs_fn=lambda self, name, arguments: {"mcp.tool": name})
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """执行工具调用（路由模式下按分发索引派发到对应后端）
 
@@ -333,22 +333,61 @@ class MCPToolClient:
         if session is None:
             raise RuntimeError("MCP 未连接，无法调用工具")
 
-        result = await session.call_tool(
-            raw_name,
-            arguments,
-            read_timeout_seconds=timedelta(seconds=self._settings.timeout_seconds),
-        )
-        text_parts: list[str] = []
-        for block in result.content:
-            text = getattr(block, "text", None)
-            if text:
-                text_parts.append(text)
-        structured = result.structuredContent
-        content = "\n".join(text_parts)
-        if not content and structured is not None:
-            content = json.dumps(structured, ensure_ascii=False)
-        return {
-            "is_error": bool(result.isError),
-            "content": content,
-            "structured": structured,
-        }
+        # 手动 span 控制: 注解 mcp.server / mcp.duration_ms / mcp.is_error / error
+        # 让 Jaeger 火焰图能按 server 排序、按 duration 找慢调用、按 is_error 标红
+        # 注: 不再用 @traced 装饰器, 避免与本手动 span 嵌套 (产生双层 MCP.call_tool)
+        start = time.monotonic()
+        span_ctx: Any = None
+        if _TRACING_ENABLED:
+            try:
+                from opentelemetry import trace as _otel_trace
+                from opentelemetry.trace import Status, StatusCode
+
+                tracer = _otel_trace.get_tracer("lumio")
+                span_ctx = tracer.start_as_current_span("MCP.call_tool")
+                span_ctx.__enter__()
+                span = _otel_trace.get_current_span()
+                span.set_attribute("mcp.tool", name)
+                if target is not None:
+                    span.set_attribute("mcp.server", target[0])
+            except Exception:
+                span_ctx = None
+        try:
+            result = await session.call_tool(
+                raw_name,
+                arguments,
+                read_timeout_seconds=timedelta(seconds=self._settings.timeout_seconds),
+            )
+            text_parts: list[str] = []
+            for block in result.content:
+                text = getattr(block, "text", None)
+                if text:
+                    text_parts.append(text)
+            structured = result.structuredContent
+            content = "\n".join(text_parts)
+            if not content and structured is not None:
+                content = json.dumps(structured, ensure_ascii=False)
+            is_error = bool(result.isError)
+            if span_ctx is not None:
+                span = _otel_trace.get_current_span()
+                span.set_attribute("mcp.is_error", is_error)
+                span.set_attribute("mcp.duration_ms", int((time.monotonic() - start) * 1000))
+            return {
+                "is_error": is_error,
+                "content": content,
+                "structured": structured,
+            }
+        except Exception as err:
+            if span_ctx is not None:
+                try:
+                    span = _otel_trace.get_current_span()
+                    span.record_exception(err)
+                    span.set_status(Status(StatusCode.ERROR))
+                    span.set_attribute("mcp.duration_ms", int((time.monotonic() - start) * 1000))
+                except Exception:
+                    pass
+            raise
+        finally:
+            if span_ctx is not None:
+                with suppress(Exception):
+                    span_ctx.__exit__(None, None, None)
