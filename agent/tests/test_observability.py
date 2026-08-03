@@ -335,18 +335,19 @@ def test_dashboard_metric_names_defined(dash_name: str) -> None:
 
 @pytest.mark.xfail(
     reason=(
-        "lumio-dashboard.json 是早期 dashboard 重复, 8 缺口 (前缀错/中缀错/未实现) 不在本轮范围, "
-        "见 plan §阶段 2 后续待办 (commit 4 标记 xfail 提醒但不阻塞 CI)"
+        "lumio-dashboard.json 引用 lumio_retrieval_duration_seconds_bucket + "
+        "lumio_degradation_level 尚未实现, commit 6a 修 5 处改名 + 删 1 个 panel, "
+        "commit 6b 补 2 个新指标. 修复后此测试会 xpass, strict=True 提醒删除."
     ),
     strict=True,
 )
 def test_lumio_dashboard_metrics_xfail_known_debt() -> None:
-    """lumio-dashboard.json 8 缺口已知债务 — xfail 提示, 后续 sprint 修复 dashboard 后删此测试"""
+    """lumio-dashboard.json 已知债务 — commit 6a 修 5 项, 6b 补 2 项指标"""
     dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / "lumio-dashboard.json"
     referenced = _collect_dashboard_metric_refs(dash)
     metrics_text = generate_latest(REGISTRY).decode()
     missing = [name for name in referenced if name not in metrics_text and not name.startswith("mcp_")]
-    # strict=True: xfail 期间 missing 非空; 修复后此测试应 xpass, 提醒删除本测试
+    # commit 6a 后: 剩 lumio_retrieval_duration_seconds_bucket + lumio_degradation_level 2 项
     assert not missing, f"lumio-dashboard.json 引用了未定义的指标: {missing}"
 
 

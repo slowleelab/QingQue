@@ -56,7 +56,7 @@
         "type": "timeseries",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "lumio_session_transitions_total", "legendFormat": "{{phase}} transitions" }
+          { "expr": "sum by (from_phase) (rate(session_transitions_total[5m]))", "legendFormat": "{{from_phase}} transitions" }
         ],
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }
       },
@@ -65,7 +65,7 @@
         "type": "timeseries",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "histogram_quantile(0.95, sum(rate(lumio_llm_inference_duration_seconds_bucket[5m])) by (le))", "legendFormat": "LLM P95" }
+          { "expr": "histogram_quantile(0.95, sum(rate(llm_call_duration_seconds_bucket[5m])) by (le))", "legendFormat": "LLM P95" }
         ],
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 }
       },
@@ -92,7 +92,7 @@
         "type": "stat",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "sum(rate(lumio_session_timeouts_total[5m])) by (reason)", "legendFormat": "{{reason}}" }
+          { "expr": "sum(rate(session_timeouts_total[5m])) by (sub_phase)", "legendFormat": "{{sub_phase}}" }
         ],
         "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 }
       },
@@ -101,19 +101,10 @@
         "type": "timeseries",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "lumio_bot_stream_length", "legendFormat": "Stream Length" },
-          { "expr": "lumio_bot_active_workers", "legendFormat": "Active Workers" }
+          { "expr": "lumio_stream_length", "legendFormat": "Stream Length" },
+          { "expr": "lumio_active_workers", "legendFormat": "Active Workers" }
         ],
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 }
-      },
-      {
-        "title": "Agent 并发槽位",
-        "type": "gauge",
-        "datasource": "Prometheus",
-        "targets": [
-          { "expr": "lumio_bot_agent_slots_available", "legendFormat": "Available" }
-        ],
-        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 24 }
       }
     ]
   }
