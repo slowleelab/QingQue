@@ -22,6 +22,35 @@ from prometheus_client import REGISTRY, generate_latest
 from lumio.shared import metrics as _metrics  # noqa: F401  确保指标注册进默认 REGISTRY
 from lumio.shared import tracing
 
+
+@pytest.fixture(autouse=True)
+def _reset_otel_tracer_provider():
+    """P1-6 修复: 还原 OTel 全局 _TRACER_PROVIDER + tracing._TRACING_ENABLED.
+
+    之前几个 test 直接 `trace._TRACER_PROVIDER = provider` 注入 (绕过
+    set_tracer_provider 的 Once 守卫). Once 已 set, 后续 test 触发
+    OTel 初始化时拿不到 _TRACER_PROVIDER, 在 opentelemetry/trace/__init__.py:255
+    形成自递归. 在 fixture teardown 完整还原: 删 module attrs + 重置 Once flag.
+    """
+    from opentelemetry.trace import ProxyTracerProvider
+
+    # 保存初始状态
+    original_provider = getattr(trace, "_TRACER_PROVIDER", None)
+    original_proxy = getattr(trace, "_PROXY_TRACER_PROVIDER", ProxyTracerProvider())
+    once_reset_token = None
+    if hasattr(trace, "_TRACER_PROVIDER_SET_ONCE"):
+        once_reset_token = trace._TRACER_PROVIDER_SET_ONCE._done  # type: ignore[attr-defined]
+    original_enabled = tracing._TRACING_ENABLED
+    yield
+    # 完整还原: 清掉 module 注入, 重置 Once 让 set_tracer_provider 可再次 set
+    trace._TRACER_PROVIDER = None
+    trace._PROXY_TRACER_PROVIDER = original_proxy
+    if once_reset_token is not None and hasattr(trace, "_TRACER_PROVIDER_SET_ONCE"):
+        trace._TRACER_PROVIDER_SET_ONCE._done = False  # type: ignore[attr-defined]
+    tracing._TRACING_ENABLED = original_enabled
+    # 恢复 _TRACER_PROVIDER 到原值或 None
+    trace._TRACER_PROVIDER = original_provider
+
 # ── 指标定义与 /metrics 暴露 ──
 
 
