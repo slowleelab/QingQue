@@ -56,7 +56,6 @@ from lumio.services.common.deps import (
     init_session_timeout_manager,
     init_transfer_checker,
 )
-from lumio.services.common.grpc_clients import close_grpc_channels, init_grpc_channels
 from lumio.services.common.redis_client import close_redis, init_redis
 from lumio.shared.config import get_settings
 from lumio.shared.logger import setup_logger
@@ -79,6 +78,8 @@ class _SuppressExceptions:
 
 
 # ── 公共初始化/关闭步骤（两个服务共享的基础设施）──
+# P1-2A 整改: 删 init_grpc_channels/close_grpc_channels (P1-2 死代码)
+# 编排层当前用本地实现, AI 能力层 gRPC 走 grpc_servers.py 仅作未来契约.
 _COMMON_INIT_STEPS = [
     init_db,
     init_redis,
@@ -88,7 +89,6 @@ _COMMON_INIT_STEPS = [
     init_dependency_breakers,
     init_embedding,
     init_reranker,
-    init_grpc_channels,
     init_llm,
     init_session_manager,
     init_classifier,
@@ -98,7 +98,6 @@ _COMMON_CLOSE_STEPS = [
     close_classifier,
     close_session_manager,
     close_llm,
-    close_grpc_channels,
     close_reranker,
     close_embedding,
     close_dependency_breakers,
