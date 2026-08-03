@@ -155,11 +155,15 @@ def get_current_user(request: Request) -> AuthUser:
         token = request.query_params["token"]
 
     if not token:
-        if settings.environment == "development":
-            # 开发环境无 token 时返回默认 admin 用户
-            # 安全检查: 仅允许绑定 127.0.0.1 时使用旁路
-            if settings.service_host not in ("127.0.0.1", "localhost", "0.0.0.0"):
-                raise AuthenticationError("开发旁路仅允许本地绑定")
+        # P0-3 整改: dev 旁路改显式开关 dev_auth_bypass (默认 False)
+        # 旧行为: dev + 本地绑定 → 直接返回 admin (0.0.0.0 自查通过 = 任何远端部署)
+        # 新行为: 必须显式设 LUMIO_DEV_AUTH_BYPASS=true 才放行, 且仍限本地绑定
+        if settings.dev_auth_bypass and settings.environment == "development":
+            if settings.service_host not in ("127.0.0.1", "localhost"):
+                raise AuthenticationError(
+                    "开发旁路仅允许绑定 loopback (127.0.0.1/localhost), "
+                    f"当前 service_host={settings.service_host!r}"
+                )
             return AuthUser(user_id="dev-user", role="admin")
         raise AuthenticationError("缺少 Authorization 头")
 

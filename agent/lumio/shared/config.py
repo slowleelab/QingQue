@@ -465,6 +465,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     service_host: str = "127.0.0.1"
 
+    # P0-3 整改: dev 旁路认证 (无 token 直接返回 admin) 必须显式开启
+    # 默认 False — dev 环境不自动放行, 避免 0.0.0.0 绑定 + 漏配 LUMIO_ENVIRONMENT
+    # 导致远端部署裸奔. 显式设 LUMIO_DEV_AUTH_BYPASS=true 才启用.
+    dev_auth_bypass: bool = False
+
     # chat-svc 客户端
     chat_svc_url: str = "http://localhost:8080"
 

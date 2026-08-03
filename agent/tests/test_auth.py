@@ -102,8 +102,14 @@ async def test_get_current_user_with_valid_token():
         assert data["role"] == "agent"
 
 
-async def test_get_current_user_dev_mode_no_token():
-    """开发环境无 token 时返回默认 admin 用户"""
+async def test_get_current_user_dev_mode_no_token(monkeypatch: pytest.MonkeyPatch):
+    """P0-3 整改: dev 旁路需显式设 LUMIO_DEV_AUTH_BYPASS=true 才放行 admin"""
+    monkeypatch.setenv("LUMIO_ENVIRONMENT", "development")
+    monkeypatch.setenv("LUMIO_DEV_AUTH_BYPASS", "true")
+    # 清 lru_cache 让 env 重新生效
+    from lumio.shared.config import get_settings
+
+    get_settings.cache_clear()
     app = FastAPI()
 
     @app.get("/test")
@@ -115,6 +121,29 @@ async def test_get_current_user_dev_mode_no_token():
         resp = await client.get("/test")
         assert resp.status_code == 200
         assert resp.json()["role"] == "admin"
+
+
+async def test_get_current_user_dev_bypass_default_off(monkeypatch: pytest.MonkeyPatch):
+    """P0-3 核心: 默认 dev 旁路关闭, 任何漏配 LUMIO_DEV_AUTH_BYPASS 的部署都需 token"""
+    monkeypatch.setenv("LUMIO_ENVIRONMENT", "development")
+    monkeypatch.delenv("LUMIO_DEV_AUTH_BYPASS", raising=False)
+    from lumio.shared.config import get_settings
+
+    get_settings.cache_clear()
+    app = FastAPI()
+
+    @app.get("/test")
+    async def test_endpoint(user=pytest.importorskip("fastapi").Depends(get_current_user)):
+        return {"user_id": user.user_id, "role": user.role}
+
+    # dev_bypass 默认 False → 显式断言 AuthenticationError 被 raise
+    # (FastAPI Depends 注入时 raise, 测试不挂 exception handler, 直接捕获)
+    from lumio.shared.auth import AuthenticationError
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with pytest.raises(AuthenticationError, match="缺少 Authorization 头"):
+            await client.get("/test")
 
 
 async def test_get_current_user_token_via_query_param():
