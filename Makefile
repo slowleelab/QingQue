@@ -1,7 +1,7 @@
 # Lumio / 灵智 Makefile — 标准化开发命令
 # 使用: make <target>
 
-.PHONY: help install dev mcp-ref mcp-server-build mcp-server-test mcp-server-run gateway-up gateway-down test test-cov lint format type-check build up down init init-minio init-temporal seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama
+.PHONY: help install dev mcp-ref mcp-server-build mcp-server-test mcp-server-run gateway-up gateway-down test test-cov lint format type-check build up down init init-minio init-temporal seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama verify-observability
 
 # ── 默认 ──
 help: ## 显示帮助信息
@@ -138,6 +138,9 @@ verify-ollama: ## 验证 Ollama + Qwen2.5-7B
 
 verify-mcp-e2e: ## MCP 工具层端到端联调（Java 22 工具 SSE + 渐进式暴露；缺 live 依赖自动跳过）
 	cd agent && poetry run python scripts/verify_mcp_e2e.py
+
+verify-observability: ## 验证可观测性闭环 (test_observability + dashboard 引用 + Settings 字段)
+	cd agent && poetry run python scripts/verify_observability.py
 
 # ── gRPC ──
 proto: ## 编译 gRPC Proto 文件
