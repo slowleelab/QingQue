@@ -9,20 +9,38 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
-import os
 from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
-_TRACING_ENABLED = os.getenv("LUMIO_TRACING_ENABLED", "true").lower() == "true"
+# 启动期从 ObservabilitySettings 读初值。运行期仍可被 monkeypatch 切换 (单测常用).
+_TRACING_ENABLED = True
 _provider_initialized = False
 _instrumented = False
+
+
+def _load_tracing_config() -> tuple[bool, str, str | None]:
+    """从 ObservabilitySettings 读当前 tracing 配置。
+
+    返回 (enabled, jaeger_host, otlp_endpoint).
+    若 Settings 不可用 (导入失败 / 早期启动), 用 (False, 'localhost', None) 保守返回 —
+    避免 tracing 提前初始化无后端的环境。
+    """
+    try:
+        from lumio.shared.config import ObservabilitySettings
+
+        cfg = ObservabilitySettings()
+        return cfg.tracing_enabled, cfg.jaeger_host, cfg.otlp_endpoint
+    except Exception as e:  # 配置未就绪时降级关闭
+        logger.debug("ObservabilitySettings 不可用, 默认关闭 tracing: %s", e)
+        return False, "localhost", None
 
 
 def _init_tracing() -> None:
     """初始化全局 TracerProvider（只执行一次）"""
     global _provider_initialized
-    if not _TRACING_ENABLED or _provider_initialized:
+    enabled, jaeger_host, otlp_endpoint = _load_tracing_config()
+    if not enabled or _provider_initialized:
         return
     try:
         from opentelemetry import trace
@@ -32,13 +50,11 @@ def _init_tracing() -> None:
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
         provider = TracerProvider(resource=Resource.create({"service.name": "lumio"}))
-        jaeger_host = os.getenv("JAEGER_HOST", "localhost")
-        provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter(endpoint=f"http://{jaeger_host}:4318/v1/traces"))
-        )
+        endpoint = otlp_endpoint or f"http://{jaeger_host}:4318/v1/traces"
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
         trace.set_tracer_provider(provider)
         _provider_initialized = True
-        logger.info("✅ OpenTelemetry → Jaeger %s:4318", jaeger_host)
+        logger.info("✅ OpenTelemetry → %s", endpoint)
     except ImportError:
         logger.debug("opentelemetry 未安装")
     except Exception as e:
@@ -48,7 +64,8 @@ def _init_tracing() -> None:
 def instrument_app(app, app_name: str) -> None:
     """安装 FastAPI + Redis 自动探针（只执行一次）"""
     global _instrumented
-    if not _TRACING_ENABLED or _instrumented:
+    enabled, _, _ = _load_tracing_config()
+    if not enabled or _instrumented:
         return
 
     _init_tracing()
@@ -120,19 +137,6 @@ def traced(name: str | None = None, attrs_fn: Callable | None = None):
         return wrapper
 
     return decorator
-
-
-def get_trace_id() -> str:
-    """获取当前 trace_id，用于日志关联"""
-    try:
-        from opentelemetry import trace
-
-        span = trace.get_current_span()
-        if span and span.get_span_context().is_valid:
-            return format(span.get_span_context().trace_id, "032x")
-    except Exception:
-        pass
-    return "no-trace"
 
 
 def get_trace_context() -> tuple[str, str] | None:

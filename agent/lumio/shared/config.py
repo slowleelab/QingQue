@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from urllib.parse import quote_plus
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -272,8 +272,8 @@ class OrchestrationSettings(BaseSettings):
 
     # 动态间隔调整系数（坐席反馈驱动）
     adoption_shorten_ratio: float = 0.5  # 连续采纳3次→间隔×0.5
-    dismiss_extend_ratio: float = 2.0    # 坐席关闭→间隔×2.0
-    ignore_extend_ratio: float = 1.5     # 连续忽略3次→间隔×1.5
+    dismiss_extend_ratio: float = 2.0  # 坐席关闭→间隔×2.0
+    ignore_extend_ratio: float = 1.5  # 连续忽略3次→间隔×1.5
 
 
 class TemporalSettings(BaseSettings):
@@ -314,6 +314,40 @@ class CircuitBreakerConfigSettings(BaseSettings):
     risk_slow_call_duration_ms: int = 100
     risk_wait_duration_open_s: float = 10.0
     risk_sliding_window_size: int = 20
+
+
+class ObservabilitySettings(BaseSettings):
+    """可观测性配置：链路追踪与 OTLP 导出
+
+    命名空间: 主用 ``OBSERVABILITY_*`` (项目统一风格)，同时支持旧名
+    ``LUMIO_TRACING_ENABLED`` / ``JAEGER_HOST`` (向后兼容 conftest / docker-compose
+    已注入的环境变量，避免破坏现有部署).
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="OBSERVABILITY_",
+        extra="ignore",
+    )
+
+    # Python 链路追踪总开关. AliasChoices 保证旧 LUMIO_TRACING_ENABLED 仍生效.
+    tracing_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "OBSERVABILITY_TRACING_ENABLED",
+            "LUMIO_TRACING_ENABLED",
+        ),
+    )
+    # OTLP 追踪后端主机. 旧 JAEGER_HOST 仍生效.
+    jaeger_host: str = Field(
+        default="localhost",
+        validation_alias=AliasChoices(
+            "OBSERVABILITY_JAEGER_HOST",
+            "JAEGER_HOST",
+        ),
+    )
+    # 可选: 显式 OTLP endpoint (含 path). 为空时按 jaeger_host 拼
+    # http://{jaeger_host}:4318/v1/traces
+    otlp_endpoint: str | None = None
 
 
 class MCPBackend(BaseModel):
@@ -464,6 +498,7 @@ class Settings(BaseSettings):
     temporal: TemporalSettings = Field(default_factory=TemporalSettings)
     circuit_breaker: CircuitBreakerConfigSettings = Field(default_factory=CircuitBreakerConfigSettings)
     mcp: MCPSettings = Field(default_factory=MCPSettings)
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
 
 @lru_cache
