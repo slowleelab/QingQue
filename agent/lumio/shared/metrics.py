@@ -111,6 +111,20 @@ BOT_STREAM_PENDING = Gauge(
     "Bot 聊天消息流待确认（PEL pending）消息数",
 )
 
+# ── RAG 检索 + 降级状态指标（commit 6b 补 dashboard 缺口） ──
+
+RETRIEVE_DURATION = Histogram(
+    "lumio_retrieval_duration_seconds",
+    "RAG 检索端到端耗时（秒），含 BM25/向量/混合各路径",
+    ["search_type"],  # search_type: hybrid/bm25/vector
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 15.0],
+)
+
+DEGRADATION_LEVEL = Gauge(
+    "lumio_degradation_level",
+    "系统降级等级（0=normal, 1=degraded, 2=fallback），由 DegradationManager 写入",
+)
+
 # 排除自采集，避免 Prometheus 抓取 /metrics 产生反馈循环
 _EXCLUDED_PATHS = {"/metrics", "/health", "/favicon.ico"}
 

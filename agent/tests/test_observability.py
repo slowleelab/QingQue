@@ -317,6 +317,7 @@ def _collect_dashboard_metric_refs(dash_path: Path) -> set[str]:
     [
         "lumio-overview.json",  # 主面板, Python + Java 混合, 0 缺口
         "middleware.json",  # 中间件面板, 全是 exporter 指标, 0 业务指标缺口
+        "lumio-dashboard.json",  # 旧 export 格式, commit 6a 修 5 处 + 删 1 panel, 6b 补 2 个新指标
     ],
 )
 def test_dashboard_metric_names_defined(dash_name: str) -> None:
@@ -331,24 +332,6 @@ def test_dashboard_metric_names_defined(dash_name: str) -> None:
 
     missing = [name for name in referenced if name not in metrics_text and not name.startswith("mcp_")]
     assert not missing, f"{dash_name} 引用了 Python REGISTRY 缺失的指标: {missing}"
-
-
-@pytest.mark.xfail(
-    reason=(
-        "lumio-dashboard.json 引用 lumio_retrieval_duration_seconds_bucket + "
-        "lumio_degradation_level 尚未实现, commit 6a 修 5 处改名 + 删 1 个 panel, "
-        "commit 6b 补 2 个新指标. 修复后此测试会 xpass, strict=True 提醒删除."
-    ),
-    strict=True,
-)
-def test_lumio_dashboard_metrics_xfail_known_debt() -> None:
-    """lumio-dashboard.json 已知债务 — commit 6a 修 5 项, 6b 补 2 项指标"""
-    dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / "lumio-dashboard.json"
-    referenced = _collect_dashboard_metric_refs(dash)
-    metrics_text = generate_latest(REGISTRY).decode()
-    missing = [name for name in referenced if name not in metrics_text and not name.startswith("mcp_")]
-    # commit 6a 后: 剩 lumio_retrieval_duration_seconds_bucket + lumio_degradation_level 2 项
-    assert not missing, f"lumio-dashboard.json 引用了未定义的指标: {missing}"
 
 
 def test_mcp_server_metrics_in_prometheus_path() -> None:

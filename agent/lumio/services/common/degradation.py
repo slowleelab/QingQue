@@ -111,6 +111,13 @@ class HealthMonitor:
             self._level = DegradationLevel.DEGRADED
         elif self._consecutive_successes >= self._success_threshold:
             self._level = DegradationLevel.NORMAL
+        # 6b: 同步写到 Prometheus (dashboard lumio-dashboard.json panel
+        # 'lumio_degradation_level' 引用). DegradationLevel 是 enum,
+        # 映射: NORMAL=0, DEGRADED=1, FALLBACK=2. FALLBACK 由 DegradationManager
+        # 显式触发, 见 ContentDegrader fallback 路径
+        from lumio.shared.metrics import DEGRADATION_LEVEL
+
+        DEGRADATION_LEVEL.set({"NORMAL": 0, "DEGRADED": 1, "FALLBACK": 2}.get(self._level.name, 0))
         self._update_interval()
 
 

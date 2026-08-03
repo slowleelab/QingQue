@@ -14,6 +14,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from lumio.shared.config import get_settings
+from lumio.shared.metrics import RETRIEVE_DURATION
 from lumio.shared.models import RetrievedChunk, RetrieveRequest, RetrieveResponse
 from lumio.shared.tracing import traced
 
@@ -596,6 +597,14 @@ async def retrieve(
             await redis_client.setex(cache_key, 300, json.dumps(cache_data, ensure_ascii=False))
         except Exception:
             logger.debug("Redis 缓存写入失败")
+
+    # 6b: dashboard 缺口补齐 — observe 直方图 (search_type 取 request.search_type.value)
+    try:
+        st = request.search_type.value if hasattr(request.search_type, "value") else str(request.search_type)
+        RETRIEVE_DURATION.labels(search_type=st).observe((time.monotonic() - start_time))
+    except Exception:
+        # 指标失败不影响主流程
+        logger.debug("RETRIEVE_DURATION observe 失败, 不影响主流程")
 
     return RetrieveResponse(
         results=fused,
