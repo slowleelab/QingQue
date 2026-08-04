@@ -1,7 +1,7 @@
 # Lumio / 灵智 Makefile — 标准化开发命令
 # 使用: make <target>
 
-.PHONY: help install dev mcp-ref mcp-server-build mcp-server-test mcp-server-run gateway-up gateway-down test test-cov lint format type-check build up down init init-minio init-temporal seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama verify-observability
+.PHONY: help install dev mcp-ref mcp-server-build mcp-server-test mcp-server-run gateway-up gateway-down test test-cov lint format type-check build up down init init-minio seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama verify-observability
 
 # ── 默认 ──
 help: ## 显示帮助信息
@@ -122,12 +122,11 @@ logs: ## 查看中间件日志
 	cd deploy && docker compose logs -f
 
 # ── 初始化 ──
-init: ## 初始化所有中间件（Milvus + ES + Kafka + Temporal）
+init: ## 初始化所有中间件（Milvus + ES + Kafka）
 	@echo "Initializing middleware..."
 	cd agent && poetry run python scripts/init_milvus.py
 	cd agent && poetry run python scripts/init_elasticsearch.py
 	cd agent && poetry run python scripts/init_kafka.py
-	cd agent && poetry run python scripts/init_temporal.py
 
 # ── 验证 ──
 verify: ## 验证所有中间件连通性
@@ -146,10 +145,6 @@ verify-observability: ## 验证可观测性闭环 (test_observability + dashboar
 proto: ## 编译 gRPC Proto 文件
 	cd agent && poetry run python scripts/generate_grpc.py
 	@echo "Proto files compiled successfully"
-
-init-temporal: ## 初始化 Temporal
-	cd agent && poetry run python scripts/init_temporal.py
-	cd agent && poetry run python scripts/generate_grpc.py
 
 # ── 数据库迁移 ──
 migrate: ## 运行数据库迁移

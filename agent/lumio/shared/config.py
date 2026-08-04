@@ -276,18 +276,6 @@ class OrchestrationSettings(BaseSettings):
     ignore_extend_ratio: float = 1.5  # 连续忽略3次→间隔×1.5
 
 
-class TemporalSettings(BaseSettings):
-    """Temporal 配置"""
-
-    model_config = SettingsConfigDict(env_prefix="TEMPORAL_")
-
-    host: str = "localhost"
-    port: int = 7233
-    namespace: str = "default"
-    task_queue: str = "lumio-assist"
-    workflow_timeout_seconds: int = 10
-
-
 class CircuitBreakerConfigSettings(BaseSettings):
     """熔断器配置（各执行器独立，对应文档 §3.4 熔断器配置表）"""
 
@@ -534,7 +522,6 @@ class Settings(BaseSettings):
     session: SessionSettings = Field(default_factory=SessionSettings)
     assist: AssistSettings = Field(default_factory=AssistSettings)
     orchestration: OrchestrationSettings = Field(default_factory=OrchestrationSettings)
-    temporal: TemporalSettings = Field(default_factory=TemporalSettings)
     circuit_breaker: CircuitBreakerConfigSettings = Field(default_factory=CircuitBreakerConfigSettings)
     mcp: MCPSettings = Field(default_factory=MCPSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)

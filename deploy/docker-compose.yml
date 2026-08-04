@@ -312,40 +312,6 @@ services:
     networks:
       - lumio-net
 
-  # ── Temporal Server ─────────────────────────────────
-  temporal:
-    image: temporalio/auto-setup:latest
-    container_name: lumio-temporal
-    restart: unless-stopped
-    environment:
-      - DB=postgresql
-      - DB_PORT=5432
-      - POSTGRES_USER=lumio
-      - POSTGRES_PWD=${POSTGRES_PASSWORD_DOCKER:-lumio_pass}
-      - POSTGRES_SEEDS=postgres
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    ports:
-      - "7233:7233"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - lumio-net
-
-  temporal-ui:
-    image: temporalio/ui:latest
-    container_name: lumio-temporal-ui
-    restart: unless-stopped
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=*
-    ports:
-      - "8085:8080"
-    depends_on:
-      - temporal
-    networks:
-      - lumio-net
-
   # ── Nacos：服务注册 + MCP Registry（仅 gateway profile 启用）─────
   # 启动：make gateway-up（= docker compose --profile gateway up -d）
   # 默认 make up 不会拉起本服务，开发主流程零影响。

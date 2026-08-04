@@ -6,7 +6,6 @@ from lumio.shared.config import (
     CircuitBreakerConfigSettings,
     OrchestrationSettings,
     Settings,
-    TemporalSettings,
 )
 
 # ── OrchestrationSettings ──
@@ -33,22 +32,6 @@ class TestOrchestrationSettings:
 
     def test_env_prefix(self) -> None:
         assert OrchestrationSettings.model_config.get("env_prefix") == "ORCH_"
-
-
-# ── TemporalSettings ──
-
-
-class TestTemporalSettings:
-    def test_defaults(self) -> None:
-        s = TemporalSettings()
-        assert s.host == "localhost"
-        assert s.port == 7233
-        assert s.namespace == "default"
-        assert s.task_queue == "lumio-assist"
-        assert s.workflow_timeout_seconds == 10
-
-    def test_env_prefix(self) -> None:
-        assert TemporalSettings.model_config.get("env_prefix") == "TEMPORAL_"
 
 
 # ── CircuitBreakerConfigSettings ──
@@ -93,11 +76,6 @@ class TestSettingsIntegration:
         assert hasattr(s, "orchestration")
         assert isinstance(s.orchestration, OrchestrationSettings)
 
-    def test_has_temporal_subconfig(self) -> None:
-        s = Settings()
-        assert hasattr(s, "temporal")
-        assert isinstance(s.temporal, TemporalSettings)
-
     def test_has_circuit_breaker_subconfig(self) -> None:
         s = Settings()
         assert hasattr(s, "circuit_breaker")
@@ -107,11 +85,6 @@ class TestSettingsIntegration:
         s = Settings()
         assert s.orchestration.d1_cooldown_turns == 2
         assert s.orchestration.e1_sla_ms == 3000
-
-    def test_temporal_defaults_propagated(self) -> None:
-        s = Settings()
-        assert s.temporal.host == "localhost"
-        assert s.temporal.port == 7233
 
     def test_circuit_breaker_defaults_propagated(self) -> None:
         s = Settings()
