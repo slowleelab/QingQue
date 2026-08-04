@@ -495,3 +495,52 @@ def test_p1_3_three_metrics_in_overview_dashboard() -> None:
         f"lumio-overview.json 缺以下 P1-3 metric panel: {sorted(missing)}. "
         f"实际找到: {found}"
     )
+
+
+# ── P2-2a: lumio-dashboard.json 5 panel 必须用 job=~ bot-service|assist-service ──
+
+
+def test_p2_2a_legacy_dashboard_uses_job_label_not_app() -> None:
+    """P2-2a 整改: 旧版 lumio-dashboard.json 5 个 HTTP panel 不能用 `app=~"lumio.*"`.
+
+    背景: metrics.py 的 http_requests_total 没有 `app` label, 只有 Prometheus 自带的
+    `job` label (来自 prometheus.yml:12-22, job_name=bot-service|assist-service).
+    原 5 panel 用 `app=~"lumio.*"` 永远查不到 series.
+
+    防回归: 任何 regen 都不能再退回 `app=~` 模式.
+    """
+    from pathlib import Path
+
+    dash = (
+        Path(__file__).resolve().parents[2]
+        / "config"
+        / "grafana"
+        / "dashboards"
+        / "lumio-dashboard.json"
+    )
+    data = json.loads(dash.read_text(encoding="utf-8"))
+    panels = data.get("panels") or data.get("dashboard", {}).get("panels", [])
+
+    forbidden = re.compile(r"app\s*=~?\s*\"")
+    found_forbidden: list[str] = []
+    job_panel_count = 0
+    for panel in panels:
+        for tgt in panel.get("targets", []):
+            expr = tgt.get("expr", "")
+            if forbidden.search(expr):
+                found_forbidden.append(
+                    f"{panel.get('title', '<no-title>')}: {expr[:80]}"
+                )
+            # 计数用了 job=~ 的 panel (这 5 panel 必须有此)
+            if "job=~" in expr and "bot-service" in expr:
+                job_panel_count += 1
+
+    assert not found_forbidden, (
+        f"lumio-dashboard.json 出现禁止的 `app=~` label selector (P2-2a 整改要求改用 job):\n"
+        + "\n".join(found_forbidden)
+    )
+    # 这 5 panel (QPS/P95/错误率/限流/HTTP 延迟分布) 必须都用 job label
+    assert job_panel_count >= 5, (
+        f"lumio-dashboard.json 应有 ≥5 panel 用 job=~bot-service|assist-service, "
+        f"实际 {job_panel_count}"
+    )

@@ -9,7 +9,7 @@
         "type": "stat",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "sum(rate(http_requests_total{app=~\"lumio.*\"}[1m])) by (app)", "legendFormat": "{{app}}" }
+          { "expr": "sum(rate(http_requests_total{job=~\"bot-service|assist-service\"}[1m])) by (job)", "legendFormat": "{{job}}" }
         ],
         "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
       },
@@ -18,7 +18,7 @@
         "type": "stat",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{app=~\"lumio.*\"}[5m])) by (le, app))", "legendFormat": "{{app}}" }
+          { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=~\"bot-service|assist-service\"}[5m])) by (le, job))", "legendFormat": "{{job}}" }
         ],
         "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 }
       },
@@ -27,7 +27,7 @@
         "type": "stat",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "sum(rate(http_requests_total{app=~\"lumio.*\",status=~\"5..\"}[1m])) / sum(rate(http_requests_total{app=~\"lumio.*\"}[1m])) * 100", "legendFormat": "Error %" }
+          { "expr": "sum(rate(http_requests_total{job=~\"bot-service|assist-service\",status=~\"5..\"}[1m])) / sum(rate(http_requests_total{job=~\"bot-service|assist-service\"}[1m])) * 100", "legendFormat": "Error %" }
         ],
         "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 }
       },
@@ -36,7 +36,7 @@
         "type": "stat",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "sum(rate(http_requests_total{app=~\"lumio.*\",status=\"429\"}[1m]))", "legendFormat": "Rate Limited" }
+          { "expr": "sum(rate(http_requests_total{job=~\"bot-service|assist-service\",status=\"429\"}[1m]))", "legendFormat": "Rate Limited" }
         ],
         "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 }
       },
@@ -45,9 +45,9 @@
         "type": "timeseries",
         "datasource": "Prometheus",
         "targets": [
-          { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{app=~\"lumio.*\"}[5m])) by (le, app))", "legendFormat": "P50 {{app}}" },
-          { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{app=~\"lumio.*\"}[5m])) by (le, app))", "legendFormat": "P95 {{app}}" },
-          { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{app=~\"lumio.*\"}[5m])) by (le, app))", "legendFormat": "P99 {{app}}" }
+          { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=~\"bot-service|assist-service\"}[5m])) by (le, job))", "legendFormat": "P50 {{job}}" },
+          { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=~\"bot-service|assist-service\"}[5m])) by (le, job))", "legendFormat": "P95 {{job}}" },
+          { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=~\"bot-service|assist-service\"}[5m])) by (le, job))", "legendFormat": "P99 {{job}}" }
         ],
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }
       },
