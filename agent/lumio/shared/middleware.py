@@ -16,6 +16,7 @@ from lumio.shared.config import get_settings
 from lumio.shared.exceptions import (
     InvalidTransitionError,
     LumioError,
+    ServiceOverloadedError,
     SessionNotFoundError,
 )
 
@@ -25,6 +26,7 @@ _logger = logging.getLogger(__name__)
 _HTTP_STATUS_OVERRIDES: dict[int, int] = {
     SessionNotFoundError.code: 404,
     InvalidTransitionError.code: 409,
+    ServiceOverloadedError.code: 503,  # 服务过载/依赖不可用 → 503
     1001: 401,  # AuthenticationError
     1003: 403,  # AuthorizationError
 }

@@ -19,7 +19,7 @@ import uuid as uuid_module
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -957,14 +957,20 @@ async def chat_send(body: ChatSendRequest, req: Request):
     """
     redis_client = getattr(req.app.state, "redis_client", None)
     if redis_client is None:
-        raise HTTPException(status_code=503, detail="Redis 未就绪")
+        # P3-4 整改: 走统一错误体 (ServiceOverloadedError → 503)
+        from lumio.shared.exceptions import ServiceOverloadedError
+
+        raise ServiceOverloadedError("Redis 未就绪, 无法接收消息")
 
     # 输入校验: 拒绝空消息 (含全角空格/零宽字符)
     msg = (
-        (body.message or "").replace("　", " ").replace("​", "").replace("‌", "").replace("‍", "").replace("﻿", "").strip()
+        (body.message or "").replace("　", " ").replace("", "").replace("‌", "").replace("‍", "").replace("﻿", "").strip()
     )
     if not msg:
-        raise HTTPException(status_code=422, detail="消息内容不能为空")
+        # P3-4 整改: 走统一错误体 (IntentUnrecognizedError → 400)
+        from lumio.shared.exceptions import IntentUnrecognizedError
+
+        raise IntentUnrecognizedError("消息内容不能为空")
 
     # 安全过滤：检测客户输入中的敏感词
     from lumio.shared.safety import safety_filter
@@ -1442,7 +1448,11 @@ async def get_session_messages(session_id: str, req: Request, limit: int = 50):
     """获取会话消息历史"""
     redis_client = getattr(req.app.state, "redis_client", None)
     if not redis_client:
-        return {"messages": []}
+        # P3-9 整改: 不再静默返回空列表 (会误导客户端 polling loop 空转)
+        # 显式 503 走统一错误体, 客户端能识别"系统故障"vs"无消息"
+        from lumio.shared.exceptions import ServiceOverloadedError
+
+        raise ServiceOverloadedError("Redis 未就绪, 无法获取会话历史")
 
     key = f"lumio:session:{session_id}:history"
     raw_list = await redis_client.lrange(key, -limit, -1)

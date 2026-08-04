@@ -12,6 +12,7 @@ from lumio.shared.exceptions import (
     KnowledgeMissError,
     LLMTimeoutError,
     LumioError,
+    ServiceOverloadedError,
     SessionCorruptedError,
     SessionNotFoundError,
 )
@@ -32,6 +33,7 @@ def _create_test_app() -> FastAPI:
             3005: InvalidTransitionError,
             4001: LLMTimeoutError,
             5001: SessionCorruptedError,
+            5002: ServiceOverloadedError,
         }
         cls = error_classes.get(error_code, LumioError)
         raise cls()
@@ -106,6 +108,18 @@ async def test_lumio_error_5xxx_returns_500(client: AsyncClient):
     assert resp.status_code == 500
     data = resp.json()
     assert data["error"]["code"] == 5001
+
+
+async def test_service_overloaded_returns_503(client: AsyncClient):
+    """P3-9 整改: ServiceOverloadedError (5002) 显式映射 503 而非默认 500.
+
+    银行客户端 (chat-svc) 看到 503 能识别为'依赖未就绪', 而非'系统 bug'.
+    """
+    resp = await client.get("/raise-lumio/5002")
+    assert resp.status_code == 503, f"Expected 503, got {resp.status_code}: {resp.text}"
+    data = resp.json()
+    assert data["error"]["code"] == 5002
+    assert data["error"]["type"] == "ServiceOverloadedError"
 
 
 async def test_generic_error_returns_500(client: AsyncClient):
