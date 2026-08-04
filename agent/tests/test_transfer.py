@@ -164,3 +164,37 @@ def test_no_transfer_normal_conversation() -> None:
 
     triggered, level, reason = checker.check("查一下账单", intent, sentiment=SentimentLabel.NEUTRAL, session=session)
     assert triggered is False
+
+
+# ── P3-8: config 路径应相对源文件, 而非 cwd ──
+
+
+def test_p3_8_config_path_uses_source_file_not_cwd(tmp_path, monkeypatch) -> None:
+    """P3-8 整改: 改用 __file__ 相对路径后, 即便 cwd 切到任意位置也应能加载 config.
+
+    修复前: Path("config/transfer_keywords.txt") 在 /tmp/ 起 uvicorn 会静默 fail,
+    回退到 _DEFAULT_TRANSFER_KEYWORDS, SRE 改了配置文件但生产不生效.
+    """
+    # 切到任意 cwd
+    monkeypatch.chdir(tmp_path)
+    # 改 LUMIO_ENVIRONMENT 为 development 避免 production 模式禁测试
+    monkeypatch.setenv("LUMIO_ENVIRONMENT", "development")
+    monkeypatch.setenv("LUMIO_JWT_SECRET", "x" * 32)
+
+    # 清除 lru_cache (config 缓存)
+    from lumio.shared.config import get_settings
+
+    get_settings.cache_clear()
+
+    checker = TransferChecker()
+    # 配置文件独有 '找领导' (默认 _DEFAULT_TRANSFER_KEYWORDS 不含)
+    # 如果走了相对源文件路径, '找领导' 应触发转人工
+    # 如果走了 cwd 相对 (broken), 应 fallback 到默认列表, 不会触发
+    assert "找领导" in checker._transfer_keywords, (
+        f"配置文件未加载, 当前关键词: {sorted(checker._transfer_keywords)}"
+    )
+
+    intent = IntentResult(primary_intent=IntentLabel.BILL_QUERY, primary_confidence=0.9)
+    session = _make_session()
+    triggered, _, _ = checker.check("我要找领导", intent, sentiment=SentimentLabel.NEUTRAL, session=session)
+    assert triggered is True, "配置文件独有的 '找领导' 应触发 L1 转人工"

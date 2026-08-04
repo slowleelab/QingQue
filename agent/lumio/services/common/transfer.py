@@ -53,11 +53,13 @@ class TransferChecker:
             self._transfer_keywords = set(transfer_keywords)
         else:
             self._transfer_keywords = set(_DEFAULT_TRANSFER_KEYWORDS)
-            # 从配置文件加载
-            config_path = Path("config/transfer_keywords.txt")
-            if config_path.exists():
-                file_keywords = _load_keywords_from_file(config_path)
-                self._transfer_keywords.update(file_keywords)
+        # 从配置文件加载
+        # P3-8 整改: 改用相对源文件路径, 而非 cwd 相对 (生产 systemd/Docker 用任意 cwd 静默 fail)
+        # __file__ = agent/lumio/services/common/transfer.py → parents[3] = agent/
+        config_path = Path(__file__).resolve().parents[3] / "config" / "transfer_keywords.txt"
+        if config_path.exists():
+            file_keywords = _load_keywords_from_file(config_path)
+            self._transfer_keywords.update(file_keywords)
 
         # 加载敏感词
         if sensitive_keywords:
