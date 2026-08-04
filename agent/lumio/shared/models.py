@@ -498,9 +498,10 @@ class CallSummary(BaseModel):
 class ChatRequest(BaseModel):
     """机器人聊天请求"""
 
-    session_id: str | None = None
-    customer_id: str | None = None
-    message: str
+    session_id: str | None = Field(default=None, max_length=128)
+    customer_id: str | None = Field(default=None, max_length=128)
+    # P3-7 整改: message 加 max_length=2000 防 DoS (单条消息 1MB 直接进 Redis Stream + LLM 浪费 token)
+    message: str = Field(..., max_length=2000)
     channel: ChannelType = ChannelType.WEB
 
 

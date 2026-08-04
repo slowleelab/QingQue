@@ -1226,10 +1226,23 @@ async def upload_document(
 
     source_type_str = _EXT_TO_SOURCE[suffix]
 
-    # 2. 读取文件内容
+    # 2. P3-7 整改: 文件大小上限 50MB (防 OOM 攻击)
+    # Content-Length header 优先 (无须读 body), 缺失则 spools 50MB 上限给 fastapi 自动拒绝
+    content_length = file.size if hasattr(file, "size") else None
+    max_upload_size = 50 * 1024 * 1024
+    if content_length is not None and content_length > max_upload_size:
+        raise DocumentFormatError(
+            f"文件过大: {content_length / 1024 / 1024:.1f}MB > 50MB 上限"
+        )
+
+    # 3. 读取文件内容
     content_bytes = await file.read()
-    content_hash = hashlib.sha256(content_bytes).hexdigest()
     file_size = len(content_bytes)
+    if file_size > max_upload_size:
+        raise DocumentFormatError(
+            f"文件过大: {file_size / 1024 / 1024:.1f}MB > 50MB 上限"
+        )
+    content_hash = hashlib.sha256(content_bytes).hexdigest()
 
     # 3. 上传到 MinIO
     minio_object_key = f"{category}/{filename}"
