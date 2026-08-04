@@ -1,7 +1,7 @@
 # Lumio / 灵智 Makefile — 标准化开发命令
 # 使用: make <target>
 
-.PHONY: help install dev mcp-ref mcp-server-build mcp-server-test mcp-server-run gateway-up gateway-down test test-cov lint format type-check build up down init init-minio seed seed-dry verify clean migrate migrate-create proto pre-commit verify-ollama verify-observability
+.PHONY: help install dev mcp-ref mcp-server-build mcp-server-test mcp-server-run gateway-up gateway-down test test-cov lint format type-check build up down init init-minio seed seed-dry verify clean migrate migrate-create pre-commit verify-ollama verify-observability
 
 # ── 默认 ──
 help: ## 显示帮助信息
@@ -11,8 +11,6 @@ help: ## 显示帮助信息
 # ── AI Agent（Python） ──
 install: ## 安装项目依赖（Poetry）
 	cd agent && poetry install
-	@echo "Generating gRPC stubs..."
-	cd agent && poetry run python scripts/generate_grpc.py 2>/dev/null || echo "⚠️  gRPC stubs 生成失败，请手动运行: make proto"
 
 dev: ## 启动开发模式（bot :8000 + assist :8001）
 	@echo "Starting bot service on :8000 and assist service on :8001..."
@@ -140,11 +138,6 @@ verify-mcp-e2e: ## MCP 工具层端到端联调（Java 22 工具 SSE + 渐进式
 
 verify-observability: ## 验证可观测性闭环 (test_observability + dashboard 引用 + Settings 字段)
 	cd agent && poetry run python scripts/verify_observability.py
-
-# ── gRPC ──
-proto: ## 编译 gRPC Proto 文件
-	cd agent && poetry run python scripts/generate_grpc.py
-	@echo "Proto files compiled successfully"
 
 # ── 数据库迁移 ──
 migrate: ## 运行数据库迁移

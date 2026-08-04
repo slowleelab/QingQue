@@ -39,10 +39,6 @@ minio = "^7.2"
 # 消息队列
 aiokafka = "^0.10"
 
-# gRPC
-grpcio = "^1.60"
-grpcio-tools = "^1.60"
-
 # 大模型
 openai = "^1.30"
 

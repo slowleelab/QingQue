@@ -78,8 +78,8 @@ class _SuppressExceptions:
 
 
 # ── 公共初始化/关闭步骤（两个服务共享的基础设施）──
-# P1-2A 整改: 删 init_grpc_channels/close_grpc_channels (P1-2 死代码)
-# 编排层当前用本地实现, AI 能力层 gRPC 走 grpc_servers.py 仅作未来契约.
+# P3-2 整改: 删 grpc_servers.py / grpc_clients.py / generated/proto/ (P1-2A 已删 runtime 调用)
+# 当前编排层只用本地 asyncio + PydanticAI 实现, 不依赖 gRPC.
 _COMMON_INIT_STEPS = [
     init_db,
     init_redis,
