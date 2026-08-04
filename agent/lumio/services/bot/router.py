@@ -1431,8 +1431,11 @@ async def list_sessions(
         return {"sessions": [], "total": 0}
 
     # 使用 SCAN 迭代（非阻塞），避免 KEYS 阻塞 Redis
+    # P3-5 整改: 用 session_meta_scan_pattern() 公共 helper 代替硬编码
+    from lumio.services.common.session import session_meta_scan_pattern
+
     session_keys: list[str] = []
-    async for key in redis_client.scan_iter(match="lumio:session:*:meta", count=100):
+    async for key in redis_client.scan_iter(match=session_meta_scan_pattern(), count=100):
         session_keys.append(key if isinstance(key, str) else key.decode())
     total = len(session_keys)
     sessions = []
@@ -1467,7 +1470,10 @@ async def get_session_messages(session_id: str, req: Request, limit: int = 50):
 
         raise ServiceOverloadedError("Redis 未就绪, 无法获取会话历史")
 
-    key = f"lumio:session:{session_id}:history"
+    # P3-5 整改: 用 session_history_key() 公共 helper 代替硬编码
+    from lumio.services.common.session import session_history_key
+
+    key = session_history_key(session_id)
     raw_list = await redis_client.lrange(key, -limit, -1)
     messages = []
     for raw in raw_list:

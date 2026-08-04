@@ -36,6 +36,32 @@ logger = logging.getLogger(__name__)
 _META_PREFIX = "lumio:session"
 _HISTORY_PREFIX = "lumio:session"
 
+
+# ── P3-5: 公开的 Redis key 构造函数, 避免散落硬编码 (改前缀时单点修复) ──
+
+
+def session_meta_key(session_id: str) -> str:
+    """会话元数据 Redis key: lumio:session:{session_id}:meta"""
+    return f"{_META_PREFIX}:{session_id}:meta"
+
+
+def session_history_key(session_id: str) -> str:
+    """会话历史 Redis key: lumio:session:{session_id}:history"""
+    return f"{_HISTORY_PREFIX}:{session_id}:history"
+
+
+def session_meta_scan_pattern() -> str:
+    """扫描所有会话元数据的 Redis pattern: lumio:session:*:meta"""
+    return f"{_META_PREFIX}:*:meta"
+
+
+_SESSION_TIMEOUT_ZSET_KEY = "lumio:session:timeouts"
+
+
+def session_timeout_zset_key() -> str:
+    """会话超时 ZSET key (按过期时间戳排序, 用于 session_timeout.py 扫描)"""
+    return _SESSION_TIMEOUT_ZSET_KEY
+
 # ── CAS Lua 脚本（统一状态层，替代 StateManager 的独立 key）──
 
 _CAS_WRITE_SCRIPT = """
@@ -122,10 +148,10 @@ class SessionManager:
         self._pending_persist_tasks.clear()
 
     def _meta_key(self, session_id: str) -> str:
-        return f"{_META_PREFIX}:{session_id}:meta"
+        return session_meta_key(session_id)
 
     def _history_key(self, session_id: str) -> str:
-        return f"{_HISTORY_PREFIX}:{session_id}:history"
+        return session_history_key(session_id)
 
     async def create_session(
         self,

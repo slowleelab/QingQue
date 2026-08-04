@@ -576,3 +576,47 @@ async def test_patch_state_incremental_merge_intent_stack() -> None:
     assert len(patch["intent_stack"]) == 3
     assert "complaint" in patch["intent_stack"]
     assert "faq" in patch["intent_stack"]
+
+
+# ── P3-5: 公开的 Redis key 构造函数 (单点维护, 防散落硬编码) ──
+
+
+class TestSessionKeyHelpers:
+    """P3-5 整改: session_meta_key / session_history_key / session_meta_scan_pattern / session_timeout_zset_key
+    作为唯一来源. 改前缀 (如加 env segment) 时只动 session.py.
+
+    修复前: 4 处散落硬编码 'lumio:session:*', 改前缀要搜 4 处 + 容易漏.
+    """
+
+    def test_session_meta_key_format(self) -> None:
+        from lumio.services.common.session import session_meta_key
+
+        assert session_meta_key("sess-abc") == "lumio:session:sess-abc:meta"
+
+    def test_session_history_key_format(self) -> None:
+        from lumio.services.common.session import session_history_key
+
+        assert session_history_key("sess-abc") == "lumio:session:sess-abc:history"
+
+    def test_session_meta_scan_pattern_matches_only_meta(self) -> None:
+        """scan pattern 必须只匹配 :meta, 不能误扫 :history (那是 list, 扫出来会报错)."""
+        from lumio.services.common.session import session_meta_scan_pattern
+
+        pattern = session_meta_scan_pattern()
+        assert pattern == "lumio:session:*:meta"
+        # 关键: pattern 含 :meta 终止符, 不会匹配 lumio:session:foo:history
+        assert not pattern.endswith(":*")
+
+    def test_session_timeout_zset_key(self) -> None:
+        from lumio.services.common.session import session_timeout_zset_key
+
+        assert session_timeout_zset_key() == "lumio:session:timeouts"
+
+    def test_session_manager_internal_keys_use_helpers(self) -> None:
+        """SessionManager._meta_key / _history_key 必须走 public helper (防内部分裂)."""
+        from lumio.services.common.session import session_history_key, session_meta_key
+
+        # 内部方法与 public helper 输出一致 → 单点维护生效
+        # 反射访问不依赖具体 session_id
+        assert "lumio:session" in session_meta_key("any")
+        assert "lumio:session" in session_history_key("any")

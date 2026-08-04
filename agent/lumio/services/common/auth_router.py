@@ -363,7 +363,10 @@ async def get_stats(request: Request):
 
     if redis:
         # 会话统计
-        session_keys = await redis.keys("lumio:session:*:meta")
+        # P3-5 整改: 用 session_meta_scan_pattern() 公共 helper 代替硬编码
+        from lumio.services.common.session import session_meta_scan_pattern
+
+        session_keys = await redis.keys(session_meta_scan_pattern())
         stats["sessions"]["total_active"] = len(session_keys)
 
         # 消息队列统计
