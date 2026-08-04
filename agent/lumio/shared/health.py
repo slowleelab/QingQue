@@ -15,6 +15,31 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# 依赖名 → 错误分类码 (写入 health 响应, 不含 PII/IP/驱动细节)
+# 银行合规: 错误响应不能含内部细节 (IP/凭证/驱动类名), 但运维需要可定位
+_ERROR_CODE_BY_DEP = {
+    "redis": "redis_unreachable",
+    "postgres": "postgres_unreachable",
+    "elasticsearch": "elasticsearch_unreachable",
+    "llm": "llm_unreachable",
+    "embedding": "embedding_unavailable",
+}
+
+
+def _error_response(dep_name: str, exc: Exception) -> dict[str, str]:
+    """统一构造 health 错误响应: 仅返回分类码, 详细信息走日志 (含 traceback).
+
+    修复 P3-6: 旧版把 str(e)[:100] 直接吐给客户端, 会泄露:
+    - password authentication failed for user "lumio" (PG)
+    - ConnectionRefusedError: 192.168.x.x:6379 (Redis)
+    - Library 内部异常文本
+    """
+    logger.warning("health check %s down: %s", dep_name, exc, exc_info=True)
+    return {
+        "status": "down",
+        "error_code": _ERROR_CODE_BY_DEP.get(dep_name, "dependency_unreachable"),
+    }
+
 
 async def _check_redis(app: Any) -> dict[str, Any]:
     """检查 Redis 连通性"""
@@ -25,7 +50,7 @@ async def _check_redis(app: Any) -> dict[str, Any]:
         await asyncio.wait_for(redis.ping(), timeout=2.0)
         return {"status": "up"}
     except Exception as e:
-        return {"status": "down", "error": str(e)[:100]}
+        return _error_response("redis", e)
 
 
 async def _check_db(app: Any) -> dict[str, Any]:
@@ -40,7 +65,7 @@ async def _check_db(app: Any) -> dict[str, Any]:
             await asyncio.wait_for(conn.execute(text("SELECT 1")), timeout=3.0)
         return {"status": "up"}
     except Exception as e:
-        return {"status": "down", "error": str(e)[:100]}
+        return _error_response("postgres", e)
 
 
 async def _check_es(app: Any) -> dict[str, Any]:
@@ -52,7 +77,7 @@ async def _check_es(app: Any) -> dict[str, Any]:
         await asyncio.wait_for(es.info(), timeout=3.0)
         return {"status": "up"}
     except Exception as e:
-        return {"status": "down", "error": str(e)[:100]}
+        return _error_response("elasticsearch", e)
 
 
 async def _check_llm(app: Any) -> dict[str, Any]:
@@ -64,7 +89,7 @@ async def _check_llm(app: Any) -> dict[str, Any]:
         ok = await asyncio.wait_for(llm.health_check(), timeout=5.0)
         return {"status": "up" if ok else "down"}
     except Exception as e:
-        return {"status": "down", "error": str(e)[:100]}
+        return _error_response("llm", e)
 
 
 async def _check_embedding(app: Any) -> dict[str, Any]:

@@ -3,8 +3,16 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from lumio.shared.audit_middleware import _infer_action
-from lumio.shared.health import aggregate_health
+from lumio.shared.health import (
+    _check_db,
+    _check_es,
+    _check_llm,
+    _check_redis,
+    aggregate_health,
+)
 
 # ── 审计中间件 ──
 
@@ -176,3 +184,95 @@ class TestAggregateHealth:
         status, code = aggregate_health(deps)
         assert status == "degraded"
         assert code == 200
+
+
+# ── P3-6: health 错误响应脱敏 (合规: 不暴露 IP/凭证/驱动类名) ──
+
+
+@pytest.mark.asyncio
+class TestHealthErrorResponse:
+    """P3-6 整改: health 端点不再回显 str(e), 改用分类 error_code.
+
+    旧版会泄露:
+    - PG: 'password authentication failed for user "lumio"'
+    - Redis: 'ConnectionRefusedError: [Errno 111] ... 192.168.x.x:6379'
+    - 任何驱动类名/内部 IP
+
+    新版: error_code 是固定枚举值 (如 redis_unreachable), 完整堆栈走 logger.warning
+    """
+
+    async def _fake_app_with_failing_redis(self) -> MagicMock:
+        app = MagicMock()
+        # 模拟 redis.ping 抛 ConnectionRefusedError (内含敏感信息)
+        app.state.redis_client = MagicMock()
+        app.state.redis_client.ping = _async_raise(
+            ConnectionRefusedError("[Errno 111] Connection refused to 192.168.1.100:6379")
+        )
+        return app
+
+    async def test_redis_down_returns_error_code_not_exception_text(self) -> None:
+        app = await self._fake_app_with_failing_redis()
+        result = await _check_redis(app)
+        assert result["status"] == "down"
+        # 关键: 不应含 IP/端口/驱动类名
+        assert "192.168" not in str(result)
+        assert "6379" not in str(result)
+        assert "ConnectionRefusedError" not in str(result)
+        # 改用分类码
+        assert result["error_code"] == "redis_unreachable"
+
+    async def test_db_down_returns_error_code_not_exception_text(self) -> None:
+        app = MagicMock()
+        app.state.db_engine = MagicMock()
+
+        # engine.connect() 是 async context manager: __aenter__ 返回 conn, conn.execute 抛错
+        # 健康检查在 __aenter__ 之后 await conn.execute, 这里让 conn.execute 抛敏感异常
+        fake_conn = MagicMock()
+        fake_conn.execute = _async_raise(
+            RuntimeError('password authentication failed for user "lumio_prod" (192.168.1.50)')
+        )
+
+        class _FakeCM:
+            async def __aenter__(self):
+                return fake_conn
+
+            async def __aexit__(self, *args):
+                return False
+
+        app.state.db_engine.connect = MagicMock(return_value=_FakeCM())
+        result = await _check_db(app)
+        assert result["status"] == "down"
+        # 关键: 不应含用户名/IP/库名
+        assert "lumio_prod" not in str(result)
+        assert "192.168" not in str(result)
+        assert result["error_code"] == "postgres_unreachable"
+
+    async def test_es_down_returns_error_code_not_exception_text(self) -> None:
+        app = MagicMock()
+        app.state.es_client = MagicMock()
+        app.state.es_client.info = _async_raise(TimeoutError("elasticsearch:9200 timeout"))
+        result = await _check_es(app)
+        assert result["status"] == "down"
+        assert "elasticsearch:9200" not in str(result)
+        assert result["error_code"] == "elasticsearch_unreachable"
+
+    async def test_llm_down_returns_error_code_not_exception_text(self) -> None:
+        app = MagicMock()
+        app.state.llm_client = MagicMock()
+        app.state.llm_client.health_check = _async_raise(
+            RuntimeError("openai api key invalid: sk-prod-abc123...")
+        )
+        result = await _check_llm(app)
+        assert result["status"] == "down"
+        # 关键: 不应含 API key
+        assert "sk-prod-abc123" not in str(result)
+        assert result["error_code"] == "llm_unreachable"
+
+
+def _async_raise(exc: Exception):
+    """构造一个 await 时抛 exc 的协程 (用于 mock 异步方法)."""
+
+    async def _raiser(*args, **kwargs):
+        raise exc
+
+    return _raiser
