@@ -213,3 +213,41 @@ class TestRetrieve:
         )
         # Should still return results (from RRF/BM25), not fail
         assert len(resp.results) >= 1
+
+    @pytest.mark.asyncio
+    async def test_embedding_failure_degrades_to_bm25_no_nameerror(self):
+        """P3-3 修复: embed_query 抛异常时, except 分支不应触发 NameError(vector_task).
+
+        修复前: line 486 `for t in (bm25_task, vector_task)` 在 vector_task 未赋值时
+        直接 NameError, 把真正的嵌入失败掩盖为 5xx.
+
+        修复后: vector_task 初始化为 None, except 分支显式 None 检查, 降级到 BM25 only.
+        """
+        mock_es = AsyncMock()
+        mock_es.search.return_value = {
+            "hits": {
+                "hits": [
+                    {
+                        "_id": "1",
+                        "_score": 3.0,
+                        "_source": {"chunk_id": "c1", "content": "bm25 hit", "doc_id": "d1"},
+                    }
+                ]
+            }
+        }
+        # embedding 服务挂掉
+        mock_embedding = MagicMock()
+        mock_embedding.embed_query = AsyncMock(side_effect=RuntimeError("embedding service down"))
+        mock_milvus = MagicMock()  # 提供但永远到不了
+
+        request = RetrieveRequest(query="test", top_k=3, search_type="hybrid", rerank=False)
+        resp = await retrieve(
+            request,
+            es_client=mock_es,
+            milvus_collection=mock_milvus,
+            embedding_provider=mock_embedding,
+            reranker=None,
+        )
+        # 降级到 BM25 only, 不抛 NameError
+        assert resp.results, "embedding 降级后 BM25 结果应保留"
+        assert all(r.chunk_id == "c1" for r in resp.results)

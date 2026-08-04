@@ -475,6 +475,8 @@ async def retrieve(
         bm25_task = asyncio.create_task(search_bm25(es_client, request.query, expanded_k, compliance_filters))
 
         if embedding_provider and milvus_collection:
+            # 初始化为 None: embed_query 抛异常时 except 分支会引用, 避免 NameError
+            vector_task: asyncio.Task[list[RetrievedChunk]] | None = None
             try:
                 query_embedding = await embedding_provider.embed_query(request.query)
                 vector_task = asyncio.create_task(
@@ -483,9 +485,10 @@ async def retrieve(
                 bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
             except Exception:
                 logger.warning("向量检索嵌入失败，降级到 BM25 only")
-                for t in (bm25_task, vector_task):
-                    if not t.done():
-                        t.cancel()
+                # 只取消 vector_task (embed 阶段已失败, 向量检索必然拿不到 embedding)
+                # bm25_task 不取消, 让其自然完成, 结果可降级使用
+                if vector_task is not None and not vector_task.done():
+                    vector_task.cancel()
                 bm25_results = await bm25_task
         else:
             bm25_results = await bm25_task
