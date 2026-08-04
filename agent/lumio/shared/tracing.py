@@ -9,7 +9,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
+import os
 from collections.abc import Callable
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,39 @@ logger = logging.getLogger(__name__)
 _TRACING_ENABLED = True
 _provider_initialized = False
 _instrumented = False
+
+
+def _read_service_version() -> str:
+    """读 service.version, 优先级: LUMIO_VERSION env > pyproject.toml > 0.0.0.
+
+    优先 env 注入 (CI/CD 可控); 缺省从 pyproject.toml [project] table 解析,
+    真正'开箱即用'而无需用户配 .env. 最终降级 0.0.0 (OpenTelemetry 通用 fallback).
+    """
+    env_ver = os.getenv("LUMIO_VERSION")
+    if env_ver:
+        return env_ver
+
+    try:
+        import tomllib
+    except ImportError:  # pragma: no cover - Python < 3.11
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError:
+            return "0.0.0"
+
+    # pyproject.toml 在 agent/ 下, 与本文件 (shared/tracing.py) 同根的父目录
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    try:
+        with pyproject.open("rb") as f:
+            data = tomllib.load(f)
+    except (OSError, KeyError):
+        return "0.0.0"
+    # 兼容 PEP 621 [project] 与 Poetry 1.x [tool.poetry] 两种格式
+    return str(
+        data.get("project", {}).get("version")
+        or data.get("tool", {}).get("poetry", {}).get("version")
+        or "0.0.0"
+    )
 
 
 def _load_tracing_config() -> tuple[bool, str, str | None]:
@@ -67,10 +102,8 @@ def _init_tracing(app_name: str = "lumio") -> None:
             deployment_env = "unknown"
             sampling_ratio = 1.0
 
-        # 读 service.version (pyproject version, LUMIO_VERSION env 优先)
-        import os
-
-        service_version = os.getenv("LUMIO_VERSION", "0.0.0")
+        # 读 service.version (LUMIO_VERSION env > pyproject.toml > 0.0.0).
+        service_version = _read_service_version()
 
         resource = Resource.create(
             {

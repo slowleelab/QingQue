@@ -459,6 +459,51 @@ def test_observability_settings_sampling_ratio_field_metadata() -> None:
     assert "LUMIO_TRACING_SAMPLE" in aliases
 
 
+# ── P2-4: service.version 读取逻辑 (LUMIO_VERSION > pyproject.toml > 0.0.0) ──
+
+
+def test_service_version_reads_from_env(monkeypatch) -> None:
+    """LUMIO_VERSION env 注入应优先, 即便 pyproject 也存在."""
+    from lumio.shared.tracing import _read_service_version
+
+    monkeypatch.setenv("LUMIO_VERSION", "9.9.9-test")
+    assert _read_service_version() == "9.9.9-test"
+
+
+def test_service_version_falls_back_to_pyproject(monkeypatch) -> None:
+    """env 未设时, 应从 pyproject.toml [project].version 读 (零配置即生效)."""
+    from lumio.shared.tracing import _read_service_version
+
+    monkeypatch.delenv("LUMIO_VERSION", raising=False)
+    version = _read_service_version()
+    # pyproject.toml 真实 version 是 0.1.0, 与仓库同步
+    assert version == "0.1.0", f"pyproject fallback 应读到 0.1.0, 实际 {version}"
+
+
+def test_service_version_fallback_when_pyproject_missing(monkeypatch) -> None:
+    """极边界: pyproject 解析失败, 应降级 0.0.0 而非抛错.
+
+    模拟 Path.open 抛 OSError, 验证 except 分支降级 0.0.0.
+    """
+    from pathlib import Path
+
+    from lumio.shared import tracing
+
+    monkeypatch.delenv("LUMIO_VERSION", raising=False)
+
+    # 模拟 pyproject 不存在 (open 抛 FileNotFoundError → except 触发)
+    real_open = Path.open
+
+    def fake_open(self, *args, **kwargs):
+        raise FileNotFoundError(f"simulated missing {self}")
+
+    monkeypatch.setattr(Path, "open", fake_open)
+    assert tracing._read_service_version() == "0.0.0"
+
+    # 还原
+    monkeypatch.setattr(Path, "open", real_open)
+
+
 # ── Commit P1-3: 3 个 metric 加 dashboard panel ──
 
 
@@ -536,7 +581,7 @@ def test_p2_2a_legacy_dashboard_uses_job_label_not_app() -> None:
                 job_panel_count += 1
 
     assert not found_forbidden, (
-        f"lumio-dashboard.json 出现禁止的 `app=~` label selector (P2-2a 整改要求改用 job):\n"
+        "lumio-dashboard.json 出现禁止的 `app=~` label selector (P2-2a 整改要求改用 job):\n"
         + "\n".join(found_forbidden)
     )
     # 这 5 panel (QPS/P95/错误率/限流/HTTP 延迟分布) 必须都用 job label
