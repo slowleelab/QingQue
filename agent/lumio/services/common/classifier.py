@@ -290,6 +290,27 @@ class IntentClassifier:
         self._llm = llm_classifier
         self._threshold = fast_threshold
 
+    # P2-17: 规则路径情绪关键词 (愤怒/负面), 支撑情绪转人工
+    _ANGRY_KEYWORDS: frozenset[str] = frozenset(
+        {"太生气了", "气死", "愤怒", "忍无可忍", "差劲", "什么态度", "投诉你们", "垃圾", "恼火", "火大"}
+    )
+    _NEGATIVE_KEYWORDS: frozenset[str] = frozenset(
+        {"不满", "失望", "很烦", "烦死了", "郁闷", "难受", "心累", "无语", "焦虑", "担心", "害怕"}
+    )
+
+    @staticmethod
+    def _rule_sentiment(text: str) -> SentimentLabel:
+        """规则情绪检测: 关键词命中 → angry/negative, 否则 neutral."""
+        if not text:
+            return SentimentLabel.NEUTRAL
+        for kw in IntentClassifier._ANGRY_KEYWORDS:
+            if kw in text:
+                return SentimentLabel.ANGRY
+        for kw in IntentClassifier._NEGATIVE_KEYWORDS:
+            if kw in text:
+                return SentimentLabel.NEGATIVE
+        return SentimentLabel.NEUTRAL
+
     async def classify(self, text: str) -> tuple[IntentResult, list[Entity], SentimentLabel, str]:
         """执行双通道分类
 
@@ -307,7 +328,9 @@ class IntentClassifier:
                 rule_result.primary_intent.value,
                 rule_result.primary_confidence,
             )
-            return rule_result, [], SentimentLabel.NEUTRAL, "rule"
+            # P2-17: Fast Path 情绪检测 — 此前规则通道恒 NEUTRAL, 情绪只在 LLM 慢路径
+            # 生效 (覆盖面窄). 规则命中时用关键词快速判定愤怒/负面, 支撑情绪转人工.
+            return rule_result, [], self._rule_sentiment(text), "rule"
 
         # Slow Path
         if self._llm is None:

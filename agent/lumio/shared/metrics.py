@@ -92,6 +92,18 @@ BOT_AGENT_RESPONSES = Counter(
     ["source"],  # source: llm/template/fallback/tool_* 等
 )
 
+# P0-5: 死信队列指标 — 消息进入死信 (处理失败/重试超限) 与人工重放
+DEAD_LETTER_WRITES = Counter(
+    "lumio_dead_letter_writes_total",
+    "消息进入死信队列次数",
+    ["reason"],  # reason: retry_exhausted / agent_error
+)
+
+DEAD_LETTER_REPLAYS = Counter(
+    "lumio_dead_letter_replays_total",
+    "死信消息人工重放次数",
+)
+
 BOT_SEMAPHORE_UTILIZATION = Gauge(
     "lumio_bot_semaphore_utilization",
     "Bot Agent 信号量利用率（0~1，已占用槽位 / 总槽位）",

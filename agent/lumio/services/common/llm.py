@@ -175,6 +175,16 @@ class LLMClient:
             try:
                 response = await self._client.chat.completions.create(**kwargs)
                 content = response.choices[0].message.content or ""
+                # P1-12 修复: 空串回复视为失败重试 — 此前原样返回, 客户端收到
+                # done + 空 reply (看似成功实则无内容), 且不触发熔断/降级
+                if not content.strip():
+                    if attempt < max_retries - 1:
+                        logger.warning("LLM 返回空内容, 重试 (attempt %d/%d)", attempt + 1, max_retries)
+                        await asyncio.sleep(0.5 * (2**attempt))
+                        continue
+                    self._breaker.record_failure()
+                    logger.warning("LLM 连续返回空内容: model=%s", kwargs["model"])
+                    raise LLMInferenceError("LLM 返回空内容")
                 self._breaker.record_success()
                 elapsed = time.monotonic() - _start
                 LLM_CALL_DURATION.labels(model=kwargs["model"], method="chat").observe(elapsed)

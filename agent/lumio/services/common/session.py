@@ -221,6 +221,9 @@ class SessionManager:
             vip_level=meta.get("vip_level", "普通"),
             card_types=meta.get("card_types", []),
             risk_tolerance=meta.get("risk_tolerance", "R2"),
+            vip_level_updated_at=meta.get("vip_level_updated_at", 0.0),
+            risk_tolerance_updated_at=meta.get("risk_tolerance_updated_at", 0.0),
+            card_types_updated_at=meta.get("card_types_updated_at", 0.0),
             turns=turns,
             turn_count=len(turns),
             last_intent=IntentLabel(meta["last_intent"]) if meta.get("last_intent") else None,
@@ -556,6 +559,11 @@ class SessionManager:
             "vip_level": state.vip_level,
             "card_types": state.card_types,
             "risk_tolerance": state.risk_tolerance,
+            # P0-1 修复: 画像衰减时间戳持久化 — 此前未序列化, getattr 恒 0 →
+            # D0 衰减按 999 天算, 学到的 VIP 永远降级一档 / card_types 永不生效
+            "vip_level_updated_at": state.vip_level_updated_at,
+            "risk_tolerance_updated_at": state.risk_tolerance_updated_at,
+            "card_types_updated_at": state.card_types_updated_at,
             "turn_count": state.turn_count,
             "last_intent": state.last_intent.value if state.last_intent else None,
             "last_entities": [e.model_dump() for e in state.last_entities],

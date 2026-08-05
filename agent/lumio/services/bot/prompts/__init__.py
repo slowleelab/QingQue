@@ -56,6 +56,14 @@ GREETING_RESPONSE = "您好, 我是 Lumio 智能客服, 请问有什么可以帮
 
 FAREWELL_RESPONSE = "感谢您的咨询, 如有其他问题随时联系我, 再见!"
 
+# P1-9 危机干预话术: 客户表达自伤/轻生意图时的安抚 + 转人工引导 (银行合规)
+CRISIS_RESPONSE = (
+    "您好，我们非常关心您的感受。您的情绪很重要，请不要独自面对。"
+    "我已为您优先联系人工客服专员，他们将为您提供更贴心的帮助。"
+    "同时，如您需要心理支持，也可以拨打 24 小时心理援助热线 12356 或 400-161-9995，"
+    "随时有人愿意倾听。"
+)
+
 __all__ = [
     "KNOWLEDGE_SYSTEM_PROMPT",
     "BUSINESS_SYSTEM_PROMPT",
@@ -65,4 +73,5 @@ __all__ = [
     "BUSINESS_TRANSFER_TEMPLATE",
     "GREETING_RESPONSE",
     "FAREWELL_RESPONSE",
+    "CRISIS_RESPONSE",
 ]

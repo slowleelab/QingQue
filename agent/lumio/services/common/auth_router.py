@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -436,6 +436,59 @@ async def get_dead_letters(request: Request, count: int = 20):
         messages.append(msg)
 
     return {"messages": messages, "total": total}
+
+
+@router.post(
+    "/admin/dead-letter/replay",
+    dependencies=[Depends(require_role("admin"))],
+)
+async def replay_dead_letter(request: Request, message_id: str = Body(..., embed=True)):
+    """人工重放死信消息 (P0-5 修复): 重新投递回主 Stream, 进入 per-session 队列重试.
+
+    此前死信队列零消费 — 失败消息永久滞留, 客户诉求石沉大海.
+    """
+    redis = getattr(request.app.state, "redis_client", None)
+    if not redis:
+        return {"replayed": False, "reason": "redis_unavailable"}
+
+    # 从死信队列定位该消息 (反向扫描最近 5000 条)
+    entries = await redis.xrevrange("lumio:chat:dead_letter", count=5000)
+    target = None
+    target_dl_id = None
+    for dl_id, fields in entries:
+        fields_map = {
+            (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
+            for k, v in fields.items()
+        }
+        if fields_map.get("original_msg_id") == message_id:
+            target = fields_map
+            target_dl_id = dl_id
+            break
+
+    if target is None:
+        return {"replayed": False, "reason": "not_found"}
+
+    # 重新投递: 以原始消息内容 XADD 回主 Stream (新 message_id, 走完整重试链)
+    from lumio.services.bot.router import CHAT_STREAM_KEY, DEAD_LETTER_REPLAYS
+
+    new_msg_id = await redis.xadd(
+        CHAT_STREAM_KEY,
+        {
+            "session_id": target.get("session_id", ""),
+            "message_id": target.get("original_msg_id", ""),
+            "message": target.get("message", ""),
+            "customer_id": target.get("customer_id", ""),
+            "channel": target.get("channel", "web"),
+            "replayed_from_dead_letter": "1",
+        },
+        maxlen=10000,
+        approximate=True,
+    )
+    # 删除死信条目 + 计数
+    await redis.xdel("lumio:chat:dead_letter", target_dl_id)
+    DEAD_LETTER_REPLAYS.inc()
+    logger.warning("死信消息已人工重放: dl_id=%s → stream_id=%s", target_dl_id, new_msg_id)
+    return {"replayed": True, "stream_id": new_msg_id}
 
 
 # ── 文档审批工作流 ──

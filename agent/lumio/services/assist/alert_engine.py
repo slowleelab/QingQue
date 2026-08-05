@@ -175,3 +175,18 @@ class AlertEngine:
         alerts.extend(self.check_sentiment(sentiment))
         alerts.extend(self.check_sentiment_trend(sentiment_history, trend_window))
         return alerts
+
+    async def check(self, session_id: str, content: str, speaker: str = "agent") -> list[dict[str, Any]]:
+        """对话内容质检入口（P0-2 修复）.
+
+        此前 router.py 调用 `alert_engine.check(...)` 但本类无此方法 →
+        AttributeError 被静默吞掉, 坐席消息的合规检测实际从未执行.
+        对 agent 发言做合规检查 (敏感信息/承诺); customer 发言额外加情绪检测
+        (情绪由调用方从分类结果传入, 此处默认 NEUTRAL, 由 check_sentiment 单独调用).
+        """
+        alerts = self.check_compliance(content)
+        if speaker != "agent":
+            alerts.extend(self.check_sentiment(SentimentLabel.NEUTRAL))
+        if alerts:
+            logger.info("质检告警: session=%s speaker=%s alerts=%d", session_id, speaker, len(alerts))
+        return alerts

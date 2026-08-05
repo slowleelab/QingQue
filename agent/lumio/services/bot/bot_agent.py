@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import uuid as uuid_module
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +21,7 @@ from lumio.services.bot.prompts import (
     _SUMMARIZE_SYSTEM_PROMPT,
     BUSINESS_SYSTEM_PROMPT,
     BUSINESS_TRANSFER_TEMPLATE,
+    CRISIS_RESPONSE,
     FALLBACK_SYSTEM_PROMPT,
     FAREWELL_RESPONSE,
     GREETING_RESPONSE,
@@ -40,6 +42,7 @@ from lumio.shared.models import (
     RetrieveRequest,
     RetrieveResponse,
     SentimentLabel,
+    SessionPhase,
 )
 from lumio.shared.token_utils import estimate_tokens as _token_estimate  # P1-8 统一入口
 from lumio.shared.tracing import traced
@@ -118,6 +121,8 @@ class LumioAgent:
         embedding_breaker: EmbeddingCircuitBreaker | None = None,
         tool_executor: ToolCallingExecutor | None = None,
         reranker: Any | None = None,  # P0-3 上下文工程: RerankerProvider
+        es_breaker: Any | None = None,  # P1-13: ES 熔断器 (app.state.es_breaker)
+        milvus_breaker: Any | None = None,  # P1-13: Milvus 熔断器
     ) -> None:
         self._classifier = classifier
         self._degradation_mgr = degradation_mgr
@@ -130,8 +135,13 @@ class LumioAgent:
         self._tool_executor = tool_executor
         # P0-3: 精排器 (loss-in-middle 缓解 + 相关性阈值过滤)
         self._reranker = reranker
+        # P1-13: ES/Milvus 熔断器 — 检索前先查熔断状态, 避免双挂时被动靠异常降级
+        self._es_breaker = es_breaker
+        self._milvus_breaker = milvus_breaker
         # 后台 task 引用集合, 避免被 GC
         self._pending_tasks: set[asyncio.Task[Any]] = set()
+        # P1-10: 摘要任务 per-session 锁 (多轮快速对话时串行化增量摘要)
+        self._summary_locks: dict[str, asyncio.Lock] = {}
 
     def _spawn_task(self, coro: Any) -> asyncio.Task[Any]:
         """创建并持有后台 task 引用, 完成后自动从集合移除."""
@@ -182,10 +192,46 @@ class LumioAgent:
                 # pending_released: 确认窗口连续无法判定已自动取消, 继续按新消息正常处理
                 logger.info("确认窗口已自动取消, 继续处理新消息: session=%s", session_id)
 
+        # P1-9 危机干预: 客户表达自伤/轻生意图 → 立即安抚话术 + 强制转人工.
+        # 优先级最高 (先于问候/告别/意图分类), 不得走常规 LLM 应答.
+        try:
+            from lumio.shared.safety import safety_filter
+
+            if safety_filter.is_crisis_input(user_input):
+                logger.warning("危机干预触发: session=%s input=%r", session_id, user_input[:50])
+                return self._build_result(
+                    session_id,
+                    user_input,
+                    CRISIS_RESPONSE,
+                    "template",
+                    "crisis",
+                    should_transfer=True,
+                    transfer_reason="crisis_intervention: 客户表达自伤/轻生意图",
+                )
+        except Exception:
+            pass  # 危机检测失败时放行 (不阻断正常对话)
+
         # 快速路径：问候/告别不调 LLM
         if _is_greeting(user_input):
             return self._build_result(session_id, user_input, GREETING_RESPONSE, "template", "chitchat")
         if _is_farewell(user_input):
+            # P1-11 修复: 告别时真正结束会话 + 清除 pending_action.
+            # 此前只回模板话术, 会话停留 BOT_ACTIVE, pending 残留 —
+            # 客户回来续聊时第一句会被当成确认/取消误判.
+            if self._session_manager is not None:
+                try:
+                    state = await self._session_manager.get_session(session_id)
+                    if state is not None and state.current_phase.value != "ended":
+                        if state.pending_action is not None:
+                            await self._clear_pending_action(session_id, state.version)
+                        await self._session_manager.transition_phase(
+                            session_id,
+                            SessionPhase.ENDED,
+                            reason="customer_farewell",
+                        )
+                        logger.info("告别结束会话: session=%s", session_id)
+                except Exception as exc:
+                    logger.debug("告别结束会话失败 (不阻断回复): session=%s err=%s", session_id, exc)
             return self._build_result(session_id, user_input, FAREWELL_RESPONSE, "template", "chitchat")
 
         try:
@@ -219,12 +265,21 @@ class LumioAgent:
 
         except Exception as e:
             logger.warning("Bot Agent 执行失败: %s", e)
+            # P0-4 修复: 顶层异常路径也检查转人工 (异常多因上游故障, 客户诉求应尽快转人工)
+            should_transfer = False
+            transfer_reason = ""
+            with contextlib.suppress(Exception):
+                should_transfer, transfer_reason = await self._check_transfer(
+                    user_input, None, SentimentLabel.NEUTRAL, session_id=session_id
+                )
             return self._build_result(
                 session_id,
                 user_input,
                 self._degradation_mgr._degrader.hardcoded_fallback(),
                 "fallback",
                 "faq",
+                should_transfer=should_transfer,
+                transfer_reason=transfer_reason,
             )
 
     # ── 路径处理 ──
@@ -254,6 +309,12 @@ class LumioAgent:
         - A2: 按 layer 分配 token 预算 (静态 800 / 客户 400 / RAG 1200 / 历史 1500)
         - A4: RAG 检索内容进 LLM 前过 ContentSanitizer
         """
+        # P1-7: 重复提问直接复用上次回答 (不重检索/不重生成)
+        repeat_reply = await self._detect_repeat_question(session_id, user_input)
+        if repeat_reply:
+            logger.info("重复提问命中, 复用上次回答: session=%s", session_id)
+            return self._build_result(session_id, user_input, repeat_reply, "repeat", "knowledge")
+
         context = await self._retrieve(user_input)
         if context:
             from lumio.services.bot.knowledge_graph import enrich_retrieval_context
@@ -306,10 +367,28 @@ class LumioAgent:
         total_est = sum(_estimate_tokens(m.get("content", "")) for m in messages)
         budget_total = settings_b.llm.max_context_tokens - settings_b.llm.reserved_tokens
         if total_est > budget_total:
-            logger.warning(
-                "上下文总预算超限: %d > %d tokens (分层裁剪生效前)",
+            # P2-14 修复: 超限时实际截断 (此前只 log warning, 超长上下文直接进 LLM).
+            # 策略: 从最旧的 history 层开始丢弃 (RAG/当前轮保留, 历史可被摘要覆盖).
+            logger.warning("上下文总预算超限: %d > %d tokens, 裁剪历史层", total_est, budget_total)
+            trimmed_messages: list[dict[str, str]] = []
+            used_after = 0
+            for m in messages:
+                est = _estimate_tokens(m.get("content", ""))
+                if m.get("role") == "user" and m.get("content", "").startswith(
+                    ("（用户连续发送", "<retrieved_context>", "客户问:")
+                ):
+                    trimmed_messages.append(m)
+                    used_after += est
+                    continue
+                if used_after + est > budget_total and m.get("role") == "user":
+                    continue  # 丢弃最旧 user 历史消息
+                trimmed_messages.append(m)
+                used_after += est
+            messages = trimmed_messages
+            logger.info(
+                "上下文裁剪完成: %d → %d tokens",
                 total_est,
-                budget_total,
+                sum(_estimate_tokens(m.get("content", "")) for m in messages),
             )
 
         # P0-1 上下文工程修复: 分层消息直传 LLM (不再压平成单一 system prompt).
@@ -323,7 +402,14 @@ class LumioAgent:
             history=history,
             messages=messages,
         )
-        should_transfer, transfer_reason = await self._check_transfer(user_input, intent, sentiment)
+        should_transfer, transfer_reason = await self._check_transfer(
+            user_input, intent, sentiment, session_id=session_id
+        )
+        # P1-8 修复: 降级回复 (模板/兜底) 不只是文案说"转人工" — 真正触发转人工.
+        # 此前 should_transfer 恒 False, 客户看到"请输入转人工"还要再发一条消息.
+        if result.source in ("template", "fallback") and not should_transfer:
+            should_transfer = True
+            transfer_reason = f"degraded_{result.source}: LLM 不可用, 降级回复"
         return self._build_result(
             session_id,
             user_input,
@@ -355,6 +441,13 @@ class LumioAgent:
                 IntentLabel.TRANSFER_AGENT: "客户主动请求",
             }
             reason = reason_map.get(intent.primary_intent, "业务办理")
+            # P2-15: 投诉工单创建 — 投诉不是"转人工就完事", 需要可跟踪的闭环状态
+            # (open → resolved, 由 admin 端点关闭; Redis hash 轻量实现, 不引新表)
+            if intent.primary_intent == IntentLabel.COMPLAINT:
+                try:
+                    await self._create_complaint_ticket(session_id, user_input, customer_id)
+                except Exception as exc:
+                    logger.debug("投诉工单创建失败 (不阻断转人工): session=%s err=%s", session_id, exc)
             return self._build_result(
                 session_id,
                 user_input,
@@ -401,6 +494,9 @@ class LumioAgent:
                     tool_result.source,
                     intent.primary_intent.value,
                     intent.primary_confidence,
+                    # P2-19: 护栏拒绝 → 真实转人工
+                    should_transfer=tool_result.should_transfer,
+                    transfer_reason=tool_result.transfer_reason,
                     entities=entities,
                     sentiment=sentiment,
                 )
@@ -414,7 +510,13 @@ class LumioAgent:
             intent_label=intent.primary_intent,
             history=history,
         )
-        should_transfer, transfer_reason = await self._check_transfer(user_input, intent, sentiment)
+        should_transfer, transfer_reason = await self._check_transfer(
+            user_input, intent, sentiment, session_id=session_id
+        )
+        # P1-8: 降级回复真正触发转人工 (同上)
+        if result.source in ("template", "fallback") and not should_transfer:
+            should_transfer = True
+            transfer_reason = f"degraded_{result.source}: LLM 不可用, 降级回复"
         return self._build_result(
             session_id,
             user_input,
@@ -483,6 +585,9 @@ class LumioAgent:
             tool_result.source,
             intent.primary_intent.value,
             intent.primary_confidence,
+            # P2-19: 护栏拒绝 → 真实转人工
+            should_transfer=tool_result.should_transfer,
+            transfer_reason=tool_result.transfer_reason,
             entities=entities,
             sentiment=sentiment,
         )
@@ -693,6 +798,14 @@ class LumioAgent:
             intent_label=IntentLabel.CHITCHAT,
             history=history,
         )
+        # P0-4 修复: 兜底路径也做转人工检查 — 此前 _handle_fallback 完全跳过,
+        # 客户被敷衍 N 轮也不会转人工 (只能靠下一轮主动说"转人工"被分类)
+        should_transfer = False
+        transfer_reason = ""
+        if result.source in ("template", "fallback"):
+            should_transfer, transfer_reason = await self._check_transfer(
+                user_input, None, sentiment, session_id=session_id
+            )
         return self._build_result(
             session_id,
             user_input,
@@ -702,14 +815,116 @@ class LumioAgent:
             0.0,
             entities=entities,
             sentiment=sentiment,
+            should_transfer=should_transfer,
+            transfer_reason=transfer_reason,
         )
 
     # ── 辅助方法 ──
+
+    async def _create_complaint_ticket(self, session_id: str, user_input: str, customer_id: str | None) -> str:
+        """P2-15: 创建投诉工单 (Redis hash, 轻量闭环跟踪).
+
+        状态机: open → resolved (admin 端点关闭); TTL 30 天供对账.
+        """
+        if self._session_manager is None:
+            return ""
+        redis = self._session_manager._redis
+        if redis is None:
+            return ""
+        ticket_id = f"CP-{uuid_module.uuid4().hex[:10].upper()}"
+        key = f"lumio:complaint:{ticket_id}"
+        await redis.hset(
+            key,
+            mapping={
+                "ticket_id": ticket_id,
+                "session_id": session_id,
+                "customer_id": customer_id or "",
+                "status": "open",
+                "content": user_input[:500],
+                "created_at": datetime.now(UTC).isoformat(),
+            },
+        )
+        await redis.expire(key, 30 * 24 * 3600)  # 30 天对账窗口
+        # 会话 → 工单索引 (坐席端/管理端按 session 查)
+        await redis.set(f"lumio:complaint:session:{session_id}", ticket_id, ex=30 * 24 * 3600)
+        logger.info("投诉工单已创建: %s session=%s", ticket_id, session_id)
+        return ticket_id
+
+    async def _detect_repeat_question(self, session_id: str, user_input: str) -> str | None:
+        """P1-7 重复提问检测: 与上一轮客户消息归一化后相同 → 返回上次 Bot 回答, 不再重检索/重生成.
+
+        业务场景: "额度多少" 问 3 次 = 3 次全量重检索 + 3 次 LLM + 3 次摘要.
+        仅做轻量归一化 (去标点/空白/语气词) 精确匹配 — 不引入语义相似度,
+        避免误伤"额度多少"→"额度怎么提升"这类真实新问题.
+        """
+        if not user_input:
+            return None
+        norm = self._normalize_question(user_input)
+        if len(norm) < 4:  # 过短消息不判定 (避免"好的"/"嗯"误判)
+            return None
+        try:
+            history = await self._session_manager.get_history(session_id, limit=4) if self._session_manager else []
+            for turn in reversed(history):
+                speaker = getattr(turn, "speaker", "")
+                if speaker != "customer":
+                    continue
+                prev_norm = self._normalize_question(getattr(turn, "content", ""))
+                if prev_norm and prev_norm == norm:
+                    # 找到上一轮相同问题 → 找其后的 Bot 回答
+                    found = False
+                    for later in history:
+                        if later is turn and not found:
+                            found = True
+                            continue
+                        if found and getattr(later, "speaker", "") in ("bot", "assistant"):
+                            content = getattr(later, "content", "")
+                            if content and len(content) > 4:
+                                return content
+                        if found and getattr(later, "speaker", "") == "customer":
+                            break
+                    break
+        except Exception as exc:
+            logger.debug("重复提问检测异常 (放行): session=%s err=%s", session_id, exc)
+        return None
+
+    @staticmethod
+    def _normalize_question(text: str) -> str:
+        """轻量归一化: 全角→半角、去标点空白、去语气词"""
+        import re
+
+        t = text.strip()
+        t = (
+            t.replace("？", "?")
+            .replace("！", "!")
+            .replace("，", ",")
+            .replace("。", ".")
+            .replace("、", ",")
+            .replace("？", "")
+            .replace("呢", "")
+            .replace("啊", "")
+            .replace("呀", "")
+            .replace("吧", "")
+            .replace("哦", "")
+        )
+        return re.sub(r"[\s,?,.!;:；：]+", "", t)
 
     async def _retrieve(self, query: str) -> str:
         """RAG 检索 (P0-3 上下文工程: 接线 reranker + 相关性阈值 + 首尾重排 + RAG 预算截断)"""
         if self._degradation_mgr.level == DegradationLevel.FALLBACK:
             return ""
+        # P1-13 修复: 检索前查 ES/Milvus 熔断器 — 熔断打开时主动跳过检索,
+        # 直接走无知识降级 (此前不查熔断, 双挂时靠异常被动降级, 每次失败都打满超时)
+        try:
+            if (
+                self._es_breaker is not None
+                and self._es_breaker.is_open
+                and self._milvus_breaker is not None
+                and self._milvus_breaker.is_open
+            ):
+                logger.info("ES/Milvus 双熔断, 跳过检索: session 走无知识降级")
+                return ""
+        except Exception:
+            pass
         try:
             from lumio.services.common.retrieval import retrieve as do_retrieve
 
@@ -725,6 +940,9 @@ class LumioAgent:
                 milvus_collection=self._milvus_collection,
                 embedding_provider=embedding_provider,
                 reranker=self._reranker,  # P0-3: 此前传 None, 精排从未生效
+                # P1-7 修复: 接线 Redis 检索缓存 — 此前所有调用方未传 redis_client,
+                # 缓存是死代码, 相同问题 5 分钟内重复问 = 重复打 ES/Milvus + embedding + rerank
+                redis_client=self._session_manager._redis if self._session_manager else None,
             )
             if resp.results:
                 # P0-3 首尾重排 (LongLLMLingua reorder_context="sort"):
@@ -754,16 +972,29 @@ class LumioAgent:
         text: str,
         intent: IntentResult | None = None,
         sentiment: SentimentLabel = SentimentLabel.NEUTRAL,
+        session_id: str = "",
     ) -> tuple[bool, str]:
-        """判断是否需要转人工"""
+        """判断是否需要转人工
+
+        P0-3 修复: 此前恒传 session=None 导致 L3 累计触发 (连续低置信/多次兜底)
+        是死代码 — 客户被 Bot 敷衍多轮也永远不会自动转人工. 现加载会话状态传入.
+        """
         if self._transfer_checker is None:
             return False, ""
         try:
+            session = None
+            if session_id and self._session_manager is not None:
+                try:
+                    state = await self._session_manager.get_session(session_id)
+                    if state is not None:
+                        session = state
+                except Exception:
+                    pass
             should, _, reason = self._transfer_checker.check(
                 text=text,
                 intent=intent or IntentResult(primary_intent=IntentLabel.FAQ),
                 sentiment=sentiment,
-                session=None,
+                session=session,
             )
             return should, reason
         except Exception:
@@ -849,7 +1080,15 @@ class LumioAgent:
         - 如果找到：对该位置之后的轮次生成增量摘要
         - 如果未找到（LTRIM 删除了已摘要的轮次）：对所有 trimmed_turns 重新生成摘要
         - LLM 不可用时跳过（降级为无摘要，结构化记忆仍保证关键实体不丢）
+
+        P1-10 修复: per-session 锁串行化 — 多轮快速对话每轮 spawn 一个摘要任务,
+        CAS 只重试 1 次, 后到者失败导致摘要滞后. 锁保证同会话摘要任务串行执行.
         """
+        lock = self._summary_locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            await self._summary_locked(session_id, trimmed_turns)
+
+    async def _summary_locked(self, session_id: str, trimmed_turns: list) -> None:
         try:
             state = await self._session_manager.get_session(session_id)
             if state is None:

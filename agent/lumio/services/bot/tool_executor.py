@@ -114,6 +114,9 @@ class ToolExecutionResult:
     source: str  # "llm" / "tool"
     pending_action: PendingAction | None = None
     executed_tools: list[str] = field(default_factory=list)
+    # P2-19: 护栏拒绝/配额超限时置 True — 触发真实转人工 (此前只文案引导)
+    should_transfer: bool = False
+    transfer_reason: str = ""
 
 
 class ToolCallingExecutor:
@@ -186,7 +189,9 @@ class ToolCallingExecutor:
         # 确认执行阶段刻意暴露全部工具：待确认工具已定，续跑仅用于生成答复；
         # 若在此筛掉候选，反而可能丢失续跑所需工具，故不做渐进式暴露。
         tools = self._mcp.to_openai_tools()
-        tool_call = ToolCall(id=pending.tool_call_id or "confirmed_call", name=pending.tool_name, arguments=pending.arguments)
+        tool_call = ToolCall(
+            id=pending.tool_call_id or "confirmed_call", name=pending.tool_name, arguments=pending.arguments
+        )
 
         # 确认后再次校验护栏（防止确认期间参数被篡改 / 权限变化）
         guard_decision = await self._enforce_guard(
@@ -211,7 +216,10 @@ class ToolCallingExecutor:
                 {
                     "id": tool_call.id,
                     "type": "function",
-                    "function": {"name": tool_call.name, "arguments": json.dumps(tool_call.arguments, ensure_ascii=False)},
+                    "function": {
+                        "name": tool_call.name,
+                        "arguments": json.dumps(tool_call.arguments, ensure_ascii=False),
+                    },
                 }
             ],
         }
@@ -283,10 +291,14 @@ class ToolCallingExecutor:
                     tool_call, session_id=session_id, actor_id=actor_id, actor_role=actor_role
                 )
                 if not guard_decision.allowed:
+                    # P2-19: 护栏拒绝 → 真实转人工 (文案 _GUARD_REFUSAL 已引导, 但此前
+                    # should_transfer 恒 False, 客户看到"可以转接"还得再发一条消息)
                     return ToolExecutionResult(
                         content=_GUARD_REFUSAL,
                         source="guard",
                         executed_tools=executed,
+                        should_transfer=True,
+                        transfer_reason=f"tool_guard_refused: {tool_call.name} ({guard_decision.reason})",
                     )
 
                 # 敏感工具 → 短路，写待确认（不执行）
@@ -328,9 +340,7 @@ class ToolCallingExecutor:
         try:
             from lumio.services.common.tool_robustness import get_quota_guard
 
-            allowed, _count = await get_quota_guard().check_and_increment(
-                actor_id, tool_call.name
-            )
+            allowed, _count = await get_quota_guard().check_and_increment(actor_id, tool_call.name)
             if not allowed:
                 TOOL_CALLS.labels(tool=tool_call.name, status="quota_exceeded").inc()
                 return {

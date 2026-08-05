@@ -11,11 +11,8 @@
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from lumio.services.common.session import SessionManager
 from lumio.services.common.session_timeout import SessionTimeoutManager
@@ -52,9 +49,6 @@ class TestEndedSessionRevival:
         sm.get_or_create = AsyncMock(return_value=state)
         sm.transition_phase = AsyncMock()
 
-        # 复刻 router._run_agent 的复活分支逻辑
-        from lumio.services.bot import router as bot_router
-
         # 直接验证: 复活分支应调用 transition_phase(BOT, BOT_ACTIVE, reason="customer_returned")
         assert state.current_phase.value == "ended"
         # 手动执行与 router 相同的调用, 验证参数正确性
@@ -87,8 +81,6 @@ class TestBotGuardRefresh:
 
     async def test_add_turn_refreshes_bot_guard(self):
         """add_turn 后 BOT 阶段守卫被刷新 (活跃对话不被空闲超时误杀)"""
-        from lumio.services.common.session import SessionManager as SM
-
         mgr = self._manager()
         mgr._redis.rpush = AsyncMock(return_value=1)
         mgr._redis.llen = AsyncMock(return_value=1)
@@ -216,7 +208,6 @@ class TestAgentPhaseMessagePersisted:
         state = _state(phase=SessionPhase.AGENT, sub=SessionSubPhase.AG_QUEUED)
         sm.get_or_create = AsyncMock(return_value=state)
 
-        from lumio.services.bot import router as bot_router
         from lumio.shared.models import DialogueTurn
 
         # 复刻 router._run_agent AGENT 分支的写入逻辑
@@ -256,3 +247,193 @@ class TestClientIdempotency:
         assert key == "lumio:processed:client-123"
         # 与消费侧标记使用的同一前缀
         assert bot_router._PROCESSED_PREFIX == "lumio:processed"
+
+
+# ── 第二轮边界场景修复 (P0-1 ~ P2-19) 测试 ──
+
+
+class TestProfileTimestampPersistence:
+    """P0-1: 画像衰减时间戳持久化"""
+
+    async def test_save_meta_includes_timestamps(self):
+        from lumio.services.common.session import SessionManager
+
+        mgr = SessionManager.__new__(SessionManager)
+        mgr._redis = MagicMock()
+        mgr._redis.eval = AsyncMock(return_value=1)
+        mgr._redis.expire = AsyncMock(return_value=True)
+        mgr._ttl = 3900
+        state = _state()
+        state.vip_level_updated_at = 1700000000.0
+        state.risk_tolerance_updated_at = 1700000001.0
+        state.card_types_updated_at = 1700000002.0
+
+        await mgr._save_meta(state)
+
+        # eval(script, numkeys, key, expected_version, meta_json, ttl) → args[4]
+        meta_json = mgr._redis.eval.await_args.args[4]
+        import json
+
+        meta = json.loads(meta_json)
+        assert meta["vip_level_updated_at"] == 1700000000.0
+        assert meta["risk_tolerance_updated_at"] == 1700000001.0
+        assert meta["card_types_updated_at"] == 1700000002.0
+
+
+class TestCrisisIntervention:
+    """P1-9: 危机干预 — 自伤/轻生词 → 安抚话术 + 强制转人工"""
+
+    async def test_safety_filter_detects_crisis_words(self):
+        from lumio.shared.safety import safety_filter
+
+        assert safety_filter.is_crisis_input("我不想活了")
+        assert safety_filter.is_crisis_input("感觉好绝望")
+        assert not safety_filter.is_crisis_input("我想查账单")
+
+    async def test_agent_run_crisis_returns_transfer(self):
+        from lumio.services.bot.bot_agent import LumioAgent
+
+        sm = MagicMock()
+        sm.get_session = AsyncMock(return_value=None)
+        agent = LumioAgent(
+            classifier=MagicMock(),
+            degradation_mgr=MagicMock(),
+            transfer_checker=MagicMock(),
+            session_manager=sm,
+            tool_executor=None,
+        )
+        result = await agent.run("s1", "我不想活了", customer_id="c1")
+
+        assert result["should_transfer"] is True
+        assert result["transfer_reason"].startswith("crisis_intervention")
+        assert "心理" in result["response"] or "专员" in result["response"]
+
+
+class TestRepeatQuestionDetection:
+    """P1-7: 重复提问直接复用上次回答"""
+
+    async def test_normalize_question(self):
+        from lumio.services.bot.bot_agent import LumioAgent
+
+        assert LumioAgent._normalize_question("额度多少？") == "额度多少"
+        assert LumioAgent._normalize_question("额度多少呢") == "额度多少"
+        assert LumioAgent._normalize_question(" 额度多少 ") == "额度多少"
+
+    async def test_repeat_returns_previous_answer(self):
+        from lumio.services.bot.bot_agent import LumioAgent
+
+        sm = MagicMock()
+
+        class _Turn:
+            def __init__(self, speaker, content):
+                self.speaker = speaker
+                self.content = content
+
+        sm.get_history = AsyncMock(
+            return_value=[
+                _Turn("customer", "额度多少"),
+                _Turn("bot", "您的额度为 50000 元。"),
+            ]
+        )
+        agent = LumioAgent(
+            classifier=MagicMock(),
+            degradation_mgr=MagicMock(),
+            transfer_checker=MagicMock(),
+            session_manager=sm,
+            tool_executor=None,
+        )
+        reply = await agent._detect_repeat_question("s1", "额度多少？")
+        assert reply == "您的额度为 50000 元。"
+
+    async def test_new_question_not_matched(self):
+        from lumio.services.bot.bot_agent import LumioAgent
+
+        sm = MagicMock()
+
+        class _Turn:
+            def __init__(self, speaker, content):
+                self.speaker = speaker
+                self.content = content
+
+        sm.get_history = AsyncMock(return_value=[_Turn("customer", "账单多少"), _Turn("bot", "您的账单 300 元。")])
+        agent = LumioAgent(
+            classifier=MagicMock(),
+            degradation_mgr=MagicMock(),
+            transfer_checker=MagicMock(),
+            session_manager=sm,
+            tool_executor=None,
+        )
+        assert await agent._detect_repeat_question("s1", "额度多少？") is None
+
+
+class TestFastPathSentiment:
+    """P2-17: Fast Path 情绪检测 (规则通道不再恒 NEUTRAL)"""
+
+    async def test_rule_sentiment_detects_angry(self):
+        from lumio.services.common.classifier import IntentClassifier
+        from lumio.shared.models import SentimentLabel
+
+        assert IntentClassifier._rule_sentiment("气死我了，我要投诉你们") == SentimentLabel.ANGRY
+        assert IntentClassifier._rule_sentiment("我很失望") == SentimentLabel.NEGATIVE
+        assert IntentClassifier._rule_sentiment("查下账单") == SentimentLabel.NEUTRAL
+
+
+class TestFastReplyKeyMapping:
+    """P2-18: RuleLoader domain → _FAST_REPLIES 键别名对齐"""
+
+    async def test_domain_mapping(self):
+        from lumio.services.bot.router import _DOMAIN_TO_FAST_KEY
+
+        assert _DOMAIN_TO_FAST_KEY["card"] == "lost_card"
+        assert _DOMAIN_TO_FAST_KEY["bill"] == "bill_query"
+        assert _DOMAIN_TO_FAST_KEY["limit"] == "limit_query"
+        assert _DOMAIN_TO_FAST_KEY["complaint"] == "complaint"
+        assert _DOMAIN_TO_FAST_KEY.get("unknown", "default") == "default"
+
+
+class TestAlertEngineCheck:
+    """P0-2: alert_engine.check() 存在且可用"""
+
+    async def test_check_exists_and_returns_compliance_alerts(self):
+        from lumio.services.assist.alert_engine import AlertEngine
+
+        engine = AlertEngine()
+        engine.load_from_memory()
+        alerts = await engine.check("s1", "请提供银行卡号 6222021234567890", speaker="agent")
+        assert isinstance(alerts, list)
+
+
+class TestComplaintTicket:
+    """P2-15: 投诉工单创建"""
+
+    async def test_create_complaint_ticket(self):
+        from lumio.services.bot.bot_agent import LumioAgent
+
+        sm = MagicMock()
+        sm._redis = MagicMock()
+        sm._redis.hset = AsyncMock()
+        sm._redis.expire = AsyncMock()
+        sm._redis.set = AsyncMock()
+        agent = LumioAgent(
+            classifier=MagicMock(),
+            degradation_mgr=MagicMock(),
+            transfer_checker=MagicMock(),
+            session_manager=sm,
+            tool_executor=None,
+        )
+        ticket = await agent._create_complaint_ticket("s1", "我要投诉你们", "c1")
+
+        assert ticket.startswith("CP-")
+        sm._redis.hset.assert_awaited_once()
+        key = sm._redis.hset.await_args.args[0]
+        assert key == f"lumio:complaint:{ticket}"
+
+
+class TestBotIdleTimeoutConfig:
+    """FIX-6: bot_idle_timeout 默认 180s"""
+
+    async def test_default(self):
+        from lumio.shared.config import get_settings
+
+        assert get_settings().session.bot_idle_timeout == 180
+        assert get_settings().bot.max_sessions_per_customer == 3

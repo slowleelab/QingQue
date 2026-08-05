@@ -168,6 +168,17 @@ class SafetyFilter:
 
         return len(hits) == 0, hits
 
+    # P1-9: 危机干预词 — 客户表达自伤/轻生意图时, Bot 不得继续常规应答,
+    # 必须走安抚话术 + 强制转人工 (银行合规要求)
+    CRISIS_WORDS: frozenset[str] = frozenset({"自杀", "自残", "轻生", "不想活", "活不下去", "想死", "绝望", "抑郁"})
+
+    def is_crisis_input(self, text: str) -> bool:
+        """检测客户输入是否包含危机干预词 (自伤/轻生意图)."""
+        if not text:
+            return False
+        normalized = _normalize(text)
+        return any(w in normalized for w in self.CRISIS_WORDS)
+
     def filter_output(self, text: str, mask: str | None = None) -> str:
         """过滤输出文本，将敏感词替换为掩码字符
 

@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid as uuid_module
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
@@ -46,6 +47,7 @@ from lumio.shared.metrics import (
     BOT_SEMAPHORE_UTILIZATION,
     BOT_STREAM_LENGTH,
     BOT_STREAM_PENDING,
+    DEAD_LETTER_WRITES,
 )
 from lumio.shared.models import (
     ChatSendRequest,
@@ -106,11 +108,29 @@ _FAST_INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("limit_query", re.compile(r"额度|提额|降额|信用额度")),
 ]
 
+# P2-18 修复: RuleLoader 返回的是 domain (card/bill/limit/...), 与 _FAST_REPLIES
+# 键名 (lost_card/bill_query/...) 不一致 → 挂失/账单满荷时全掉 default 话术.
+# 加 domain → 键别名映射对齐.
+_DOMAIN_TO_FAST_KEY: dict[str, str] = {
+    "card": "lost_card",
+    "complaint": "complaint",
+    "bill": "bill_query",
+    "limit": "limit_query",
+    "installment": "default",
+    "reward": "default",
+    "transfer": "default",
+    "chitchat": "default",
+    "default": "default",
+}
+
 
 def _quick_intent_match(message: str) -> str:
-    """快速意图匹配 (Phase 3: RuleLoader DB+Redis 热加载, <5ms)"""
+    """快速意图匹配 (Phase 3: RuleLoader DB+Redis 热加载, <5ms)
+
+    P2-18: 结果经 domain 别名映射到 _FAST_REPLIES 键, 保证挂失/账单走专属话术.
+    """
     intent, _ = _rule_loader.match(message)
-    return intent
+    return _DOMAIN_TO_FAST_KEY.get(intent, "default")
 
 
 # 支持的文件扩展名 → KbSourceType 映射
@@ -281,6 +301,13 @@ async def _claim_stale(redis_client, agent) -> None:
                         # ACK 丢弃消息 + 清理重试计数
                         await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
                         await redis_client.hdel(retry_counter_key, str(msg_id))
+                        # P0-5: 死信指标 + 告警日志
+                        DEAD_LETTER_WRITES.labels(reason="retry_exhausted").inc()
+                        logger.error(
+                            "DEAD_LETTER: 消息重试超限进入死信 session=%s msg_id=%s — 需人工处理",
+                            fields.get("session_id", ""),
+                            msg_id,
+                        )
                         continue
 
                     logger.warning(
@@ -424,14 +451,27 @@ async def _session_worker(
                         await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
                         continue
 
-                # 3. Semaphore 满荷 → 快速兜底
-                if _agent_semaphore and _agent_semaphore.locked():
+                # 3. Semaphore 满荷 → 快速兜底 (P2-18: 接线 fast_reply_cooldown —
+                # 冷却期内同一会话不做二次快速兜底, 避免连续给客户模板话术)
+                cooldown_ok = True
+                try:
+                    cooldown_ts = await redis_client.get(f"lumio:fast_reply:{session_id}")
+                    if cooldown_ts:
+                        cooldown = get_settings().bot.fast_reply_cooldown
+                        if time.time() - float(cooldown_ts) < cooldown:
+                            cooldown_ok = False
+                except Exception:
+                    pass
+                if _agent_semaphore and _agent_semaphore.locked() and cooldown_ok:
                     intent_hint = _quick_intent_match(message)
                     reply = _FAST_REPLIES.get(intent_hint, _FAST_REPLIES["default"])
                     await _finish_message(redis_client, session_id, reply, intent=intent_hint, source="fast_reply")
                     await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
                     _metrics["fr"] += 1
                     BOT_FAST_REPLY.inc()
+                    # 记录冷却时间戳
+                    with contextlib.suppress(Exception):
+                        await redis_client.set(f"lumio:fast_reply:{session_id}", str(time.time()), ex=60)
                     if _db_session_factory and client_message_id:
                         duration = int((asyncio.get_event_loop().time() - processing_start) * 1000)
                         await update_chat_message(
@@ -572,6 +612,13 @@ async def _session_worker(
                                 maxlen=DEAD_LETTER_MAXLEN,
                                 approximate=True,
                             )
+                        # P0-5: 死信指标 + 告警日志 (Grafana alert 依赖)
+                        DEAD_LETTER_WRITES.labels(reason="agent_error").inc()
+                        logger.error(
+                            "DEAD_LETTER: 消息进入死信队列 session=%s msg_id=%s — 需人工处理",
+                            fields.get("session_id", ""),
+                            msg_id,
+                        )
                     await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
 
             finally:
@@ -1130,6 +1177,32 @@ async def chat_send(body: ChatSendRequest, request: Request, user: CurrentUser):
 
     session_id = body.session_id or uuid_module.uuid4().hex
 
+    # P2-16: per-customer 会话上限 — 同客户多设备/多标签页无限开会话会耗尽
+    # Redis state + 守卫资源. 用 ZSET 记录客户活跃会话 (score=最后活跃时间),
+    # 超过上限且新会话未建时拒绝 (已带 session_id 的续聊不受影响).
+    if body.customer_id and not body.session_id:
+        try:
+            customer_sessions_key = f"lumio:customer_sessions:{body.customer_id}"
+            now_ts = time.time()
+            # 清理 24h 前的过期记录
+            await redis_client.zremrangebyscore(customer_sessions_key, 0, now_ts - 24 * 3600)
+            active = await redis_client.zcard(customer_sessions_key)
+            max_sessions = get_settings().bot.max_sessions_per_customer
+            if active >= max_sessions:
+                logger.warning(
+                    "per-customer 会话超限: customer=%s active=%d limit=%d",
+                    body.customer_id,
+                    active,
+                    max_sessions,
+                )
+                from lumio.shared.exceptions import BusinessError
+
+                raise BusinessError(f"同时进行的会话数量已达上限 ({max_sessions})，请先结束其他会话")
+        except Exception as exc:
+            if isinstance(exc, BusinessError):
+                raise
+            logger.debug("per-customer 会话检查跳过 (非阻断): err=%s", exc)
+
     # FIX-7: 客户端幂等 — 同一 client_message_id 重复提交直接返回已接受, 不进 Stream
     # (双击/网络重试场景: 第二次提交不重复执行 agent, 幂等键由消费侧 _mark_processed 维护)
     client_idem_key = f"lumio:processed:{body.client_message_id}" if body.client_message_id else None
@@ -1144,6 +1217,14 @@ async def chat_send(body: ChatSendRequest, request: Request, user: CurrentUser):
             pass  # 幂等检查失败时放行 (at-least-once 语义)
 
     message_id = body.client_message_id or uuid_module.uuid4().hex
+
+    # P2-16: 记录客户 → 会话 (ZADD, 新会话建立时)
+    if body.customer_id and not body.session_id:
+        with contextlib.suppress(Exception):
+            await redis_client.zadd(
+                f"lumio:customer_sessions:{body.customer_id}",
+                {session_id: time.time()},
+            )
 
     # 注入 trace context 到 Stream 消息 (全链路串联)
     trace_ctx = ""

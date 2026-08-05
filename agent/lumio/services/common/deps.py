@@ -508,6 +508,9 @@ async def init_agent(app: FastAPI) -> None:
         tool_executor=tool_executor,
         # P0-3 上下文工程: 注入精排器 (此前 RAG 检索 reranker=None, 精排从未生效)
         reranker=getattr(app.state, "reranker_provider", None),
+        # P1-13: 注入 ES/Milvus 熔断器 — 检索前主动查熔断状态
+        es_breaker=getattr(app.state, "es_breaker", None),
+        milvus_breaker=getattr(app.state, "milvus_breaker", None),
     )
     # P1-6 第三轮修复: 注入全局 DB session factory — 此前 _db_session_factory 从未赋值,
     # apply_learned_profile (客户画像学习) 整条链路是死代码, D0 衰减恒触发.

@@ -338,6 +338,8 @@ class BotSettings(BaseSettings):
     message_ttl_seconds: int = 8
     # fast_reply 冷却时间（秒），同一会话两次 fast_reply 的最小间隔
     fast_reply_cooldown: int = 5
+    # P2-16: 同一客户同时进行的活跃会话数上限 (多设备/多标签页防资源耗尽)
+    max_sessions_per_customer: int = 3
 
 
 class AssistSettings(BaseSettings):

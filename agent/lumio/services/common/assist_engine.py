@@ -595,6 +595,44 @@ async def run_assist_engine(
                 "updated_at": datetime.now(UTC).isoformat(),
             }
 
+            # P0-6 修复: 情绪告警接线 — 此前 check_sentiment / emotion_transfer 全死代码,
+            # 愤怒客户只被压制营销, 坐席不告警、不转人工. 现在:
+            # 1) alert_engine 生成情绪告警 (推送方: assist/router 读取 state 后推 WS)
+            # 2) 强负面情绪 (angry/desperate) → 转人工建议落 state, 供坐席端展示
+            try:
+                from lumio.services.common.emotion_transfer import should_transfer_by_emotion
+                from lumio.shared.models import SentimentLabel
+
+                emotion_alerts: list[dict[str, Any]] = []
+                if alert_engine is not None:
+                    try:
+                        sent_label = SentimentLabel(sentiment)
+                    except ValueError:
+                        sent_label = SentimentLabel.NEUTRAL
+                    emotion_alerts = alert_engine.check_sentiment(sent_label)
+
+                # 强负面情绪 → 转人工建议 (记录 state, 坐席端读取后展示/转接)
+                transfer_flag, transfer_emo_reason = should_transfer_by_emotion(sentiment, float(sentiment_score or 0))
+                if transfer_flag:
+                    state_patches["emotion_transfer_suggested"] = True
+                    state_patches["emotion_transfer_reason"] = transfer_emo_reason
+                    emotion_alerts.append(
+                        {
+                            "level": "critical",
+                            "category": "emotion_transfer",
+                            "message": f"建议转人工 ({transfer_emo_reason})",
+                            "suggestion": "坐席可发起转接或安抚客户",
+                        }
+                    )
+                    logger.info(
+                        "情绪转人工建议: session=%s sentiment=%s reason=%s", session_id, sentiment, transfer_emo_reason
+                    )
+
+                if emotion_alerts:
+                    state_patches["emotion_alerts"] = emotion_alerts
+            except Exception as exc:
+                logger.debug("情绪告警接线异常 (非阻塞): session=%s err=%s", session_id, exc)
+
         if state_patches:
             expected_version = state_snapshot.get("version", 1)
             try:
