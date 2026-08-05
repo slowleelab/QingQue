@@ -238,7 +238,7 @@ make test-cov   # 运行测试并生成覆盖率报告
 ```
 lumio/
 ├── src/
-│   └── lumio/               # Python 包（重命名自 smartcs，2026-07-30）
+│   └── lumio/               # Python 包
 │       ├── __init__.py     # 包初始化，定义 __version__
 │       ├── py.typed        # PEP 561 类型标记
 │       ├── main.py         # FastAPI 应用入口
@@ -267,7 +267,7 @@ lumio/
 └── .pre-commit-config.yaml # pre-commit 钩子
 ```
 
-> 注：项目已从 `src/smartcs/` 迁移到 `src/lumio/`，主包路径为 `agent/lumio/`，详见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/architecture.md](docs/architecture.md)。
+> 注：主包路径为 `agent/lumio/`，详见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/architecture.md](docs/architecture.md)。
 
 ## 开发命令速查
 
