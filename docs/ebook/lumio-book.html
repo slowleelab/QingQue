@@ -94,7 +94,6 @@
 <li><a href="#16-客户记忆与知识图谱">16 客户记忆与知识图谱</a></li>
 <li><a href="#17-工具调用与确认状态机">17 工具调用与确认状态机</a></li>
 <li class="part"><a href="#附录-A-术语表">附录 A 术语表</a></li>
-<li><a href="#附录-B-Sprint-时间线">附录 B Sprint 时间线</a></li>
 <li><a href="#附录-C-故障排查">附录 C 故障排查</a></li></ul></nav>
   <main>
     <p style="color:var(--muted)">本电子书由 docs/book/ 自动生成 · 最新更新 2026-08-05</p>
@@ -104,9 +103,6 @@
 <blockquote>
 <p>灵智 (Lumio) — 银行信用卡场景的智能客服平台, 用 Python 3.11 + FastAPI + PydanticAI 串起两个独立服务: Bot 自助问答 (:8000) 与坐席辅助 (:8001), 后接 PostgreSQL / Redis / Elasticsearch / Milvus / MinIO / Kafka 六大数据基础设施.</p>
 </blockquote>
-<h2 id="项目缘起">项目缘起</h2>
-<p>Lumio 的前身是 <strong>SmartCS</strong>, 起始于 2025 年. 2026 年 6 月 (commit <code>4be1d67</code>) 正式更名为 Lumio — 名字源自拉丁语 <em>lumen</em> (光), 寓意"点亮客服对话". 重命名是技术性的: Python 包从 <code>smartcs/</code> 改为 <code>lumio/</code>, import 路径全面更新, 但业务逻辑完全保留.</p>
-<p><code>grep -r smartcs agent/lumio/</code> 在主代码库中已<strong>零结果</strong>, 重命名彻底完成.</p>
 <h2 id="项目定位">项目定位</h2>
 <p>Lumio 解决的是<strong>银行信用卡客服</strong>这一垂直场景:</p>
 <ul>
@@ -115,57 +111,6 @@
 <li><strong>可解释性</strong>: 坐席辅助的每个推送必须能解释「为什么推」, 仲裁器输出 <code>fusion_type=BLOCK|WARN|PASS</code> 三个明确等级, 不能黑盒.</li>
 <li><strong>审计留痕</strong>: 5-7 年的客户对话与坐席操作必须持久化, 任何 API 调用都进 <code>audit_log</code> 表.</li>
 </ul>
-<h2 id="Sprint-演进一览">Sprint 演进一览</h2>
-<table>
-<thead>
-<tr>
-<th>Sprint</th>
-<th>主题</th>
-<th>关键成果</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td>基础设施 + 骨架</td>
-<td>12+ SubSettings 配置 / 两个 FastAPI 工厂 / Docker 中间件</td>
-</tr>
-<tr>
-<td>2</td>
-<td>RAG 核心 + 知识库</td>
-<td>BM25 + 向量 + RRF 融合 / 5 阶段摄入 / 父-子分块</td>
-</tr>
-<tr>
-<td>3</td>
-<td>Agent 编排 + Bot MVP</td>
-<td>Redis Stream + Consumer Group / <code>LumioAgent</code> 决策树 / 工具调用</td>
-</tr>
-<tr>
-<td>4</td>
-<td>LLM 集成 + 降级策略</td>
-<td>4 级降级 (NORMAL/DEGRADED/FALLBACK) / 熔断器 / 健康监控</td>
-</tr>
-<tr>
-<td>5</td>
-<td>Assist 引擎</td>
-<td>asyncio.gather 替代 Temporal / D1/D2/D3 + E1/E2/E3 / 仲裁器</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p>详细 Sprint 设计与决策档案见 <a href="appendix/B-sprint-timeline.md">附录 B</a>.</p>
-</blockquote>
-<h2 id="技术债批次">技术债批次</h2>
-<p>2026-08-04 启动了代号 P0-P3 的技术债整改:</p>
-<ul>
-<li><strong>P0 (8 commit)</strong>: 安全基线 — JWT 占位密钥拦截 / dev bypass 限定 loopback / mypy 改 advisory / CI 加固</li>
-<li><strong>P1 (3 commit)</strong>: 高杠杆项 — gRPC 死代码删除 / dashboard 补 3 panel / Temporal 全删</li>
-<li><strong>P2 (2 commit)</strong>: 中优先级 — dashboard 5 panel 修复 / OTel service.version 回退到 pyproject</li>
-<li><strong>P3 (8 commit)</strong>: 真 bug 修复 — RAG NameError / 健康检查脱敏 / 输入限长 / 转人工路径修复 / CAS key 集中化</li>
-</ul>
-<blockquote>
-<p>21 个 commit 全部已推送 main, 详见 <a href="appendix/B-sprint-timeline.md#p0-p3-技术债批次">附录 B</a>.</p>
-</blockquote>
 <h2 id="4-条阅读路径">4 条阅读路径</h2>
 <p>根据角色选择:</p>
 <ol>
@@ -191,9 +136,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <p>时序图/状态图/流程图一律使用 mermaid 语法, 源码在 <code>diagrams/*.mmd</code>, 文档用 <code>\</code>``mermaid` 代码块引用.</p>
 <h3 id="4.-数字驱动">4. 数字驱动</h3>
 <p>所有结论配数字: 16 个 SubSettings / 22 个 MCP 工具 / 35 个错误码 / 367 个测试用例 / 19 张 PG 表 / 15+ Redis key / 24 个 Docker 服务 / 3 套 Grafana dashboard / 6 条告警规则.</p>
-<h3 id="5.-时间线显式化">5. 时间线显式化</h3>
-<p>任何设计决策都标注来源: Sprint N / commit hash / P-batch 编号. 让历史可追溯.</p>
-<h3 id="6.-错误码-/-状态名严格统一">6. 错误码 / 状态名严格统一</h3>
+<h3 id="5.-命名严格统一">5. 命名严格统一</h3>
 <ul>
 <li>错误码形式: <code>3004: SessionNotFoundError</code></li>
 <li>状态名: <code>BOT_ACTIVE</code> (大写下划线) 而非 <code>bot_active</code> (小写蛇形)</li>
@@ -204,12 +147,11 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <h2 id="致谢">致谢</h2>
 <p>本系列文章基于以下贡献者的工作:</p>
 <ul>
-<li><strong>Lumio 核心组</strong> (3 名): 负责 21 个 P-batch commit + Sprint 1-5 设计与实现</li>
+<li><strong>Lumio 核心组</strong> (3 名): 平台设计与实现</li>
 <li><strong>Java MCP Server 组</strong> (2 名): Spring Boot 3.4.5 + 22 工具</li>
 <li><strong>chat-svc 组</strong> (2 名): Spring Boot 3.1.5 + Netty + ZK 服务发现</li>
 <li><strong>前端组</strong> (2 名): Vue 3 + Vite + WebSocket 客户端</li>
 </ul>
-<p>特别感谢 P0-P3 批次中严谨的安全审计, 它发现了 8 个潜在生产事故 (P0-2 JWT 占位密钥, P0-3 dev bypass 0.0.0.0 远端绕过, P3-3 RAG NameError 5% 概率崩溃, P3-7 DoS 入口未限长 等).</p>
 <hr />
 <blockquote>
 <p><strong>下一步</strong>: 阅读 <a href="01-architecture-overview.md">第 1 章: 整体架构</a>, 从三层分层 + 两个 FastAPI 实例的宏观布局开始.</p>
@@ -221,8 +163,8 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <blockquote>
 <p><strong>灵智 (Lumio)</strong> — 银行信用卡场景的智能客服平台, 提供 AI Agent 实时坐席辅助 (Assist) 与 Bot 自助问答 (Bot) 两大核心能力.</p>
 </blockquote>
-<p>本系列文章源自 2026-08-05 一次完整代码库梳理, 覆盖 Lumio 项目全部 16,000 行 Python + 22 工具 Java + 24 个 Docker 服务的核心设计决策. 文章基于 git 状态 (commit 99d3173 起) 编写, 文中所有行号引用 <code>file_path:line</code> 形式, 配 mermaid 图. 后续五轮架构审核 (98 项修复) 的关键设计变更已同步到对应章节 (上下文工程/安全合规/测试策略/部署/工具调用等), 行号以最新代码为准.</p>
-<p><strong>总规模</strong>: 17 章节 / ~75,000 字 / 7 张 mermaid 图 / 3 附录.</p>
+<p>本系列文章覆盖 Lumio 项目全部 16,000 行 Python + 22 工具 Java + 24 个 Docker 服务的核心设计决策. 文中所有行号引用 <code>file_path:line</code> 形式, 配 mermaid 图, 行号以最新代码为准.</p>
+<p><strong>总规模</strong>: 17 章节 / ~75,000 字 / 7 张 mermaid 图 / 2 附录.</p>
 <hr />
 <h2 id="目录">目录</h2>
 <h3 id="序言与索引">序言与索引</h3>
@@ -238,7 +180,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <tbody>
 <tr>
 <td><a href="00-preface.md">00-preface</a></td>
-<td>序言: 项目缘起 + 写作约定</td>
+<td>序言: 项目介绍 + 写作约定</td>
 <td>通识</td>
 <td>5 分</td>
 </tr>
@@ -421,10 +363,6 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <td>术语表 (60+ 词)</td>
 </tr>
 <tr>
-<td><a href="appendix/B-sprint-timeline.md">B</a></td>
-<td>Sprint 1-5 + P0-P3 技术债批次时间线</td>
-</tr>
-<tr>
 <td><a href="appendix/C-troubleshooting.md">C</a></td>
 <td>常见问题排查 (20+ 场景)</td>
 </tr>
@@ -440,7 +378,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <h3 id="路径-2:-架构师-(半天深度评审)">路径 2: 架构师 (半天深度评审)</h3>
 <pre><code>00-preface → 01 整体架构 → 02 配置系统 → 04 坐席辅助 → 05 RAG → 11 安全合规 → 13 部署
 </code></pre>
-<p><strong>目的</strong>: 评估架构选型, 理解 5 个核心 P0/P1/P2/P3 设计决策 (Temporal → asyncio / Redis Stream vs Kafka / PydanticAI / PBKDF2 / 父-子分块).</p>
+<p><strong>目的</strong>: 评估架构选型, 理解 5 个核心设计决策 (asyncio 编排 / Redis Stream vs Kafka / PydanticAI / PBKDF2 / 父-子分块).</p>
 <h3 id="路径-3:-业务开发者-(1-天,-接需求时)">路径 3: 业务开发者 (1 天, 接需求时)</h3>
 <pre><code>01 整体架构 → 02 配置系统 → 03 Bot (按需) → 04 坐席 (按需) → 08 错误处理 → 10 可观测性
 </code></pre>
@@ -457,12 +395,12 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <h2 id="文档约定">文档约定</h2>
 <ul>
 <li><strong>代码引用</strong>: <code>file_path:line</code> 形式, 例如 <code>agent/lumio/main.py:138</code> 指 <code>main.py</code> 第 138 行.</li>
-<li><strong>行号基于 git commit 99d3173</strong>, 后续 commit 可能漂移.</li>
+<li><strong>行号基于当前 main 分支</strong>, 后续提交可能漂移.</li>
 <li><strong>Mermaid 图</strong>: 时序图/状态图/流程图一律使用 mermaid, 源码在 <code>diagrams/*.mmd</code>.</li>
 <li><strong>中英混排</strong>: 项目内代码英文 (函数名/类名), 文档解释中文.</li>
 <li><strong>错误码</strong>: 形式 <code>CODE: 名 (3xxx 业务)</code>, 例如 <code>3004: SessionNotFoundError</code>.</li>
 <li><strong>配置项</strong>: 形式 <code>LUMIO_DATABASE__HOST</code>, 顶层 <code>LUMIO_</code>, 嵌套 <code>__</code> 分隔.</li>
-<li><strong>历史决策</strong>: 引用 <code>commit 简写</code> 或 <code>P0-3</code> 这种 P-batch 编号, P0 最高优先级.</li>
+<li><strong>命名统一</strong>: 术语与错误码与正文严格一致, 完整清单见<a href="appendix/A-glossary.md">附录 A</a>.</li>
 </ul>
 <hr />
 <h2 id="反馈">反馈</h2>
@@ -474,7 +412,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <h1 class="chapter-title">01 整体架构</h1>
 <h1 id="第-1-章:-整体架构">第 1 章: 整体架构</h1>
 <blockquote>
-<p>本章用一张架构图 + 5 个设计决策 + Sprint 时间线, 让你 18 分钟内理解 Lumio 的宏观布局.</p>
+<p>本章用一张架构图 + 5 个设计决策, 让你 18 分钟内理解 Lumio 的宏观布局.</p>
 </blockquote>
 <h2 id="1.1-三层架构总览">1.1 三层架构总览</h2>
 <p>Lumio 整体走三层架构, 借鉴"洋葱模型":</p>
@@ -494,7 +432,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
     end
 
     subgraph Capability[&quot;AI 能力层 (gRPC 规划中)&quot;]
-        Note1[&quot;ClassificationService :50051&lt;br/&gt;RetrievalService :50052&lt;br/&gt;SafetyFilterService :50053&lt;br/&gt;(P3-2 已清理)&quot;]
+        Note1[&quot;ClassificationService :50051&lt;br/&gt;RetrievalService :50052&lt;br/&gt;SafetyFilterService :50053&lt;br/&gt;(规划中)&quot;]
     end
 
     subgraph Data[&quot;数据层 (6 大中间件)&quot;]
@@ -566,7 +504,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
 </tr>
 </tbody>
 </table>
-<p><strong>关键事实</strong>: AI 能力层在 Sprint 1-5 中是<strong>空头规划</strong> — <code>pyproject.toml</code> 已删除 grpcio 依赖 (P3-2 commit <code>b12d696</code>), <code>agent/proto/</code> 目录是空壳, <code>shared/grpc_clients.py</code> 不存在. 当前所有 AI 能力都通过 HTTP 调用外部服务 (Ollama / TEI / Higress MCP).</p>
+<p><strong>关键事实</strong>: AI 能力层目前是<strong>规划态</strong> — <code>agent/proto/</code> 目录是空壳, gRPC stub 未实现. 当前所有 AI 能力都通过 HTTP 调用外部服务 (Ollama / TEI / Higress MCP).</p>
 <h2 id="1.2-两个-FastAPI-实例的边界">1.2 两个 FastAPI 实例的边界</h2>
 <p>主入口 <code>agent/lumio/main.py:241-242</code> 创建两个独立 FastAPI 实例:</p>
 <pre><code class="language-python">bot_app: FastAPI = create_bot_app(lifespan=bot_lifespan)
@@ -632,7 +570,7 @@ class _SuppressExceptions:
     def __enter__(self): pass
     def __exit__(self, *args): return True
 </code></pre>
-<p>关闭时<strong>逆序</strong>调用每个步骤的 close 函数, 任何步骤失败都不影响后续. 这是 P3 整改中强调的"清理优先于报错"原则.</p>
+<p>关闭时<strong>逆序</strong>调用每个步骤的 close 函数, 任何步骤失败都不影响后续 — "清理优先于报错"原则.</p>
 <h2 id="1.3-共享基础层-(shared/)">1.3 共享基础层 (<code>shared/</code>)</h2>
 <p><code>agent/lumio/shared/</code> 目录共 4185 行, 跨服务复用:</p>
 <table>
@@ -746,11 +684,11 @@ class _SuppressExceptions:
 </tr>
 </tbody>
 </table>
-<p><strong>关键设计</strong>: 共享基础层<strong>不依赖任何具体服务</strong>, Bot 和 Assist 都通过 <code>from lumio.shared.xxx import YYY</code> 引用. 这是 P3-5 (commit <code>722a95c</code>) 集中 Redis key 后的进一步解耦.</p>
+<p><strong>关键设计</strong>: 共享基础层<strong>不依赖任何具体服务</strong>, Bot 和 Assist 都通过 <code>from lumio.shared.xxx import YYY</code> 引用.</p>
 <h2 id="1.4-5-个核心设计决策-(技术选型)">1.4 5 个核心设计决策 (技术选型)</h2>
-<p>下面 5 个决策是 Lumio 与同类系统最大差异点. 每个决策都引用了 P0-P3 批次的 commit, 体现决策痕迹.</p>
+<p>下面 5 个决策是 Lumio 与同类系统最大差异点.</p>
 <h3 id="决策-1:-不用-Temporal,-用纯-asyncio.gather">决策 1: 不用 Temporal, 用纯 asyncio.gather</h3>
-<p><strong>背景</strong>: Sprint 1-4 用过 Temporal Workflow, 编排 D1/D2/D3 + E1/E2/E3. P1-2 (commit) 决定迁移.</p>
+<p>Assist 引擎的 D/E 五阶段 (D1/D2/D3 + E1/E2/E3) 用 asyncio.gather 并行编排, 不引入外部工作流引擎.</p>
 <p><strong>理由</strong>:
 1. <strong>运维成本</strong>: Temporal 需要单独的 Workflow Server + Namespace 管理 + Worker 注册
 2. <strong>调试困难</strong>: 跨多个 Activity 的 trace 链路在 Temporal Web UI 才可见, 不能直接看 Jaeger
@@ -855,51 +793,7 @@ for parent in [c for c in chunks if c.is_parent]:
 <blockquote>
 <p>详细 RAG 摄入管线见 <a href="chapters/09-rag-ingestion.md">第 9 章 RAG 摄入</a>.</p>
 </blockquote>
-<h2 id="1.5-Sprint-1-5-演进时间线">1.5 Sprint 1-5 演进时间线</h2>
-<table>
-<thead>
-<tr>
-<th>Sprint</th>
-<th>时间</th>
-<th>主题</th>
-<th>关键成果</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td>2025-12</td>
-<td>基础设施 + 骨架</td>
-<td>12 SubSettings / Docker Compose / 两个 FastAPI 工厂</td>
-</tr>
-<tr>
-<td>2</td>
-<td>2026-02</td>
-<td>RAG 核心 + 知识库</td>
-<td>摄入 5 阶段 / BM25 + 向量 + RRF / 父-子分块</td>
-</tr>
-<tr>
-<td>3</td>
-<td>2026-04</td>
-<td>Agent 编排 + Bot MVP</td>
-<td>Redis Stream / <code>LumioAgent</code> / 工具循环 / 槽位追踪</td>
-</tr>
-<tr>
-<td>4</td>
-<td>2026-05</td>
-<td>LLM 集成 + 降级</td>
-<td>4 级降级 / 熔断器 / 健康监控 / PII 脱敏</td>
-</tr>
-<tr>
-<td>5</td>
-<td>2026-06</td>
-<td>Assist 引擎</td>
-<td>asyncio.gather 替代 Temporal / D1/D2/D3 + E1/E2/E3 / 仲裁器</td>
-</tr>
-</tbody>
-</table>
-<p>之后是 2026-07-08 启动的 P0-P3 技术债批次, 21 个 commit 全部已推送 main (见 <a href="appendix/B-sprint-timeline.md">附录 B</a>).</p>
-<h2 id="1.6-模块依赖图">1.6 模块依赖图</h2>
+<h2 id="1.5-模块依赖图">1.5 模块依赖图</h2>
 <p>下面用 mermaid 展示 shared / bot / assist / common 之间的依赖关系:</p>
 <pre><code class="language-mermaid">graph LR
     shared[&quot;shared/&lt;br/&gt;配置/异常/中间件/可观测性&quot;]
@@ -923,15 +817,13 @@ for parent in [c for c in chunks if c.is_parent]:
 <li><strong>三层分层</strong>: 编排 (FastAPI) / AI 能力 (gRPC 规划中) / 数据 (6 大中间件)</li>
 <li><strong>两个服务</strong>: Bot :8000 (高频低延迟) + Assist :8001 (低频高复杂度), 共享底层</li>
 <li><strong>5 个关键决策</strong>: asyncio.gather 替代 Temporal / Redis Stream 替代 Kafka / 手写 Agent 替代 LangChain / PBKDF2 替代 argon2 / 父-子分块</li>
-<li><strong>Sprint 1-5</strong>: 5 个月从骨架到生产, 2026-07-08 起 P0-P3 21 commit 集中整改技术债</li>
 </ul>
 <hr />
 <blockquote>
 <p><strong>延伸阅读</strong>:
 - <a href="02-configuration-system.md">第 2 章 配置系统</a> — 12+ SubSettings 的完整体系
 - <a href="03-bot-self-service.md">第 3 章 Bot 自助问答</a> — Bot :8000 内部细节
-- <a href="04-assist-engine.md">第 4 章 坐席辅助引擎</a> — Assist :8001 内部细节
-- <a href="appendix/B-sprint-timeline.md">附录 B Sprint 时间线</a> — Sprint 1-5 详细决策档案</p>
+- <a href="04-assist-engine.md">第 4 章 坐席辅助引擎</a> — Assist :8001 内部细节</p>
 </blockquote>
 </section>
 <section class="chapter" id="02-配置系统">
@@ -1103,7 +995,7 @@ class Settings(BaseSettings):
     log_level: str = &quot;INFO&quot;
     cors_origins: list[str] = [&quot;*&quot;]
     jwt_secret: str = &quot;lumio-dev-secret-change-in-production&quot;
-    dev_auth_bypass: bool = False  # P0-3 整改, 默认 False
+    dev_auth_bypass: bool = False  # 默认关闭, 仅开发环境可开
     rate_limit_enabled: bool = True
     rate_limit_default: str = &quot;60/minute&quot;
     rate_limit_chat: str = &quot;30/minute&quot;
@@ -1206,8 +1098,8 @@ LUMIO_LOG_LEVEL=WARNING
 </code></pre>
 <p><code>Settings()</code> 读 <code>LUMIO_DATABASE__HOST</code> → 解析为 <code>database.host</code> → 覆盖 DatabaseSettings 的 host. 这种风格用于<strong>部署期差异化配置</strong>, 避免在 16 个 prefix 间切换.</p>
 <p><strong>注意</strong>: 嵌套分隔符仅在<strong>根 <code>Settings</code> 读取时</strong>生效, 单独 <code>DatabaseSettings()</code> 不识别 <code>LUMIO_DATABASE__HOST</code>. 实际项目里 <code>get_db()</code> 拿的是 <code>settings.database</code> (工厂构造), 因此一致.</p>
-<h2 id="2.4-AliasChoices-兼容模式-(P2-4-整改)">2.4 AliasChoices 兼容模式 (P2-4 整改)</h2>
-<p>P2-4 之前, 项目用 <code>LUMIO_TRACING_ENABLED</code> 顶层 env 控制追踪. 整改后, 统一到 <code>ObservabilitySettings</code> 子配置, 用 <code>OBSERVABILITY_TRACING_ENABLED</code>. 但<strong>旧 env 名不能直接放弃</strong> — 存量 docker-compose / .env / 文档可能还在用.</p>
+<h2 id="2.4-AliasChoices-兼容模式">2.4 AliasChoices 兼容模式</h2>
+<p>追踪配置统一收在 <code>ObservabilitySettings</code> 子配置下, 用 <code>OBSERVABILITY_TRACING_ENABLED</code>. 但<strong>旧 env 名不能直接放弃</strong> — 存量 docker-compose / .env / 文档可能还在用, 因此用 <code>AliasChoices</code> 做别名兼容:</p>
 <h3 id="2.4.1-兼容实现">2.4.1 兼容实现</h3>
 <pre><code class="language-python"># config.py:308-326 (简化)
 from pydantic import AliasChoices
@@ -1237,11 +1129,10 @@ class ObservabilitySettings(BaseSettings):
 - 只设置 <code>LUMIO_TRACING_ENABLED=true</code> → 仍生效 (兼容)
 - 都不设置 → 用 <code>default=True</code></p>
 <h3 id="2.4.2-关键设计哲学">2.4.2 关键设计哲学</h3>
-<p>P2-4 整改的注释明确写:</p>
 <blockquote>
-<p>接口稳定性 &gt; 配置简洁性. 项目运行 6 个月后, 改 env 名 = 改 docker-compose + .env.example + 文档, 改动面 &gt; 10 文件. 用 AliasChoices 多保留 1 行代码, 换 0 故障切换.</p>
+<p>接口稳定性 &gt; 配置简洁性. 改 env 名 = 改 docker-compose + .env.example + 文档, 改动面 &gt; 10 文件. 用 AliasChoices 多保留 1 行代码, 换 0 故障切换.</p>
 </blockquote>
-<p>这是 P0-P3 整改中"接口兼容优先"的代表性决策, 详见 <a href="appendix/B-sprint-timeline.md#p2-4">附录 B</a>.</p>
+<p>这是"接口兼容优先"的代表性决策.</p>
 <h2 id="2.5-MCP-路由模式-vs-单后端模式">2.5 MCP 路由模式 vs 单后端模式</h2>
 <p><code>MCPSettings</code> 走 <code>BaseModel</code> 而非 <code>BaseSettings</code>, 因为它有<strong>结构化</strong>配置 (路由表):</p>
 <pre><code class="language-python"># config.py:370-435 (简化)
@@ -1296,7 +1187,7 @@ LUMIO_DEBUG=false
 LUMIO_LOG_LEVEL=INFO
 LUMIO_CORS_ORIGINS=*
 LUMIO_JWT_SECRET=                        # 生产环境必填 ≥32 字符
-LUMIO_DEV_AUTH_BYPASS=false              # P0-3 整改, 默认 False
+LUMIO_DEV_AUTH_BYPASS=false              # 默认关闭, 仅开发环境可开
 
 # ─── 数据库 ───
 POSTGRES_HOST=localhost
@@ -1412,14 +1303,14 @@ def test_settings_override(monkeypatch):
     assert settings.environment == &quot;production&quot;
     assert len(settings.jwt_secret) == 32
 </code></pre>
-<p><code>test_auth.py:105</code> 等多处使用此模式. P0-3 整改后, 强制<strong>生产环境 JWT secret 长度校验</strong>, 这个测试验证了拦截逻辑.</p>
+<p><code>test_auth.py:105</code> 等多处使用此模式, 验证了<strong>生产环境 JWT secret 长度校验</strong>的拦截逻辑.</p>
 <h2 id="2.9-本章小结">2.9 本章小结</h2>
 <p>Lumio 配置系统是项目"零硬编码"的关键:</p>
 <ul>
 <li><strong>16 个 SubSettings + 12 个独立 env_prefix</strong>: 业界标准 12-factor 风格</li>
 <li><strong><code>__</code> 嵌套分隔符</strong>: 部署期差异化配置的统一入口</li>
-<li><strong><code>AliasChoices</code> 兼容模式</strong>: P2-4 整改的接口稳定性策略</li>
-<li><strong><code>_validate_production_security</code></strong>: 启动期 fail-fast — 生产环境强制校验 JWT 密钥 (≥32 字符, 禁占位) + <strong>LLM_API_KEY / MINIO / ES / REDIS 五类外部凭据非默认值</strong> (第五轮扩展, 此前仅拦 JWT, 漏配用假凭证直连外部服务)</li>
+<li><strong><code>AliasChoices</code> 兼容模式</strong>: 接口兼容优先的稳定性策略</li>
+<li><strong><code>_validate_production_security</code></strong>: 启动期 fail-fast — 生产环境强制校验 JWT 密钥 (≥32 字符, 禁占位) + <strong>LLM_API_KEY / MINIO / ES / REDIS 五类外部凭据非默认值</strong></li>
 <li><strong>分层 token 预算真实消费</strong>: <code>budget_static/customer/rag/history/current</code> 由上下文构建器强制分配 (第 15 章), 不再是死配置</li>
 <li><strong>MCP 路由 vs 单后端</strong>: <code>backends=[]</code> 零回归切换</li>
 <li><strong><code>@lru_cache</code> 单例</strong>: 减少 Pydantic 校验开销</li>
@@ -1496,7 +1387,7 @@ def test_settings_override(monkeypatch):
 @router.post(&quot;/api/chat/send&quot;)
 async def chat_send(body: ChatSendRequest, request: Request) -&gt; dict:
     &quot;&quot;&quot;异步入口: 写 Stream + 立即返回 202&quot;&quot;&quot;
-    # 1. 校验 (P3-7 整改: max_length=2000)
+    # 1. 校验 (max_length=2000)
     if len(body.message) &gt; 2000:
         raise DocumentFormatError(&quot;消息超过 2000 字符&quot;, code=2003)
 
@@ -1683,7 +1574,7 @@ async def _handle_pending_action(self, session_id, user_input, pending):
     pending --&gt; confirm: 客户说&quot;确认&quot;
     pending --&gt; cancel: 客户说&quot;取消&quot;
     pending --&gt; unclear: 客户回复不明确
-    pending --&gt; expired: 5min TTL (P1-3 从 30s 调到 300s)
+    pending --&gt; expired: 5min TTL
     confirm --&gt; [*]: 执行工具
     cancel --&gt; [*]: 清除 pending
     unclear --&gt; pending: 提示再次确认
@@ -1812,8 +1703,8 @@ class BotWorkerPool:
 </tr>
 </tbody>
 </table>
-<h2 id="3.8-文件上传-50MB-限制-(P3-7)">3.8 文件上传 50MB 限制 (P3-7)</h2>
-<p><code>agent/lumio/services/bot/router.py:1194-1270</code> <code>upload_document</code> 端点, P3-7 整改加上双重限制:</p>
+<h2 id="3.8-文件上传-50MB-限制">3.8 文件上传 50MB 限制</h2>
+<p><code>agent/lumio/services/bot/router.py:1194-1270</code> <code>upload_document</code> 端点有双重限制:</p>
 <pre><code class="language-python"># 简化
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 ALLOWED_EXTENSIONS = {&quot;.pdf&quot;, &quot;.docx&quot;, &quot;.md&quot;, &quot;.html&quot;, &quot;.txt&quot;, &quot;.xlsx&quot;}
@@ -1837,7 +1728,7 @@ async def upload_document(file: UploadFile, request: Request):
     # 4. 上传 MinIO + 异步摄入
     ...
 </code></pre>
-<p><strong>P3-7 整改前</strong>: 完全没有大小检查, 1MB 消息 / 1GB 文件都能进 Redis Stream + LLM, 引发 DoS 风险. 修复后, message <code>max_length=2000</code> + 文件 50MB + 扩展名白名单三道关.</p>
+<p><strong>设计动机</strong>: 入口不设限, 1MB 消息 / 1GB 文件都能进 Redis Stream + LLM, 引发 DoS 风险. 因此 message <code>max_length=2000</code> + 文件 50MB + 扩展名白名单三道关.</p>
 <h2 id="3.9-客户画像-+-知识图谱">3.9 客户画像 + 知识图谱</h2>
 <blockquote>
 <p><strong>本章保留摘要, 详细机制见 <a href="chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a></strong> + <a href="../book/appendix/A-glossary.md">附录 A.4.2 / A.4.3 术语</a>.</p>
@@ -1847,7 +1738,7 @@ async def upload_document(file: UploadFile, request: Request):
 <li><strong>CustomerMemory</strong>: 跨 90 天 SQL <code>string_agg</code> 聚合, 推断卡种 (platinum/diamond/gold/standard) / VIP 等级 (private_banking/wealth_management/vip, max-score 评分) / 风险偏好 (R1~R4 累加). <code>apply_learned_profile</code> 用 CAS patch 写入 SessionState, <strong>不覆盖已显式声明</strong>.</li>
 <li><strong>KnowledgeGraph</strong>: 5 实体 (信用卡/账单/额度/分期/挂失) × 3 关系 × 8 谓词的内存版图谱, 仅在 <code>_handle_knowledge</code> 分支注入 RAG 上下文 (Markdown <code>## 知识图谱补充信息:</code> 格式).</li>
 </ul>
-<p>这些都是 Sprint 5 之后的渐进增强, 当前不是核心路径. 触发时机 / 失败兜底 / 设计取舍 (正则 vs LLM / 90 天 window / 内存版 vs Neo4j) 见 <a href="chapters/16-customer-memory-and-kg.md">第 16 章</a>.</p>
+<p>这些都是渐进增强, 当前不是核心路径. 触发时机 / 失败兜底 / 设计取舍 (正则 vs LLM / 90 天 window / 内存版 vs Neo4j) 见 <a href="chapters/16-customer-memory-and-kg.md">第 16 章</a>.</p>
 <h2 id="3.10-监控指标">3.10 监控指标</h2>
 <p><code>shared/metrics.py</code> 发射 12 个 Bot 专属指标:</p>
 <table>
@@ -1900,7 +1791,7 @@ async def upload_document(file: UploadFile, request: Request):
 <td><code>tool_confirmations_total</code></td>
 <td>Counter</td>
 <td>decision (pending/confirm/cancel/unclear/expired)</td>
-<td>bot_agent.py:416/447/458/468 (<strong>P1-3 新增</strong>)</td>
+<td>bot_agent.py:416/447/458/468</td>
 </tr>
 <tr>
 <td><code>tool_calls_total</code></td>
@@ -1912,7 +1803,7 @@ async def upload_document(file: UploadFile, request: Request):
 <td><code>tool_guard_denials_total</code></td>
 <td>Counter</td>
 <td>tool, reason</td>
-<td>tool_executor.py:378 (<strong>P1-3 新增</strong>)</td>
+<td>tool_executor.py:378</td>
 </tr>
 <tr>
 <td><code>http_requests_total</code></td>
@@ -2408,7 +2299,7 @@ class GlobalArbitrator:
 </tr>
 </tbody>
 </table>
-<h2 id="4.8-3s-延迟反馈-(H2-整改)">4.8 3s 延迟反馈 (H2 整改)</h2>
+<h2 id="4.8-3s-延迟反馈">4.8 3s 延迟反馈</h2>
 <p><code>router.py:630-700</code> <code>record_feedback</code> 端点实现<strong>3s 延迟确认</strong>:</p>
 <pre><code class="language-python"># router.py:630 (简化)
 @router.post(&quot;/api/feedback&quot;)
@@ -2428,7 +2319,7 @@ async def record_feedback(body: FeedbackRequest, request: Request):
     asyncio.create_task(commit_after_delay())
     return {&quot;status&quot;: &quot;buffered&quot;, &quot;undo_window&quot;: 3}
 </code></pre>
-<p><strong>关键设计</strong>: 客户点"忽略/没用"后, 坐席想撤销, 有 3s 窗口. 这比立即提交友好, 符合 H2 人类工程学 (Human-Computer Interaction). 详细见 <a href="appendix/B-sprint-timeline.md#h2-3s-延迟确认">附录 B</a>.</p>
+<p><strong>关键设计</strong>: 客户点"忽略/没用"后, 坐席想撤销, 有 3s 窗口. 这比立即提交友好, 符合人类工程学 (Human-Computer Interaction).</p>
 <h2 id="4.9-话后小结生成">4.9 话后小结生成</h2>
 <p><code>agent/lumio/services/assist/summary.py:33-180</code> <code>generate_call_summary</code> 通话结束自动生成:</p>
 <pre><code class="language-python"># summary.py:33 (简化)
@@ -2455,18 +2346,18 @@ async def generate_call_summary(session_id, session_manager, llm):
     return response
 </code></pre>
 <p><strong>关键设计</strong>: LLM JSON 模式 (response_format=json_object) + Pydantic <code>CallSummary</code> 校验, 失败重试 1 次.</p>
-<h2 id="4.10-从-Temporal-→-asyncio.gather-的迁移故事">4.10 从 Temporal → asyncio.gather 的迁移故事</h2>
-<p>Sprint 1-4 用过 Temporal Workflow 编排 D1/D2/D3 + E1/E2/E3. Sprint 5 决定迁移, 详见 <a href="appendix/B-sprint-timeline.md#sprint-5-assist-引擎">附录 B</a>. 关键决策依据:</p>
+<h2 id="4.10-编排方式:-asyncio.gather-而非工作流引擎">4.10 编排方式: asyncio.gather 而非工作流引擎</h2>
+<p>Assist 引擎的 D/E 五阶段 (D1/D2/D3 + E1/E2/E3) 用 asyncio.gather 并行编排, 不引入外部工作流引擎. 关键决策依据:</p>
 <ol>
-<li><strong>运维成本</strong>: Temporal 需独立 Server + Namespace + Worker, 部署复杂</li>
-<li><strong>调试</strong>: Temporal Web UI 才能看 trace, 调试不能直接看 Jaeger</li>
-<li><strong>依赖</strong>: Python + Java SDK 双维护</li>
+<li><strong>运维成本</strong>: 工作流引擎需独立 Server + Namespace + Worker, 部署复杂</li>
+<li><strong>调试</strong>: 外部工作流引擎的 trace 不能在 Jaeger 直接看</li>
+<li><strong>依赖</strong>: 多语言 SDK 双维护</li>
 <li><strong>业务规模</strong>: 5 阶段 &lt; 5s, 协程足够</li>
 </ol>
-<p>迁移后:
-- 节省 1 个外部服务 (Temporal Server)
+<p>选择纯 asyncio 编排的好处:
+- 少一个外部服务
 - 跨服务 trace 全在 Jaeger, 调试更直观
-- 代码量减少 (P1-2 commit 删了 800+ 行 Temporal 相关)</p>
+- 代码量更小</p>
 <h2 id="4.11-监控指标">4.11 监控指标</h2>
 <p>Assist 引擎发射 8 个核心指标 (assist_engine.py:47-120):</p>
 <table>
@@ -2506,12 +2397,12 @@ async def generate_call_summary(session_id, session_manager, llm):
 <tr>
 <td><code>session_phase_duration_seconds</code></td>
 <td>Histogram</td>
-<td>sub_phase (<strong>P1-3 新增</strong>)</td>
+<td>sub_phase</td>
 </tr>
 <tr>
 <td><code>tool_guard_denials_total</code></td>
 <td>Counter</td>
-<td>tool, reason (<strong>P1-3 新增</strong>)</td>
+<td>tool, reason</td>
 </tr>
 <tr>
 <td><code>llm_call_duration_seconds</code></td>
@@ -2707,7 +2598,7 @@ async def retrieve(request, es_client, milvus_collection, embedding_provider, re
 </tr>
 </tbody>
 </table>
-<p><strong>P3-3 修复</strong>: 旧版 <code>for t in (bm25_task, vector_task)</code> 引用 vector_task 时可能未赋值, 抛 NameError. 修复: <code>vector_task: asyncio.Task | None = None</code>, 仅 cancel vector_task.</p>
+<p><strong>并行任务防御</strong>: <code>vector_task: asyncio.Task | None = None</code> 初始化, 仅在任务确实创建后 cancel — 避免并发路径下引用未赋值任务.</p>
 <h2 id="5.4-BM25-检索:-ES-+-IK">5.4 BM25 检索: ES + IK</h2>
 <p><code>retrieval.py:140-225</code> <code>search_bm25</code> 用 ES 8.19 + IK 中文分词:</p>
 <pre><code class="language-python"># retrieval.py:140 (简化)
@@ -2984,7 +2875,7 @@ if result and request.search_type != &quot;vector&quot;:
 <p><code>agent/tests/test_retrieval.py</code> (22 用例) 覆盖:</p>
 <ul>
 <li><code>test_hybrid_search_rrf_fusion</code> — RRF 公式正确性</li>
-<li><code>test_embedding_failure_degrades_to_bm25</code> (P3-3 新增) — NameError 修复回归</li>
+<li><code>test_embedding_failure_degrades_to_bm25</code> — 嵌入失败降级到 BM25 的回归用例</li>
 <li><code>test_compliance_filter_mandatory</code> — 合规字段硬注入</li>
 <li><code>test_cache_hit_skips_retrieval</code> — 缓存命中</li>
 <li><code>test_milvus_filter_post_processing</code> — 后过滤</li>
@@ -3399,9 +3290,9 @@ async def persist_dialogue(self, session_id: str):
 - <strong>压缩存储</strong>: <code>compressed_json</code> 字段 (BYTEA) 压缩对话原文, 减少存储
 - <strong>fire-and-forget</strong>: <code>asyncio.create_task</code> 不阻塞 <code>transition_phase</code> 调用
 - <strong>Redis 留 7 天</strong>: 临时备份, 7 天后过期</p>
-<h2 id="6.7-Redis-key-集中化-(P3-5-整改)">6.7 Redis key 集中化 (P3-5 整改)</h2>
-<p>P3-5 之前, key 命名散落各模块. 整改后集中到 <code>session.py</code>:</p>
-<pre><code class="language-python"># session.py:24-50 (简化) - P3-5 新增
+<h2 id="6.7-Redis-key-集中化">6.7 Redis key 集中化</h2>
+<p>Redis key 命名集中在 <code>session.py</code> 统一管理:</p>
+<pre><code class="language-python"># session.py:24-50 (简化)
 def session_meta_key(session_id: str) -&gt; str:
     return f&quot;lumio:session:{session_id}:meta&quot;
 
@@ -3421,27 +3312,22 @@ class SessionManager:
     def _history_key(self, session_id: str) -&gt; str:
         return session_history_key(session_id)  # 委托
 </code></pre>
-<p><strong>P3-5 收益</strong>:
+<p><strong>集中管理收益</strong>:
 - <strong>未来 prefix 改动</strong>: 单点修改 <code>session.py:24-50</code>, 全局生效
 - <strong>测试更简单</strong>: 测试可以 mock helper 函数
 - <strong>审计清晰</strong>: <code>session_meta_scan_pattern()</code> 给 SCAN 用, 避免散落</p>
-<h2 id="6.8-历史演进:-9-态-→-3×7-矩阵">6.8 历史演进: 9 态 → 3×7 矩阵</h2>
-<p>P3 之前的会话状态机是<strong>扁平 9 态</strong>:</p>
-<pre><code>INIT → BOT_ACTIVE → WAITING_HUMAN → HUMAN_ACTIVE → HOLDING
-      → REVIEWING → ENDED → ABANDONED → TRANSFERRED
+<h2 id="6.8-状态模型:-3×7-矩阵">6.8 状态模型: 3×7 矩阵</h2>
+<p>会话状态机采用 <strong>4 phase (顶层) × 7 sub-state (子)</strong> 的矩阵模型:</p>
+<pre><code>PHASE:   BOT → AGENT → ENDED
+SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWING ...
 </code></pre>
-<p>问题:
-- 9 态互相转换规则复杂 (9×9 = 81 种)
-- <code>WAITING_HUMAN</code> 状态无法表达"排队中 vs 已分配"区别
-- <code>ABANDONED</code> 和 <code>TRANSFERRED</code> 跟 <code>ENDED</code> 有重叠</p>
-<p><strong>commit <code>df2b6bc</code> 整改</strong>:
-- 引入 4 phase (顶层) + 7 sub-state (子), 21 种组合但只允许 11 种合法转换
-- <code>ABANDONED</code> / <code>TRANSFERRED</code> 合并到 <code>ENDED</code> (用 <code>reason</code> 字段区分)
-- <code>HOLDING</code> → <code>AG_ON_HOLD</code>, 更明确</p>
-<p>迁移策略:
-- 新数据用新模型
-- 旧数据读时转换, 写时升级
-- <code>legacy</code> phase 兼容 1 个版本</p>
+<p>设计动机:
+- 扁平状态互相转换规则复杂 (N×N 组合)
+- <code>WAITING_HUMAN</code> 需要表达"排队中 vs 已分配"区别
+- 终结态统一归 <code>ENDED</code>, 用 <code>reason</code> 字段区分 (abandoned / transferred / normal)
+- 21 种组合但只允许 11 种合法转换, 非法转换直接拒绝</p>
+<p>兼容策略:
+- <code>legacy</code> phase 兼容旧数据读取</p>
 <h2 id="6.9-监控指标">6.9 监控指标</h2>
 <p>会话状态机发射 5 个核心指标:</p>
 <table>
@@ -3470,7 +3356,7 @@ class SessionManager:
 <td><code>session_phase_duration_seconds</code></td>
 <td>Histogram</td>
 <td>sub_phase</td>
-<td>session.py:412 (<strong>P1-3 新增</strong>, 5s-3600s buckets)</td>
+<td>session.py:412 (5s-3600s buckets)</td>
 </tr>
 <tr>
 <td><code>state_conflict_retries_total</code></td>
@@ -3486,7 +3372,7 @@ class SessionManager:
 </tr>
 </tbody>
 </table>
-<p><strong>6 类指标 0 冲突</strong>: P2-1 整改后, 全部指标名 + label 在 Grafana dashboard 有对应 panel.</p>
+<p><strong>6 类指标 0 冲突</strong>: 全部指标名 + label 在 Grafana dashboard 有对应 panel.</p>
 <h2 id="6.10-测试覆盖">6.10 测试覆盖</h2>
 <p><code>agent/tests/</code> 中会话相关:</p>
 <ul>
@@ -3520,7 +3406,7 @@ async def test_intent_stack_incremental_merge(redis):
 <li><strong>ZSET 分布式超时</strong>: 替代 asyncio.Task, 多实例支持, 5s 轮询 + ZREM 原子竞争</li>
 <li><strong>5 类超时</strong>: BOT_IDLE / QUEUE / RINGING / SESSION / REVIEW, 各 TTL 不同</li>
 <li><strong>PG 异步落库</strong>: 5-7 年合规留存, fire-and-forget 不阻塞</li>
-<li><strong>key 集中化</strong> (P3-5): 未来 prefix 改动单点</li>
+<li><strong>key 集中化</strong>: 未来 prefix 改动单点</li>
 </ul>
 <blockquote>
 <p><strong>下一章预告</strong>: <a href="07-mcp-tool-integration.md">第 7 章 MCP 工具集成</a> 深入 22 个 Java 工具 + Higress 网关 + Python 端零回归.</p>
@@ -3952,13 +3838,13 @@ async def list_tools(self) -&gt; list[ToolSpec]:
 <td><code>tool_confirmations_total</code></td>
 <td>Counter</td>
 <td>decision (pending/confirm/cancel/unclear/expired)</td>
-<td>tool_executor.py:261 (<strong>P1-3 新增</strong>)</td>
+<td>tool_executor.py:261</td>
 </tr>
 <tr>
 <td><code>tool_guard_denials_total</code></td>
 <td>Counter</td>
 <td>tool, reason (role_denied/amount_exceeded)</td>
-<td>tool_executor.py:378 (<strong>P1-3 新增</strong>)</td>
+<td>tool_executor.py:378</td>
 </tr>
 <tr>
 <td><code>mcp_connection_state</code></td>
@@ -4003,7 +3889,7 @@ async def list_tools(self) -&gt; list[ToolSpec]:
 <li><strong>Higress 集中治理</strong>: 鉴权/限流/脱敏/审计统一网关, Nacos 注册发现</li>
 </ul>
 <blockquote>
-<p><strong>下一章预告</strong>: <a href="chapters/08-error-handling.md">第 8 章 错误处理</a> 深入 35 错误码 + 统一响应体 + P3 整改.</p>
+<p><strong>下一章预告</strong>: <a href="chapters/08-error-handling.md">第 8 章 错误处理</a> 深入 35 错误码 + 统一响应体.</p>
 </blockquote>
 <hr />
 <blockquote>
@@ -4019,7 +3905,7 @@ async def list_tools(self) -&gt; list[ToolSpec]:
 <h1 class="chapter-title">08 错误处理</h1>
 <h1 id="第-8-章:-错误处理">第 8 章: 错误处理</h1>
 <h2 id="为什么需要一套自研错误体系">为什么需要一套自研错误体系</h2>
-<p>Lumio 是面向银行客户的对话平台,涉及支付、签约、转账等强合规场景。一个不能精确表达"业务问题"还是"系统问题"、一个会把"PG 密码错误"或"Redis IP"直接吐回给前端的错误响应,在生产环境是不可接受的。P0 阶段我们调研过直接抛 <code>HTTPException</code> 的方案,放弃的核心理由有三点: 第一,业务语义丢失——422 和 500 无法区分"用户输入问题"和"上游 LLM 抖动"; 第二,合规审计需要稳定的错误码而不是动态消息; 第三,前端需要按错误码做精细分支(比如 3005 非法状态转换要回到登录态,3001 知识库未命中要降级到兜底话术)。</p>
+<p>Lumio 是面向银行客户的对话平台,涉及支付、签约、转账等强合规场景。一个不能精确表达"业务问题"还是"系统问题"、一个会把"PG 密码错误"或"Redis IP"直接吐回给前端的错误响应,在生产环境是不可接受的。曾调研过直接抛 <code>HTTPException</code> 的方案,放弃的核心理由有三点: 第一,业务语义丢失——422 和 500 无法区分"用户输入问题"和"上游 LLM 抖动"; 第二,合规审计需要稳定的错误码而不是动态消息; 第三,前端需要按错误码做精细分支(比如 3005 非法状态转换要回到登录态,3001 知识库未命中要降级到兜底话术)。</p>
 <p>基于这些约束,我们设计了 <strong>35 个错误码 + 5 段式分段 + LumioError 异常类层次 + 统一 JSON 响应体</strong> 的四层结构。本章沿着"为什么 → 是什么 → 怎么用 → 怎么演化"的顺序,把这套体系讲清楚。</p>
 <h2 id="错误码的-5-段划分">错误码的 5 段划分</h2>
 <p>错误码不是随便分配的,每一段都对应一个明确的"责任方"和默认 HTTP 状态:</p>
@@ -4313,7 +4199,7 @@ class LumioError(Exception):
     L --&gt; S4[OrchestrationTimeoutError&lt;br/&gt;5004]
 </code></pre>
 <p>层次设计有两条原则:第一,<strong>5 大子类在语义上对应 5 段错误码</strong>,通过单根继承让中间件 <code>isinstance(exc, LumioError)</code> 一行就能拦截所有业务异常;第二,<strong>个别异常允许自定义 <code>__init__</code> 接收上下文参数</strong>,如 <code>SessionNotFoundError(session_id)</code>、<code>InvalidTransitionError(detail)</code>、<code>CircuitBreakerOpenError(executor_name)</code>(<code>exceptions.py:93</code>、<code>104</code>、<code>178</code>),这样错误消息能带上具体定位信息,运维不用翻 trace。<code>StateConflictError</code>(<code>exceptions.py:200-204</code>)更进一步,在 message 里把 CAS 期望版本和当前版本都打出来,这种"自描述"异常在并发场景下能省掉一次 grep。</p>
-<p>值得指出,<strong>我们刻意没有为每条错误码都建一个类</strong>——比如 4001 / 4002 都是 LLM 相关,但运行时常常分不清"是 timeout 还是 inference error",硬要分类反而会引入边界判断开销。当业务侧确实需要细分时,再从 <code>LLMError</code> 基类派生;P0 阶段保持 35 错误码对应的扁平结构,演进成本最低。</p>
+<p>值得指出,<strong>我们刻意没有为每条错误码都建一个类</strong>——比如 4001 / 4002 都是 LLM 相关,但运行时常常分不清"是 timeout 还是 inference error",硬要分类反而会引入边界判断开销。当业务侧确实需要细分时,再从 <code>LLMError</code> 基类派生;当前保持 35 错误码对应的扁平结构,演进成本最低。</p>
 <h2 id="PII-脱敏贯穿异常-message">PII 脱敏贯穿异常 message</h2>
 <p>一个反直觉的设计:<strong>异常 message 也会走 PII 脱敏</strong>。看起来 message 是开发自己写的字符串,有什么可脱敏的?但实战中 message 经常携带用户输入(比如 "用户 13812345678 的请求被高风险拦截"),如果直接进日志,手机号就泄露了。<code>PIIMaskFilter</code>(<code>agent/lumio/shared/logger.py:17-31</code>)挂在 logging 上,对所有 <code>record.msg</code> 和 <code>record.args</code> 都跑一遍 <code>mask_pii</code>(<code>pii.py:63-76</code>),会按"敏感字段 → 邮箱 → 身份证 → 银行卡 → 手机号"顺序脱敏,身份证和银行卡优先于手机号,避免 11 位数字被误判为手机号。这样我们就可以放心地把 <code>exc.message</code> 直接塞进 <code>logger.warning</code> 的格式化串,日志与对外响应双侧都不会泄露 PII。</p>
 <h2 id="request_id-全链路串联">request_id 全链路串联</h2>
@@ -4334,8 +4220,8 @@ async def request_id_middleware(request: Request, call_next):
 <pre><code class="language-python">exc_type = type(exc).__name__ if settings.environment == &quot;development&quot; else &quot;InternalError&quot;
 </code></pre>
 <p>原因:Python 异常类名会暴露使用的库(<code>asyncpg.PostgresError</code>、<code>httpx.ConnectError</code>、<code>pydantic.ValidationError</code>...),这些都是攻击者的侦察情报。开发环境保留真实类名方便定位,生产环境一律抹平。完整 traceback 仍然走 <code>logger.exception</code> 进日志(<code>middleware.py:108</code>),研发用 <code>request_id</code> 关联即可。</p>
-<h2 id="P3-6-整改:健康检查脱敏">P3-6 整改:健康检查脱敏</h2>
-<p>旧版 <code>_check_redis</code> / <code>_check_db</code> / <code>_check_es</code> 把 <code>str(exc)[:100]</code> 直接吐给客户端,在合规审计时被标记为高危——会泄露 <code>"password authentication failed for user \"lumio\""</code>、<code>"ConnectionRefusedError: 192.168.x.x:6379"</code>、库内部异常文本等敏感信息。P3-6(commit <code>28457e0</code>)的整改方案是<strong>对外只返回分类码、详细信息走日志</strong>:</p>
+<h2 id="健康检查脱敏">健康检查脱敏</h2>
+<p><code>_check_redis</code> / <code>_check_db</code> / <code>_check_es</code> <strong>对外只返回分类码、详细信息走日志</strong>:</p>
 <pre><code class="language-python"># agent/lumio/shared/health.py:29
 def _error_response(dep_name: str, exc: Exception) -&gt; dict[str, str]:
     logger.warning(&quot;health check %s down: %s&quot;, dep_name, exc, exc_info=True)
@@ -4344,12 +4230,12 @@ def _error_response(dep_name: str, exc: Exception) -&gt; dict[str, str]:
         &quot;error_code&quot;: _ERROR_CODE_BY_DEP.get(dep_name, &quot;dependency_unreachable&quot;),
     }
 </code></pre>
-<p><code>_ERROR_CODE_BY_DEP</code>(<code>health.py:20-26</code>)定义了 7 个稳定的分类码——<code>redis_unreachable</code> / <code>postgres_unreachable</code> / <code>elasticsearch_unreachable</code> / <code>milvus_unreachable</code> / <code>minio_unreachable</code> / <code>llm_unreachable</code> / <code>embedding_unreachable</code>——它们是面向客户端的"运维可定位但不含内部细节"的最佳折中。<code>logger.warning(..., exc_info=True)</code> 通过 <code>exc_info=True</code> 自动附加完整 traceback 到日志,运维侧要查 192.168.x.x:6379 还是去 ELK 查 <code>request_id</code> 关联的日志。</p>
-<h2 id="P3-9-整改:Bot-静默返空改为显式-503">P3-9 整改:Bot 静默返空改为显式 503</h2>
-<p>旧版 Bot 在 LLM 不可达时直接 <code>return []</code>(空列表),前端以为"用户没说话"继续等待,实际是上游已经熔断。P3-9(commit <code>19ac8f6</code>)的整改是<strong>显式抛 <code>ServiceOverloadedError</code>(5002)</strong>,由中间件统一映射为 503:</p>
+<p><code>_ERROR_CODE_BY_DEP</code>(<code>health.py:20-26</code>)定义了 7 个稳定的分类码——<code>redis_unreachable</code> / <code>postgres_unreachable</code> / <code>elasticsearch_unreachable</code> / <code>milvus_unreachable</code> / <code>minio_unreachable</code> / <code>llm_unreachable</code> / <code>embedding_unreachable</code>——它们是面向客户端的"运维可定位但不含内部细节"的最佳折中。若把 <code>str(exc)</code> 直接吐给客户端,会泄露 <code>"password authentication failed for user \"lumio\""</code>、<code>"ConnectionRefusedError: 192.168.x.x:6379"</code> 等敏感信息——这是合规审计的高危项。<code>logger.warning(..., exc_info=True)</code> 自动附加完整 traceback 到日志,运维侧要查 192.168.x.x:6379 还是去 ELK 查 <code>request_id</code> 关联的日志。</p>
+<h2 id="Bot-静默返空改为显式-503">Bot 静默返空改为显式 503</h2>
+<p>Bot 在 LLM 不可达时<strong>显式抛 <code>ServiceOverloadedError</code>(5002)</strong>,由中间件统一映射为 503,而非返回空列表:</p>
 <pre><code class="language-python">raise ServiceOverloadedError(&quot;LLM 熔断中,请稍后重试&quot;)
 </code></pre>
-<p>前端拿到 503 + 错误码 5002 后,可以走"稍后重试"提示,而不是傻等。5002→503 的映射在 <code>_HTTP_STATUS_OVERRIDES</code> 表里(<code>middleware.py:29</code>)早就预留了,P3-9 主要做的是把业务侧从"静默失败"切到"显式失败"。这是一次典型的"错误处理不只是技术问题,而是产品决策"的体现——静默返空看似容错,实际是给用户制造假象。</p>
+<p>设计动机:静默返空时前端以为"用户没说话"继续等待,实际是上游已经熔断。前端拿到 503 + 错误码 5002 后,可以走"稍后重试"提示,而不是傻等。5002→503 的映射在 <code>_HTTP_STATUS_OVERRIDES</code> 表里(<code>middleware.py:29</code>)。这是"错误处理不只是技术问题,而是产品决策"的体现——静默返空看似容错,实际是给用户制造假象。</p>
 <h2 id="测试覆盖">测试覆盖</h2>
 <p>错误处理不是"写完就好",必须有自动化测试把契约钉死。<code>agent/tests/test_middleware.py</code> 覆盖了关键映射与响应体:</p>
 <ul>
@@ -4389,7 +4275,7 @@ def _error_response(dep_name: str, exc: Exception) -&gt; dict[str, str]:
     X2 --&gt; X1
 </code></pre>
 <p>为什么是 <strong>Parse → Clean → Chunk → Embed → Dual-Write</strong> 这五步? 核心约束是"先纯化, 再切分, 再向量化, 最后落库". Parse 阶段把二进制变成字符串, Clean 阶段去掉页眉页脚/控制字符等噪声, Chunk 阶段才能在干净的文本上找到语义边界; 如果反过来先切再清洗, 切出来的 chunk 边界很可能落在页眉上, 检索时把"第 3 页 / 共 20 页" 当成正文返回. Embed 必须在 Chunk 之后: 一次性把整篇文档塞给 Embedding 服务, 显存压力和超时风险都不可控. Dual-Write 最后做, 是因为只有到这一刻, 我们才拥有"可以同时被 ES (BM25) 和 Milvus (向量) 检索"的完整对象.</p>
-<p><code>ingest_document()</code> 是顶层编排器, 在 <code>agent/lumio/services/common/ingestion.py:522</code> 起. 它先查文档记录, 把 <code>doc.status</code> 置为 <code>PROCESSING</code>, 然后线性走完 5 个阶段. P3-1 重构前还有一个独立的 <code>chunker.py</code> (1087 行), 现在 chunker 逻辑内联进 <code>ingestion.py</code>, 阶段间只通过字符串 / 字典传递, 减少了临时状态序列化开销.</p>
+<p><code>ingest_document()</code> 是顶层编排器, 在 <code>agent/lumio/services/common/ingestion.py:522</code> 起. 它先查文档记录, 把 <code>doc.status</code> 置为 <code>PROCESSING</code>, 然后线性走完 5 个阶段. chunker 逻辑内联进 <code>ingestion.py</code>, 阶段间只通过字符串 / 字典传递, 减少了临时状态序列化开销.</p>
 <h2 id="9.2-Parse-阶段:-6-种文件格式">9.2 Parse 阶段: 6 种文件格式</h2>
 <p>Parse 阶段的目标只有一个: 把任何格式变成纯文本. 6 种格式的解析器集中在 <code>ingestion.py:54-188</code>, 通过 <code>_PARSE_DISPATCH</code> 字典按 <code>KbSourceType</code> 派发:</p>
 <table>
@@ -4711,7 +4597,7 @@ Index(
 </table>
 <p><strong>为什么分通用/业务两套前缀?</strong> 这是有意识的命名空间选择:通用域用 <code>http_*</code> 而不是 <code>lumio_http_*</code>,这样未来如果 Lumio 要开源指标 SDK,或被其他项目引用,这些名字不会显得"私有";而 <code>lumio_*</code> 名字本身就是一道"业务边界",dashboard 上 <code>rate(lumio_*)</code> 一筛,就能拿到 Lumio 自己的健康度视图,不会被通用 HTTP 噪声淹没。</p>
 <p>另外,业务域里三个 Gauge(<code>semaphore_utilization</code> / <code>active_workers</code> / <code>stream_pending</code>)反映的是 Bot 运行时状态,由 router 的监控循环周期性刷新——<strong>这些 Gauge 不在 PrometheusMiddleware 里写,而是有专门的 background coroutine 每 5s 同步一次</strong>。这种"指标自治"的拆分让中间件不必知道业务有多少种 Gauge,新加业务指标只需要在 router 里写,不需要改 shared 库。</p>
-<p>P1-3 整改又新增了 3 个 session 维度的指标:<code>session_phase_duration_seconds</code> 用来观察每个子阶段(等待用户/处理中等)的停留分布,桶覆盖 5s 到 3600s;<code>tool_confirmations_total</code> 区分"用户确认 / 取消 / 模糊 / 过期"四种决策,帮助产品观察敏感工具的用户体验;<code>tool_guard_denials_total</code> 区分"角色不足"与"额度超限",给安全团队一个独立的拦截监控面。</p>
+<p>另有 3 个 session 维度的指标:<code>session_phase_duration_seconds</code> 用来观察每个子阶段(等待用户/处理中等)的停留分布,桶覆盖 5s 到 3600s;<code>tool_confirmations_total</code> 区分"用户确认 / 取消 / 模糊 / 过期"四种决策,帮助产品观察敏感工具的用户体验;<code>tool_guard_denials_total</code> 区分"角色不足"与"额度超限",给安全团队一个独立的拦截监控面。</p>
 <h3 id="PrometheusMiddleware:自动打点与反馈循环防护">PrometheusMiddleware:自动打点与反馈循环防护</h3>
 <p>Starlette/FastAPI 的请求打点用 <code>PrometheusMiddleware</code> 自动完成(<code>metrics.py:138-160</code>)。它在 <code>try/finally</code> 里包住下游,无论请求成功还是抛异常,都会写入计数与耗时:</p>
 <pre><code class="language-python"># metrics.py (第五轮修复后)
@@ -4733,7 +4619,7 @@ finally:
 <pre><code class="language-python">_PATH_PARAM_RE = re.compile(r&quot;/(?=[0-9a-zA-Z-]*[0-9-])[0-9a-zA-Z-]{8,}&quot;)
 # /api/sessions/550e8400-.../messages → /api/sessions/{param}/messages
 </code></pre>
-<p>这里有一个常被忽略但很致命的细节:<code>_EXCLUDED_PATHS = {"/metrics", "/health", "/favicon.ico"}</code>(<code>metrics.py:129</code>)。如果不排除 <code>/metrics</code> 端点本身,Prometheus 每 15s 抓一次就会产生一条新指标,这个指标又会触发下一次抓取——<strong>指标反馈循环</strong>会让 TSDB 在几小时内被自己的噪声打爆。<code>/health</code> 同样如此(LB 健康检查通常 QPS 极高,会把 <code>http_request_duration_seconds</code> 的 P99 拉到不可信)。这个 3 项白名单是踩过坑之后才加上的,目前被 P0 整改锁定为"不允许删"。</p>
+<p>这里有一个常被忽略但很致命的细节:<code>_EXCLUDED_PATHS = {"/metrics", "/health", "/favicon.ico"}</code>(<code>metrics.py:129</code>)。如果不排除 <code>/metrics</code> 端点本身,Prometheus 每 15s 抓一次就会产生一条新指标,这个指标又会触发下一次抓取——<strong>指标反馈循环</strong>会让 TSDB 在几小时内被自己的噪声打爆。<code>/health</code> 同样如此(LB 健康检查通常 QPS 极高,会把 <code>http_request_duration_seconds</code> 的 P99 拉到不可信)。这个 3 项白名单是防御反馈循环的关键,被锁定为"不允许删"。</p>
 <h2 id="10.3-JSON-结构化日志">10.3 JSON 结构化日志</h2>
 <p>人类读文本日志方便,但机器检索/Loki 解析/ELK 聚合都需要结构化。Lumio 提供两套格式,生产推荐 JSON。<code>shared/logger.py</code> 里三个 filter/format 协作完成:</p>
 <ul>
@@ -4812,10 +4698,10 @@ with contextlib.suppress(Exception):
 </tr>
 </tbody>
 </table>
-<p><code>service.version</code> 的读取优先级是 <strong>P2-4 整改的核心</strong>(<code>tracing.py:24-54</code>):</p>
+<p><code>service.version</code> 的读取优先级是 (<code>tracing.py:24-54</code>):</p>
 <pre><code class="language-text">LUMIO_VERSION env &gt; pyproject.toml [project].version &gt; 0.0.0
 </code></pre>
-<p>最初实现里没有这段 fallback 逻辑,只读 env,本地开发没设 env 就拿到空字符串,Jaeger 看到的所有 span 都是"未版号化"的,排查"这个 bug 在哪个版本引入"非常费劲。整改后,从 <code>pyproject.toml</code> 读 PEP 621 的 <code>[project].version</code>,真正"开箱即用",CI 上再被 <code>LUMIO_VERSION</code> 覆盖。兼容旧字段 <code>LUMIO_TRACING_ENABLED</code> 用 Pydantic 的 <code>AliasChoices</code> 做了别名兼容,升级期不会破坏现有 <code>.env</code>。</p>
+<p>设计要点:只读 env 时,本地开发没设 env 就拿到空字符串,Jaeger 看到的所有 span 都是"未版号化"的,排查"这个 bug 在哪个版本引入"非常费劲。因此从 <code>pyproject.toml</code> 读 PEP 621 的 <code>[project].version</code> 兜底,真正"开箱即用",CI 上再被 <code>LUMIO_VERSION</code> 覆盖。兼容旧字段 <code>LUMIO_TRACING_ENABLED</code> 用 Pydantic 的 <code>AliasChoices</code> 做了别名兼容,升级期不会破坏现有 <code>.env</code>。</p>
 <p><code>_read_service_version</code> 还做了三件小事:① 用 <code>tomllib</code>(Python 3.11+)或 <code>tomli</code> 回退,跨版本都跑得起来;② 兼容 Poetry 1.x 的 <code>[tool.poetry].version</code>;③ 读不到时返回 <code>"0.0.0"</code> 而不是抛异常,符合 OTel 规范对 <code>service.version</code> 的"non-empty string"要求。</p>
 <h3 id="采样策略">采样策略</h3>
 <p><code>ParentBasedTraceIdRatioSampler(sampling_ratio)</code>(<code>tracing.py:118</code>)的语义是:</p>
@@ -4834,7 +4720,7 @@ except Exception:
     logger.debug(&quot;审计日志创建任务失败: %s %s&quot;, request.method, path)
 </code></pre>
 <p><code>_write_audit_log</code>(<code>audit_middleware.py:58-111</code>)从 JWT 解出 <code>actor_id / actor_role</code>,再调 <code>_infer_action</code> 推断操作类型。<code>actor_id</code> 默认 <code>"anonymous"</code>,在开发环境下会用 <code>dev-user</code> 兜底,方便本地手测时不必每次都拿 token。<code>detail</code> 字段除了 <code>elapsed_ms</code>,还会记录脱敏后的 query params——这条细节在合规审计里很重要:如果某个 <code>DELETE</code> 出问题了,审计员需要能复现当时的过滤条件。</p>
-<p><strong>P0 整改的关键是 <code>_ENDPOINT_ACTION_MAP</code></strong>(<code>audit_middleware.py:174-206</code>):24 个端点函数名 → <code>(action, target_type)</code> 的精确映射表。<code>_infer_action</code> 的优先级是「<strong>先查路由元数据,再 fallback 到路径字符串</strong>」:</p>
+<p><strong>核心是 <code>_ENDPOINT_ACTION_MAP</code></strong>(<code>audit_middleware.py:174-206</code>):24 个端点函数名 → <code>(action, target_type)</code> 的精确映射表。<code>_infer_action</code> 的优先级是「<strong>先查路由元数据,再 fallback 到路径字符串</strong>」:</p>
 <pre><code class="language-python"># audit_middleware.py:124-132
 route = request.scope.get(&quot;route&quot;)
 if route is not None and hasattr(route, &quot;endpoint&quot;):
@@ -4845,8 +4731,8 @@ if route is not None and hasattr(route, &quot;endpoint&quot;):
         target_id = _extract_target_id(request.url.path, target_type)
         return action, target_type, target_id
 </code></pre>
-<p>为什么"路由元数据"比"路径字符串"更可靠?因为路径可以被改、被翻译、被装饰器插入,例如 <code>PUT /api/v1/session/{id}/hold</code> 既可能被认成 <code>session.transition</code> 也可能被认成 <code>session.hold</code>;但 <code>hold_session</code> 这个函数名唯一对应 <code>session.hold</code>。P0 之前只用路径推断,出过多次"action 记错"的事故。GET 类不审计(<code>_AUDITED_METHODS</code> 只含 POST/PUT/PATCH/DELETE),纯读操作不需要合规留痕。</p>
-<p>24 个端点覆盖了三类业务:<code>assist/router.py</code> 的会话/反馈/通知/复盘类、<code>bot/router.py</code> 的聊天/文档类、<code>faq_router.py</code> 的 FAQ 全生命周期类,加上 <code>auth_router.py</code> 的 <code>login</code>。新增端点时,需要同步在映射表里登记,否则会回退到路径推断——这一约束被 P0 整改固化为 code review checklist。审计模块的 connection pool 与请求池分开,即使审计慢也不会拖垮主业务。</p>
+<p>为什么"路由元数据"比"路径字符串"更可靠?因为路径可以被改、被翻译、被装饰器插入,例如 <code>PUT /api/v1/session/{id}/hold</code> 既可能被认成 <code>session.transition</code> 也可能被认成 <code>session.hold</code>;但 <code>hold_session</code> 这个函数名唯一对应 <code>session.hold</code>。仅用路径推断容易"action 记错"。GET 类不审计(<code>_AUDITED_METHODS</code> 只含 POST/PUT/PATCH/DELETE),纯读操作不需要合规留痕。</p>
+<p>24 个端点覆盖了三类业务:<code>assist/router.py</code> 的会话/反馈/通知/复盘类、<code>bot/router.py</code> 的聊天/文档类、<code>faq_router.py</code> 的 FAQ 全生命周期类,加上 <code>auth_router.py</code> 的 <code>login</code>。新增端点时,需要同步在映射表里登记,否则会回退到路径推断——这是 code review checklist 的固定项。审计模块的 connection pool 与请求池分开,即使审计慢也不会拖垮主业务。</p>
 <h2 id="10.6-Grafana-仪表盘与告警规则">10.6 Grafana 仪表盘与告警规则</h2>
 <p>3 套 dashboard 各有分工:</p>
 <ul>
@@ -4904,9 +4790,9 @@ if route is not None and hasattr(route, &quot;endpoint&quot;):
 </tbody>
 </table>
 <p><code>ServiceDown</code> 是唯一 critical,因为单个服务下线意味着用户体验直接受损;其余都是 warning,给 SRE 留出调查窗口。两类工具错误率分开告警是因为 MCP 错误可能来自下游 Java 服务,Python 侧错误可能来自编排逻辑,二者的根因和处置路径完全不同。</p>
-<p>告警规则里有几个值得展开的细节:<code>clamp_min(..., 1e-9)</code>(<code>alerts.yml:23-24</code>)在分母为 0 时兜底,避免 <code>rate(...)/0</code> 出现 <code>NaN</code>(Prometheus 对 <code>NaN</code> 的处理是"不触发告警",反而让错误隐藏);<code>histogram_quantile(0.99, sum(rate(...)) by (le))</code>(<code>alerts.yml:49</code>)的分位计算必须在 <code>by (le)</code> 之后聚合,这是新人常踩的坑;所有 warning 都用 <code>for: 5m</code> 过滤掉抖动,这是 P0 整改时加上的——之前用 <code>for: 1m</code> 时,一次 GC 抖动就会拉一堆告警,让 on-call 同学对告警失去敏感度。<code>Alertmanager</code> 在配置里是 opt-in,默认只让 Prometheus 把告警状态显示在 UI 的 Alerts 页,适合还没接 Slack/钉钉的小团队。</p>
+<p>告警规则里有几个值得展开的细节:<code>clamp_min(..., 1e-9)</code>(<code>alerts.yml:23-24</code>)在分母为 0 时兜底,避免 <code>rate(...)/0</code> 出现 <code>NaN</code>(Prometheus 对 <code>NaN</code> 的处理是"不触发告警",反而让错误隐藏);<code>histogram_quantile(0.99, sum(rate(...)) by (le))</code>(<code>alerts.yml:49</code>)的分位计算必须在 <code>by (le)</code> 之后聚合,这是新人常踩的坑;所有 warning 都用 <code>for: 5m</code> 过滤掉抖动——如果用 <code>for: 1m</code>,一次 GC 抖动就会拉一堆告警,让 on-call 同学对告警失去敏感度。<code>Alertmanager</code> 在配置里是 opt-in,默认只让 Prometheus 把告警状态显示在 UI 的 Alerts 页,适合还没接 Slack/钉钉的小团队。</p>
 <h2 id="10.7-小结">10.7 小结</h2>
-<p>Lumio 的可观测性是按"开发愿意用、运维信得过"双向目标设计的:开发侧只有 <code>@traced</code> 一行成本,业务代码不需要 import OTel 包;运维侧有 17 指标 + 3 dashboard + 6 告警的标准化视图。P0/P1/P2 系列整改把"反馈循环"、"路由元数据精确审计"、"resource version fallback"这些边界条件都固化为代码,确保新同学不会在不知情时再踩同样的坑。</p>
+<p>Lumio 的可观测性是按"开发愿意用、运维信得过"双向目标设计的:开发侧只有 <code>@traced</code> 一行成本,业务代码不需要 import OTel 包;运维侧有 17 指标 + 3 dashboard + 6 告警的标准化视图。"反馈循环"、"路由元数据精确审计"、"resource version fallback"这些边界条件都固化为代码,确保新同学不会在不知情时再踩同样的坑。</p>
 <blockquote>
 <p><strong>延伸阅读</strong>:
 - <a href="08-error-handling.md">第 8 章 错误处理</a> — 错误响应体格式
@@ -4917,7 +4803,7 @@ if route is not None and hasattr(route, &quot;endpoint&quot;):
 <section class="chapter" id="11-安全合规">
 <h1 class="chapter-title">11 安全合规</h1>
 <h1 id="第-11-章:-安全合规">第 11 章: 安全合规</h1>
-<p>Lumio 是一款银行场景的智能客服助手,任何一次越权读、一次敏感词漏检、一次错误响应里泄露的数据库连接串,都可能触发银保监的合规审查。本章从纵深防御的全局视角出发,逐层拆解边缘网关、接入鉴权、业务授权、数据脱敏与审计回溯这五道防线的设计动机与代码实现,并重点回顾 P0/P3 阶段几次关键整改背后的权衡。</p>
+<p>Lumio 是一款银行场景的智能客服助手,任何一次越权读、一次敏感词漏检、一次错误响应里泄露的数据库连接串,都可能触发银保监的合规审查。本章从纵深防御的全局视角出发,逐层拆解边缘网关、接入鉴权、业务授权、数据脱敏与审计回溯这五道防线的设计动机与代码实现。</p>
 <h2 id="11.1-纵深防御:为什么需要-5-层">11.1 纵深防御:为什么需要 5 层</h2>
 <p>银行客户对"防御"的理解不是"一道墙够不够厚",而是"墙被突破后,还剩几道"。Lumio 因此采用了<strong>纵深防御 (Defense in Depth)</strong> 模型,将请求生命周期切分为 5 个独立失效域:任何单层失守,其他层仍能阻断或留痕。</p>
 <pre><code class="language-mermaid">graph TD
@@ -5018,10 +4904,10 @@ if route is not None and hasattr(route, &quot;endpoint&quot;):
 </tbody>
 </table>
 <p><strong>原则</strong>: 安全代码的默认值必须是拒绝 — 认证用显式依赖而非可选参数, 角色用 <code>require_role</code> 依赖而非函数内 if, 合规过滤缺失字段视为不合规而非默认放行。</p>
-<h2 id="11.3-P0-2-/-P0-3-整改:占位密钥与-dev-旁路的正确关闭方式">11.3 P0-2 / P0-3 整改:占位密钥与 dev 旁路的正确关闭方式</h2>
-<p>合规上线前两次关键 P0 整改值得专门记录,因为它们揭示了"配置安全"与"环境默认"两个最易被忽视的失败模式。</p>
-<h3 id="11.3.1-P0-2:JWT-占位密钥拦截">11.3.1 P0-2:JWT 占位密钥拦截</h3>
-<p>历史问题:<code>Settings.jwt_secret</code> 默认值是 <code>lumio-dev-secret-change-in-production</code>,代码里没有强制覆盖。如果运维漏配 <code>LUMIO_JWT_SECRET</code>,服务会<strong>静默用默认密钥启动</strong>,所有 token 可被任何人伪造。</p>
+<h2 id="11.3-占位密钥与-dev-旁路的正确关闭方式">11.3 占位密钥与 dev 旁路的正确关闭方式</h2>
+<p>"配置安全"与"环境默认"是两个最易被忽视的失败模式。</p>
+<h3 id="11.3.1-JWT-占位密钥拦截">11.3.1 JWT 占位密钥拦截</h3>
+<p>风险:<code>Settings.jwt_secret</code> 默认值是 <code>lumio-dev-secret-change-in-production</code>,若没有强制覆盖,运维漏配 <code>LUMIO_JWT_SECRET</code> 时服务会<strong>静默用默认密钥启动</strong>,所有 token 可被任何人伪造。</p>
 <p><code>config.py:473-498</code> 的 <code>_validate_production_security</code> 修复了这个问题:</p>
 <pre><code class="language-python">forbidden_secrets = {
     &quot;lumio-dev-secret-change-in-production&quot;,
@@ -5036,8 +4922,8 @@ if self.environment == &quot;production&quot; and len(self.jwt_secret) &lt; 32:
     raise ValueError(&quot;生产环境 JWT 密钥长度必须 &gt;= 32 字符&quot;)
 </code></pre>
 <p>设计动机:生产环境<strong>硬阻断</strong>,dev/test 环境<strong>告警但不阻断</strong>——避免本地开发时每次都要 <code>openssl rand</code> 改 secret。生产长度门槛定在 32 字符,刚好覆盖 <code>hex(32)</code> 生成的 64 字符熵。</p>
-<h3 id="11.3.2-P0-3:dev-bypass-限定-loopback">11.3.2 P0-3:dev bypass 限定 loopback</h3>
-<p>历史 bug 更隐蔽:旧版 <code>get_current_user</code> 在 dev + 本地绑定场景下,无 token 直接放行 <code>admin</code>。问题在于"本地绑定"的判断是 <code>service_host</code> 不在公网 IP 列表,但容器化部署若把 <code>0.0.0.0</code> 当成自查通过的依据,任何能访问容器 8080 端口的远端流量都会获得 admin。</p>
+<h3 id="11.3.2-dev-bypass-限定-loopback">11.3.2 dev bypass 限定 loopback</h3>
+<p>风险更隐蔽:<code>get_current_user</code> 若在 dev + 本地绑定场景下无 token 直接放行 <code>admin</code>,且"本地绑定"仅以 <code>service_host</code> 不在公网 IP 列表判断,容器化部署把 <code>0.0.0.0</code> 当成自查通过的依据时,任何能访问容器 8080 端口的远端流量都会获得 admin。</p>
 <p>修复 (auth.py:158-168) 引入显式开关 <code>dev_auth_bypass</code> + 严格 loopback 校验:</p>
 <pre><code class="language-python">if settings.dev_auth_bypass and settings.environment == &quot;development&quot;:
     if settings.service_host not in (&quot;127.0.0.1&quot;, &quot;localhost&quot;):
@@ -5131,27 +5017,27 @@ return f&quot;pbkdf2_sha256$600000${b64(salt)}${b64(digest)}&quot;
 <li><code>regulatory_tags</code>:监管标签,如 <code>["银保监", "反洗钱"]</code>,供合规报表分组导出。</li>
 </ul>
 <p>7 态审批不是过度设计:<code>DRAFT</code>(撰写中)与 <code>IN_REVIEW</code>(审核中)必须可区分,否则审核员看不到积压;<code>REJECTED</code> 与 <code>ARCHIVED</code> 看似都不可用,实际 <code>REJECTED</code> 是被打回要修改、<code>ARCHIVED</code> 是已废弃不可恢复,合规报表需要分别统计。</p>
-<h2 id="11.9-输入验证:P3-7-整改(commit-19ac8f6)">11.9 输入验证:P3-7 整改(commit 19ac8f6)</h2>
-<p>合规审查发现早期接口对输入长度几乎不设防,埋了两个隐患:</p>
+<h2 id="11.9-输入验证">11.9 输入验证</h2>
+<p>接口对输入长度设防,覆盖两个隐患:</p>
 <ul>
 <li>用户消息无上限,一次 POST 几 MB 文本就能撑爆网关与日志存储;</li>
 <li>session_id / customer_id 无字符限制,可通过特殊字符试探 SQL 注入(虽然 ORM 已参数化,但日志里出现的奇怪字符串会让运维误判)。</li>
 </ul>
-<p>修复 (P3-7, commit <code>19ac8f6</code>) 后:</p>
+<p>限制如下:</p>
 <ul>
 <li><code>message</code> 字段 <code>max_length=2000</code>,覆盖正常客户咨询 3-5 倍冗余;</li>
 <li><code>session_id</code> / <code>customer_id</code> <code>max_length=128</code>,远超 UUID 与业务主键长度;</li>
 <li>文件上传 50MB (<code>bot/router.py:1232 max_upload_size = 50*1024*1024</code>),扩展名走白名单 <code>_ALLOWED_EXTENSIONS</code>,黑名单 <code>.exe .sh .bat</code> 必拒。</li>
 </ul>
 <p>50MB 是经验值:银行 PDF 章程通常 5-20MB,知识库批量上传峰值场景 50MB 留 2-3 倍冗余;再大就强制走对象存储分片上传,不走 HTTP body。</p>
-<h2 id="11.10-健康检查脱敏:P3-6-整改(commit-28457e0)">11.10 健康检查脱敏:P3-6 整改(commit 28457e0)</h2>
-<p><code>/api/health/ready</code> 端点历史 bug:依赖故障时把 <code>str(e)[:100]</code> 直接吐给客户端。看似贴心的"错误详情"实际会泄露:</p>
+<h2 id="11.10-健康检查脱敏">11.10 健康检查脱敏</h2>
+<p><code>/api/health/ready</code> 端点如果依赖故障时把 <code>str(e)[:100]</code> 直接吐给客户端,看似贴心的"错误详情"实际会泄露:</p>
 <ul>
 <li><code>password authentication failed for user "lumio"</code> —— 数据库账号名暴露;</li>
 <li><code>ConnectionRefusedError: 192.168.10.5:6379</code> —— 内网 IP 与端口拓扑暴露;</li>
 <li><code>psycopg2.OperationalError</code> —— 驱动类名,攻击者可针对性找 0day。</li>
 </ul>
-<p>修复 (P3-6, commit <code>28457e0</code>) 在 <code>health.py:20-41</code> 引入 <code>_ERROR_CODE_BY_DEP</code> 7 个分类码,响应体只返回 <code>{"status": "down", "error_code": "redis_unreachable"}</code>,真实异常走 <code>logger.warning(..., exc_info=True)</code> 进日志(含完整 traceback),运维通过日志定位、客户端只看到分类码。<strong>给机器看的和给人看的必须分流</strong>,这是合规响应设计的铁律。</p>
+<p>因此 <code>health.py:20-41</code> 引入 <code>_ERROR_CODE_BY_DEP</code> 7 个分类码,响应体只返回 <code>{"status": "down", "error_code": "redis_unreachable"}</code>,真实异常走 <code>logger.warning(..., exc_info=True)</code> 进日志(含完整 traceback),运维通过日志定位、客户端只看到分类码。<strong>给机器看的和给人看的必须分流</strong>,这是合规响应设计的铁律。</p>
 <h2 id="11.11-统一错误响应:第-8-章的合规延伸">11.11 统一错误响应:第 8 章的合规延伸</h2>
 <p>第 8 章讲到的统一错误体 <code>{"error": {"code", "message", "type"}, "request_id"}</code> 在安全维度的关键是<strong>生产环境不暴露真实异常类名</strong>。<code>type</code> 字段只能取预定义的 <code>validation_error / business_error / system_error / auth_error</code>,绝不把 <code>pydantic.ValidationError</code> / <code>sqlalchemy.exc.IntegrityError</code> 这类内部异常名直接回传——后者是给攻击者探测后端栈的免费雷达。</p>
 <p><code>request_id</code> 则是合规的"对账锚点":客户报障时提供 request_id,客服可从审计日志与 trace 中精准定位该次请求的全部上下文,无需暴露给客户 PII。</p>
@@ -5166,7 +5052,7 @@ return f&quot;pbkdf2_sha256$600000${b64(salt)}${b64(digest)}&quot;
 </ul>
 <p>合规测试不能和生产功能测试合并跑,因为合规用例的"必须失败"场景(占位密钥、dev 旁路、错误体泄露)与功能测试的"必须成功"是反方向的断言,合在一起会相互干扰。</p>
 <h2 id="11.13-小结">11.13 小结</h2>
-<p>Lumio 的安全合规不是某一个库或某一段代码的功劳,而是<strong>5 层独立防线</strong>的协同:边缘网关挡 DDoS、JWT 验身份、RBAC 验权限、PII 守数据、审计留证据。两次 P0 整改(占位密钥、dev 旁路)与两次 P3 整改(输入验证、健康检查脱敏)证明,合规不是一次性合规,而是每次发版前都要重新过一遍的清单。</p>
+<p>Lumio 的安全合规不是某一个库或某一段代码的功劳,而是<strong>5 层独立防线</strong>的协同:边缘网关挡 DDoS、JWT 验身份、RBAC 验权限、PII 守数据、审计留证据。合规不是一次性合规,而是每次发版前都要重新过一遍的清单。</p>
 <p>下次设计新接口时,先问自己 4 个问题:谁会调?会带什么 PII?出错时给客户看什么?事后谁来查?这 4 个问题的答案,会自然引导你走完本章的 5 层防御。</p>
 <blockquote>
 <p><strong>延伸阅读</strong>:
@@ -5520,7 +5406,7 @@ Index(&quot;ix_kb_chunk_pending_milvus&quot;,
 </tbody>
 </table>
 <blockquote>
-<p><strong>历史决策</strong>: P3-5 阶段我们把分散在各服务的 Redis key 集中到 <code>session.py</code> 与 <code>redis_keys.py</code> 统一管理, 此前每个文件自己拼字符串, 出现过多起 <code>lumio:chat:stream</code> 与 <code>lumio:chat_stream</code> 并存的"灵异 bug"。</p>
+<p><strong>设计要点</strong>: 分散在各服务的 Redis key 集中在 <code>session.py</code> 与 <code>redis_keys.py</code> 统一管理 — 避免每个文件自己拼字符串出现 <code>lumio:chat:stream</code> 与 <code>lumio:chat_stream</code> 并存的问题。</p>
 </blockquote>
 <h3 id="12.4.1-CAS-Lua:-Redis-端的乐观锁">12.4.1 CAS Lua: Redis 端的乐观锁</h3>
 <p>会话元数据的"读-改-写"是最容易出 race condition 的地方。<code>session.py:67-95</code> 实现的 CAS 流程是:</p>
@@ -6134,20 +6020,20 @@ ASSIST_PORT = 8766  # 避免与开发环境 :8001 冲突
     GHA-&gt;&gt;GHA: e2e-tests (compose up + curl)
     GHA--&gt;&gt;Main: ✅ 烟测通过
 </code></pre>
-<h2 id="14.6-覆盖率门槛-55%-→-60%-渐进">14.6 覆盖率门槛 55% → 60% 渐进</h2>
-<p><code>unit-tests</code> job 加了 <code>--cov-fail-under=55</code> (<code>.github/workflows/ci.yml:108</code>), 同时 <code>agent/pyproject.toml:160-163</code> 锁了 <code>[tool.coverage.report] fail_under = 55</code>。两处对齐是 P1-7 整改的产物, 之前只有 <code>pyproject</code> 的锁, 但 pytest 不读, 实际没生效。</p>
-<p>为什么不直接锁 60%? 因为 <code>test_retrieval.RecursionError</code> 在某些 PG 版本下会拉低覆盖率, 当前实测在 57% 附近, 卡 60% 会被这个历史 bug 反复绊倒。注释里写得很直白 (<code>.github/workflows/ci.yml:99-101</code>):</p>
+<h2 id="14.6-覆盖率门槛渐进">14.6 覆盖率门槛渐进</h2>
+<p><code>unit-tests</code> job 加了 <code>--cov-fail-under=55</code> (<code>.github/workflows/ci.yml:108</code>), 同时 <code>agent/pyproject.toml:160-163</code> 锁了 <code>[tool.coverage.report] fail_under = 55</code>。两处对齐, pytest 才会真正读取门槛 (只有 <code>pyproject</code> 的锁而 pytest 不读, 实际不生效)。</p>
+<p>为什么不直接锁 60%? 因为 <code>test_retrieval.RecursionError</code> 在某些 PG 版本下会拉低覆盖率, 当前实测在 57% 附近, 卡 60% 会被这个已知问题反复绊倒。注释里写得很直白 (<code>.github/workflows/ci.yml:99-101</code>):</p>
 <pre><code class="language-yaml"># 当前实测 ~57% (test_retrieval RecursionError 拉低), 留 buffer
-# 后续 P1-6 修 RecursionError 后再提到 60
+# 后续修 RecursionError 后再提到 60
 </code></pre>
-<p>这就是<strong>渐进式门槛</strong>的工程意义: 让 CI 立刻 fail 在新写的代码上, 但不要 fail 在<strong>已经知道、还没修</strong>的历史债上 — 等 P1-6 修完 RecursionError 再提到 60。</p>
+<p>这就是<strong>渐进式门槛</strong>的工程意义: 让 CI 立刻 fail 在新写的代码上, 但不要 fail 在<strong>已经知道、还没修</strong>的问题上。</p>
 <h2 id="14.7-已知-35-errors-的根因">14.7 已知 35 errors 的根因</h2>
 <p>当前 pytest 全量跑会有 35 个 errors, 这不是 bug, 是 e2e 排除策略的副产品。</p>
 <p>根因链条很清楚: <code>unit-tests</code> job 在 CI 排除了 5 个 e2e 文件, 但开发者<strong>本地</strong>不排除, 直接 <code>pytest</code> 跑全套。如果本地没 <code>make up</code>, <code>bot_server</code> / <code>assist_server</code> fixture 在 <code>_check_middleware_ready()</code> 那一步就 <code>pytest.skip</code>, 而 <code>bot_client</code> 依赖 <code>bot_server</code> — skip 链会从 e2e 文件扩散到任何 import 它们的 conftest。最后呈现给开发者的是一长串 SKIPPED + 中间夹着 ERROR, 看着吓人。</p>
 <p>更隐蔽的根因: <code>test_retrieval.py</code> 在某些依赖版本下出现 <code>RecursionError</code> (PG 驱动 + asyncio 兼容问题), 这条链会拉低覆盖率 1-2 个百分点, 让 <code>--cov-fail-under</code> 阈值上限被锁死在 57%。</p>
 <p>启动超时 (90s 容忍线) 是第三条线 — 容器内 cold start + 模型预热超过 90s 的话, <code>bot_server</code> 调 <code>pytest.fail</code>, 后续全部 fixture 级联失败。</p>
-<p>解决方案不是再放宽门槛, 而是<strong>让 e2e 在 CI 也能跑</strong> — 比如改用 TestContainers 化 e2e, 但工作量较大, 留到后续 Sprint。</p>
-<h2 id="14.8-mypy-advisory-模式-(P0-4-整改)">14.8 mypy advisory 模式 (P0-4 整改)</h2>
+<p>解决方案不是再放宽门槛, 而是<strong>让 e2e 在 CI 也能跑</strong> — 比如改用 TestContainers 化 e2e。</p>
+<h2 id="14.8-mypy-advisory-模式">14.8 mypy advisory 模式</h2>
 <p><code>unit-tests</code> job 跑 <code>mypy lumio/</code>, 但用的是 <strong>advisory 模式</strong>, 不 fail CI (<code>.github/workflows/ci.yml:32-46</code>):</p>
 <pre><code class="language-yaml">- name: Mypy type check (advisory)
   run: |
@@ -6161,7 +6047,7 @@ ASSIST_PORT = 8766  # 避免与开发环境 :8001 冲突
     errors=$(grep -c &quot;error:&quot; /tmp/mypy.log || true)
     echo &quot;mypy_error_count=${errors}&quot;
 </code></pre>
-<p>为什么改 advisory? 在 P0-4 整改之前, 配置是 <code>mypy ... || true</code>, 静默吞掉所有错误 — 表面上 CI 绿, 实际上谁也不知道有多少类型债。advisory 模式做了一件关键事: <strong><code>set +e</code> 让 mypy 跑完, 再统计 error 数打到日志末尾</strong>, 这样开发者一眼能看到当前 171 个错误 (历史) + 新增错误 (新引入的), 但不会被历史债阻塞 PR。</p>
+<p>为什么用 advisory? 如果配置是 <code>mypy ... || true</code>, 会静默吞掉所有错误 — 表面上 CI 绿, 实际上谁也不知道有多少类型债。advisory 模式做了一件关键事: <strong><code>set +e</code> 让 mypy 跑完, 再统计 error 数打到日志末尾</strong>, 这样开发者一眼能看到当前存量错误 + 新增错误 (新引入的), 但不会被存量阻塞 PR。</p>
 <p>配套的软化在 <code>agent/pyproject.toml:151-153</code>:</p>
 <pre><code class="language-toml">[[tool.mypy.overrides]]
 module = &quot;tests.*&quot;
@@ -6199,26 +6085,25 @@ disallow_untyped_defs = false
 </code></pre>
 <p>8 步全部是<strong>结构性守门</strong> (尾空格 / 文件末尾换行 / YAML 语法 / JSON 语法 / TOML 语法 / 500KB 大文件 / 合并冲突标记 / 私钥泄漏), 不做业务判断。Ruff 后面跟上, 用 <code>--fix --exit-non-zero-on-fix</code> — 自动修能修的, 修不了的就 fail。最后 mypy v1.13.0 配合 <code>[tool.mypy.overrides] module = "tests.*"</code> 做与 CI 一致的类型检查。</p>
 <p>为什么不在 pre-commit 也加 mypy advisory? 答案在 ruff 的 <code>--exit-non-zero-on-fix</code>: <strong>任何修改都让提交者看到自己改了什么</strong>, 这是比"silent fix"更安全的契约。mypy 在 pre-commit 阶段保持 strict, 是因为<strong>提交前</strong>是"代码进入版本库前的最后一道关", 没必要 advisory。</p>
-<h2 id="14.11-make-verify-observability-一致性测试-(P1-4)">14.11 <code>make verify-observability</code> 一致性测试 (P1-4)</h2>
+<h2 id="14.11-make-verify-observability-一致性测试">14.11 <code>make verify-observability</code> 一致性测试</h2>
 <p><code>unit-tests</code> job 跑 <code>make verify-observability</code> (<code>.github/workflows/ci.yml:48-52</code>):</p>
 <pre><code class="language-yaml">- name: Observability loop check
   working-directory: agent
-  # P1-4 整改: verify-observability 入 CI, 防止 dashboard 名字错回归
-  # (commit e86a962 那种 lumio_session_transitions_total → session_transitions_total 错)
+  # verify-observability 入 CI, 防止 dashboard 名字错回归
+  # (lumio_session_transitions_total → session_transitions_total 那种错)
   run: make verify-observability
 </code></pre>
-<p>这个目标的存在本身就是一段历史教训: commit e86a962 有人把指标名从 <code>lumio_session_transitions_total</code> 改成 <code>session_transitions_total</code>, 业务代码没动, 但 Grafana dashboard 全挂 (因为 dashboard 用 metric name 选 panel)。<code>make verify-observability</code> 做的事是<strong>静态解析 dashboard JSON + 校验所有引用的 metric 名称都在代码里被定义过</strong> — 这是一种"配置-代码"双向一致性测试, 防止 dashboard 改完漏改业务代码, 或反过来。</p>
-<p>P1-4 整改之前, 这条检查只在本地手动跑 — 现在它进了 CI 的 <code>lint</code> job, 跟 ruff 平级。</p>
+<p>这个目标的存在有其原因: 曾有人把指标名从 <code>lumio_session_transitions_total</code> 改成 <code>session_transitions_total</code>, 业务代码没动, 但 Grafana dashboard 全挂 (因为 dashboard 用 metric name 选 panel)。<code>make verify-observability</code> 做的事是<strong>静态解析 dashboard JSON + 校验所有引用的 metric 名称都在代码里被定义过</strong> — 这是一种"配置-代码"双向一致性测试, 防止 dashboard 改完漏改业务代码, 或反过来。</p>
+<p>这条检查进了 CI 的 <code>lint</code> job, 跟 ruff 平级。</p>
 <h2 id="14.12-已知-trade-off">14.12 已知 trade-off</h2>
 <p>这套测试策略<strong>不完美</strong>, 有三个明确的取舍:</p>
 <p><strong>E2E 只在 main 分支跑</strong>。PR 阶段没有端到端保护, 意味着有问题的合并可能在 <code>build</code> + <code>e2e-tests</code> 之前就已经合进 main, 触发回滚成本。<strong>应对</strong>: 增量加强 e2e 反馈时间, 把 e2e 拆成"PR 子集" + "main 全量"两档。</p>
-<p><strong>mypy 改 advisory 后, 类型错误累积</strong>。171 个历史错误 + 每天新增, 没有 fail CI 卡住, 全靠"开发者自觉看末尾 echo"。<strong>应对</strong>: 后续 P1-1b 整改批次, 集中把 171 错误按模块拆给 owner 收敛。</p>
-<p><strong>E2E 在 CI 排除导致覆盖率上限 57%</strong>。<code>test_bot_api.py</code> 等 5 个文件一旦在 CI 跑, 覆盖率立刻上 60+, 但 90s 启动 + 中间件依赖让 unit-tests job 时间翻倍。<strong>应对</strong>: 改用 TestContainers, 把 e2e 完全容器化后塞回 unit-tests, 但工作量较大, 留待后续 Sprint。</p>
+<p><strong>mypy advisory 模式下, 类型错误可能累积</strong>。存量错误 + 每天新增, 没有 fail CI 卡住, 全靠"开发者自觉看末尾 echo"。<strong>应对</strong>: 按模块拆分, 指定 owner 逐步收敛。</p>
+<p><strong>E2E 在 CI 排除导致覆盖率上限 57%</strong>。<code>test_bot_api.py</code> 等 5 个文件一旦在 CI 跑, 覆盖率立刻上 60+, 但 90s 启动 + 中间件依赖让 unit-tests job 时间翻倍。<strong>应对</strong>: 改用 TestContainers, 把 e2e 完全容器化后塞回 unit-tests, 但工作量较大, 留待后续迭代。</p>
 <h2 id="14.13-小结">14.13 小结</h2>
 <p>Lumio 的测试策略是把"CI 时间"当稀缺资源分配: <strong>快反馈 (lint + unit + 55% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main</strong>。真实中间件 + 真实子进程的哲学让测试信号更有价值, 但代价是 e2e 只能在 main 跑, 覆盖率被锁在 57%。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。</p>
 <blockquote>
 <p><strong>延伸阅读</strong>:
-- <a href="../appendix/B-sprint-timeline.md">附录 B Sprint 时间线</a> — P0-4 / P1-4 / P1-7 整改细节
 - <a href="08-error-handling.md">第 8 章 错误处理</a> — <code>test_middleware.py</code> 覆盖
 - <a href="10-observability.md">第 10 章 可观测性</a> — <code>test_observability.py</code> 覆盖</p>
 </blockquote>
@@ -6944,7 +6829,7 @@ async def learn_customer_profile(
   ON dialogue_log (customer_id, created_at DESC)
   WHERE speaker = 'customer';
 </code></pre>
-<p><strong>为何 PARTIAL INDEX</strong>: <code>speaker='customer'</code> 过滤选择比 50% (实际约 30-40%), 部分索引把索引大小减半. 当前 commit 99d3173 时此索引尚未显式创建, 依赖 <code>ix_dialogue_log_customer_id</code> 单列索引 → 性能瓶颈在 P1+ 阶段需补. (见 16.10 改进项)</p>
+<p><strong>为何 PARTIAL INDEX</strong>: <code>speaker='customer'</code> 过滤选择比 50% (实际约 30-40%), 部分索引把索引大小减半. 当前此索引尚未显式创建, 依赖 <code>ix_dialogue_log_customer_id</code> 单列索引 → 性能瓶颈待补. (见 16.10 改进项)</p>
 <h2 id="16.3-3-类信号推断规则详解">16.3 3 类信号推断规则详解</h2>
 <p><code>customer_memory.py:30-49</code> 定义了 3 套正则信号, 各自有独特的评分机制:</p>
 <h3 id="16.3.1-_CARD_TYPE_PATTERNS-(4-类)">16.3.1 <code>_CARD_TYPE_PATTERNS</code> (4 类)</h3>
@@ -8440,7 +8325,7 @@ TOOL_GUARD_DENIALS = Counter(
 <tr>
 <td>灵智</td>
 <td>Lumio</td>
-<td>项目名, 银行信用卡智能客服平台. 前身 SmartCS.</td>
+<td>项目名, 银行信用卡智能客服平台.</td>
 </tr>
 <tr>
 <td>自助问答</td>
@@ -9378,7 +9263,7 @@ TOOL_GUARD_DENIALS = Counter(
 </tr>
 <tr>
 <td><strong>mypy advisory</strong></td>
-<td>P0-4 整改, 类型错误不阻塞 CI, 但新增错误立刻可见</td>
+<td>类型错误不阻塞 CI, 但新增错误立刻可见</td>
 </tr>
 <tr>
 <td><strong>pre-commit</strong></td>
@@ -9390,7 +9275,7 @@ TOOL_GUARD_DENIALS = Counter(
 </tr>
 <tr>
 <td><strong>35 errors</strong></td>
-<td>已知失败用例: 启动超时 + 无 Docker skip (commit 99d3173 基线)</td>
+<td>已知失败用例: 启动超时 + 无 Docker skip</td>
 </tr>
 </tbody>
 </table>
@@ -9425,7 +9310,7 @@ TOOL_GUARD_DENIALS = Counter(
 </tr>
 <tr>
 <td><strong>Temporal</strong></td>
-<td>工作流编排引擎, Sprint 5 已移除 (P1-2)</td>
+<td>工作流编排引擎 (本项目未采用, 用 asyncio.gather 替代)</td>
 </tr>
 <tr>
 <td><strong>Circuit Breaker</strong></td>
@@ -9585,632 +9470,6 @@ TOOL_GUARD_DENIALS = Counter(
 <p><strong>维护说明</strong>: 任何新术语, 在首次出现章节加粗, 然后追加到本表对应分类. 保持与代码命名一致 (大写下划线 vs 小写蛇形).</p>
 </blockquote>
 </section>
-<section class="chapter" id="附录-B-Sprint-时间线">
-<h1 class="chapter-title">附录 B Sprint 时间线</h1>
-<h1 id="附录-B:-Sprint-时间线-+-P0-P3-决策档案">附录 B: Sprint 时间线 + P0-P3 决策档案</h1>
-<blockquote>
-<p>本附录是 Lumio 全部历史决策的档案. 任何章节里出现的 "P0-2 整改" / "Sprint 4 降级设计" 等编号, 都能在本表追溯完整背景.</p>
-</blockquote>
-<h2 id="B.1-Sprint-1:-基础设施-+-骨架-(2025-12)">B.1 Sprint 1: 基础设施 + 骨架 (2025-12)</h2>
-<p><strong>主题</strong>: 从零搭建可运行的双服务骨架.</p>
-<p><strong>关键成果</strong>:</p>
-<table>
-<thead>
-<tr>
-<th>模块</th>
-<th>文件</th>
-<th>行数 (初版)</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>12 个 SubSettings</td>
-<td><code>shared/config.py</code></td>
-<td>533</td>
-</tr>
-<tr>
-<td>两个 FastAPI 工厂</td>
-<td><code>services/{bot,assist}/app.py</code></td>
-<td>80</td>
-</tr>
-<tr>
-<td>共享生命周期</td>
-<td><code>main.py:83-186</code></td>
-<td>104</td>
-</tr>
-<tr>
-<td>Docker Compose</td>
-<td><code>deploy/docker-compose.yml</code></td>
-<td>429 (24 服务)</td>
-</tr>
-<tr>
-<td>异常体系</td>
-<td><code>shared/exceptions.py</code></td>
-<td>211</td>
-</tr>
-<tr>
-<td>中间件 + 异常处理</td>
-<td><code>shared/middleware.py</code></td>
-<td>119</td>
-</tr>
-</tbody>
-</table>
-<p><strong>关键决策</strong>:</p>
-<ul>
-<li><strong>双 FastAPI 而非单实例</strong>: 详见 <a href="01-architecture-overview.md#121-为什么是两个而非一个">第 1 章 1.2.1</a></li>
-<li><strong>12-factor env_prefix</strong>: 详见 <a href="02-configuration-system.md#22-env_prefix-命名空间-12-个独立前缀">第 2 章 2.2</a></li>
-<li><strong>4 段错误码</strong>: 1xxx/2xxx/3xxx/4xxx/5xxx 直接映射 HTTP 4xx/5xx</li>
-</ul>
-<p><strong>遗留问题</strong>:</p>
-<ul>
-<li>gRPC AI 能力层空头规划, 仅留 <code>agent/proto/</code></li>
-<li>嵌入/重排序 Provider 是 Protocol, 没具体实现</li>
-<li>监控仅 Prometheus client, 无 OTel</li>
-</ul>
-<h2 id="B.2-Sprint-2:-RAG-核心-+-知识库-(2026-02)">B.2 Sprint 2: RAG 核心 + 知识库 (2026-02)</h2>
-<p><strong>主题</strong>: 打通 RAG 摄入到检索全链路, 银行合规字段硬注入.</p>
-<p><strong>关键成果</strong>:</p>
-<table>
-<thead>
-<tr>
-<th>模块</th>
-<th>文件</th>
-<th>行数</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>摄入 5 阶段</td>
-<td><code>services/common/ingestion.py</code></td>
-<td>723</td>
-</tr>
-<tr>
-<td>混合检索</td>
-<td><code>services/common/retrieval.py</code></td>
-<td>616</td>
-</tr>
-<tr>
-<td>嵌入 Provider</td>
-<td><code>services/common/embedding.py</code></td>
-<td>343</td>
-</tr>
-<tr>
-<td>重排序</td>
-<td><code>services/common/reranker.py</code></td>
-<td>217</td>
-</tr>
-<tr>
-<td>嵌入熔断器</td>
-<td><code>embedding.py:223-297</code></td>
-<td>75</td>
-</tr>
-<tr>
-<td>19 张 ORM 模型</td>
-<td><code>shared/orm_models.py</code></td>
-<td>1060</td>
-</tr>
-<tr>
-<td>12 个 Alembic 迁移</td>
-<td><code>agent/alembic/versions/</code></td>
-<td>12 文件</td>
-</tr>
-</tbody>
-</table>
-<p><strong>关键决策</strong>:</p>
-<ul>
-<li><strong>BM25 + 向量 + RRF 融合</strong>: 详见 <a href="05-rag-pipeline.md#56-rrf-融合">第 5 章 5.6</a></li>
-<li><strong>父-子分块</strong>: 详见 <a href="05-rag-pipeline.md#58-父-子分块-parent-child-chunking">第 5 章 5.8</a></li>
-<li><strong>ES + Milvus 双写 + 回滚</strong>: 详见 <a href="chapters/09-rag-ingestion.md#dual-write-阶段">第 9 章 9.x</a></li>
-<li><strong>5 阶段文档审批流</strong>: DRAFT→IN_REVIEW→APPROVED→PUBLISHED→SUPERSEDED/REJECTED/ARCHIVED</li>
-<li><strong>合规字段硬注入</strong>: approval_status + is_current_version + effective_date</li>
-</ul>
-<p><strong>遗留问题</strong>:</p>
-<ul>
-<li>摄入走单进程同步, 大文档阻塞</li>
-<li>检索缓存未实现</li>
-<li>文档版本冲突未处理 (后来用 PARTIAL UNIQUE 索引解决)</li>
-</ul>
-<h2 id="B.3-Sprint-3:-Agent-编排-+-Bot-MVP-(2026-04)">B.3 Sprint 3: Agent 编排 + Bot MVP (2026-04)</h2>
-<p><strong>主题</strong>: Bot 自助问答 MVP 上线, 客户能从拨入到对话完成.</p>
-<p><strong>关键成果</strong>:</p>
-<table>
-<thead>
-<tr>
-<th>模块</th>
-<th>文件</th>
-<th>行数</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>LumioAgent</code> 6 步决策</td>
-<td><code>services/bot/bot_agent.py</code></td>
-<td>865</td>
-</tr>
-<tr>
-<td>Bot Stream 消费</td>
-<td><code>services/bot/router.py</code></td>
-<td>1625</td>
-</tr>
-<tr>
-<td>Redis Stream 接入</td>
-<td><code>services/bot/router.py:68-194</code></td>
-<td>127</td>
-</tr>
-<tr>
-<td>工具调用 + 确认</td>
-<td><code>services/bot/tool_executor.py</code></td>
-<td>408</td>
-</tr>
-<tr>
-<td>工具护栏</td>
-<td><code>services/bot/tool_guard.py</code></td>
-<td>101</td>
-</tr>
-<tr>
-<td>槽位追踪</td>
-<td><code>services/bot/slot_tracker.py</code></td>
-<td>80</td>
-</tr>
-<tr>
-<td>客户画像</td>
-<td><code>services/bot/customer_memory.py</code></td>
-<td>150</td>
-</tr>
-<tr>
-<td>知识图谱增强</td>
-<td><code>services/bot/knowledge_graph.py</code></td>
-<td>100</td>
-</tr>
-<tr>
-<td>提示词模板</td>
-<td><code>services/bot/prompts.py</code></td>
-<td>200</td>
-</tr>
-<tr>
-<td>长轮询</td>
-<td><code>router.py:1019-1140</code></td>
-<td>122</td>
-</tr>
-</tbody>
-</table>
-<p><strong>关键决策</strong>:</p>
-<ul>
-<li><strong>手写 asyncio 而非 PydanticAI / LangChain</strong>: 详见 <a href="01-architecture-overview.md#决策-3-不用-pydanticai--langchain-用纯手写-asyncio">第 1 章 决策 3</a></li>
-<li><strong>Redis Stream 而非 Kafka</strong>: 详见 <a href="01-architecture-overview.md#决策-2-不用-kafka-用-redis-stream">第 1 章 决策 2</a></li>
-<li><strong>per-session 串行消费</strong>: 同一 session 消息天然有序</li>
-<li><strong>5 态确认状态机</strong>: pending/confirm/cancel/unclear/expired</li>
-<li><strong>3 级降级</strong>: NORMAL/DEGRADED/FALLBACK</li>
-</ul>
-<p><strong>遗留问题</strong>:</p>
-<ul>
-<li>Bot 启动期 MCP 未集成, Sprint 5 才加</li>
-<li>LLM 熔断器是简单计数版, 通用熔断器 Sprint 4 才有</li>
-<li>客户跨会话记忆只存 Redis, 容易丢</li>
-</ul>
-<h2 id="B.4-Sprint-4:-LLM-集成-+-降级策略-(2026-05)">B.4 Sprint 4: LLM 集成 + 降级策略 (2026-05)</h2>
-<p><strong>主题</strong>: 接入真实 LLM, 设计 4 级降级, 让系统在 LLM 挂时仍服务.</p>
-<p><strong>关键成果</strong>:</p>
-<table>
-<thead>
-<tr>
-<th>模块</th>
-<th>文件</th>
-<th>行数</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>4 级降级管理器</td>
-<td><code>services/common/degradation.py</code></td>
-<td>222</td>
-</tr>
-<tr>
-<td>健康监控</td>
-<td><code>services/common/degradation.py:27-121</code></td>
-<td>95</td>
-</tr>
-<tr>
-<td>内容降级</td>
-<td><code>services/common/degradation.py:124-164</code></td>
-<td>41</td>
-</tr>
-<tr>
-<td>LLM 客户端</td>
-<td><code>services/common/llm.py</code></td>
-<td>416</td>
-</tr>
-<tr>
-<td>通用熔断器</td>
-<td><code>services/common/circuit_breaker.py</code></td>
-<td>269</td>
-</tr>
-<tr>
-<td>嵌入熔断器</td>
-<td><code>services/common/embedding.py:223-297</code></td>
-<td>75</td>
-</tr>
-<tr>
-<td>Aho-Corasick 敏感词</td>
-<td><code>shared/safety.py</code></td>
-<td>254</td>
-</tr>
-<tr>
-<td>PII 脱敏</td>
-<td><code>shared/pii.py</code></td>
-<td>77</td>
-</tr>
-<tr>
-<td>健康检查</td>
-<td><code>shared/health.py</code></td>
-<td>142</td>
-</tr>
-<tr>
-<td>Prometheus 指标</td>
-<td><code>shared/metrics.py</code></td>
-<td>171</td>
-</tr>
-<tr>
-<td>OpenTelemetry 追踪</td>
-<td><code>shared/tracing.py</code></td>
-<td>232</td>
-</tr>
-<tr>
-<td>JSON 结构化日志</td>
-<td><code>shared/logger.py</code></td>
-<td>110</td>
-</tr>
-<tr>
-<td>审计中间件</td>
-<td><code>shared/audit_middleware.py</code></td>
-<td>218</td>
-</tr>
-</tbody>
-</table>
-<p><strong>关键决策</strong>:</p>
-<ul>
-<li><strong>4 级降级</strong>: NORMAL → DEGRADED → FALLBACK, 主动探测 + 被动熔断融合</li>
-<li><strong>三态熔断器</strong>: CLOSED → OPEN → HALF_OPEN, 滑动窗口 20</li>
-<li><strong>Aho-Corasick 自动机</strong>: O(n) 与词库大小无关, 10K 词 &lt; 100ms</li>
-<li><strong>PII 脱敏 4 类</strong>: 手机/身份证/银行卡/邮箱, 顺序敏感</li>
-<li><strong>审计 24 端点</strong>: 路由元数据推断, 优先级高于路径字符串</li>
-</ul>
-<p><strong>遗留问题</strong>:</p>
-<ul>
-<li>PII 脱敏在 health check 暴露 IP/凭证 (P3-6 修复)</li>
-<li>消息长度无限制, 1MB 消息能进 (P3-7 修复)</li>
-<li>Temporal 还在用, Sprint 5 才迁</li>
-</ul>
-<p><strong>Sprint 4 设计文档</strong>: <code>docs/superpowers/plans/2026-05-03-sprint4-degradation.md</code></p>
-<h2 id="B.5-Sprint-5:-Assist-引擎-(2026-06)">B.5 Sprint 5: Assist 引擎 (2026-06)</h2>
-<p><strong>主题</strong>: 坐席辅助引擎上线, 用 asyncio.gather 替代 Temporal.</p>
-<p><strong>关键成果</strong>:</p>
-<table>
-<thead>
-<tr>
-<th>模块</th>
-<th>文件</th>
-<th>行数</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Assist 引擎主入口</td>
-<td><code>services/common/assist_engine.py</code></td>
-<td>689</td>
-</tr>
-<tr>
-<td>5 阶段编排</td>
-<td><code>assist_engine.py:171-220</code></td>
-<td>50</td>
-</tr>
-<tr>
-<td>决策 D1/D2/D3</td>
-<td><code>services/common/decision.py</code></td>
-<td>312</td>
-</tr>
-<tr>
-<td>E1 AI 执行器</td>
-<td><code>services/assist/ai_executor.py</code></td>
-<td>180</td>
-</tr>
-<tr>
-<td>E2 营销执行器</td>
-<td><code>services/assist/marketing_executor.py</code></td>
-<td>150</td>
-</tr>
-<tr>
-<td>E3 风控执行器</td>
-<td><code>services/assist/alert_engine.py</code></td>
-<td>220</td>
-</tr>
-<tr>
-<td>仲裁器</td>
-<td><code>services/assist/arbitrator.py</code></td>
-<td>220</td>
-</tr>
-<tr>
-<td>产品目录</td>
-<td><code>services/assist/product_catalog.py</code></td>
-<td>100</td>
-</tr>
-<tr>
-<td>话后小结</td>
-<td><code>services/assist/summary.py</code></td>
-<td>180</td>
-</tr>
-<tr>
-<td>话术服务</td>
-<td><code>services/assist/script_service.py</code></td>
-<td>120</td>
-</tr>
-<tr>
-<td>WebSocket 路由</td>
-<td><code>services/assist/router.py</code></td>
-<td>1258</td>
-</tr>
-<tr>
-<td>MCP 客户端</td>
-<td><code>services/common/mcp_client.py</code></td>
-<td>393</td>
-</tr>
-<tr>
-<td>22 Java 工具</td>
-<td><code>mcp-server/src/main/java/com/lumio/mcp/tools/</code></td>
-<td>60 文件</td>
-</tr>
-</tbody>
-</table>
-<p><strong>关键决策</strong>:</p>
-<ul>
-<li><strong>asyncio.gather 替代 Temporal</strong>: 详见 <a href="01-architecture-overview.md#决策-1-不用-temporal-用纯-asynciogather">第 1 章 决策 1</a> + <a href="04-assist-engine.md#410-从-temporal--asynciogather-的迁移故事">第 4 章 4.10</a></li>
-<li><strong>D1/D2/D3 + E1/E2/E3 命名</strong>: 业务域清晰分离</li>
-<li><strong>3 融合策略</strong>: BLOCK / WARN / PASS</li>
-<li><strong>WS 双模式</strong>: per-session 测试 + per-agent 生产</li>
-<li><strong>3s 延迟反馈</strong>: H2 人类工程学, 坐席可撤销</li>
-<li><strong>Higress 网关集中治理</strong>: 鉴权/限流/脱敏/审计 4 件套</li>
-<li><strong>destructiveHint 自动标记</strong>: Java 注解驱动, 零硬编码</li>
-</ul>
-<p><strong>Sprint 5 设计文档</strong>:
-- <code>docs/superpowers/plans/2026-05-04-sprint5-assist-agent.md</code>
-- <code>docs/superpowers/plans/2026-05-05-assist-architecture-upgrade.md</code>
-- <code>docs/superpowers/specs/2026-05-01-sprint3-agent-orchestration-design.md</code></p>
-<h2 id="B.6-P0-P3-技术债批次-(2026-07-08)">B.6 P0-P3 技术债批次 (2026-07-08)</h2>
-<p><strong>主题</strong>: Sprint 1-5 之后, 集中整改 21 个技术债 commit, 按优先级分 4 批.</p>
-<h3 id="B.6.1-P0-(8-commit,-最高优先级-—-安全)">B.6.1 P0 (8 commit, 最高优先级 — 安全)</h3>
-<table>
-<thead>
-<tr>
-<th>编号</th>
-<th>主题</th>
-<th>commit</th>
-<th>文件</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>P0-1</strong></td>
-<td>JWT 密钥校验</td>
-<td>(mock)</td>
-<td><code>auth.py:115-133</code></td>
-</tr>
-<tr>
-<td><strong>P0-2</strong></td>
-<td>JWT 占位密钥生产环境拦截</td>
-<td>(mock)</td>
-<td><code>config.py:473-498</code></td>
-</tr>
-<tr>
-<td><strong>P0-3</strong></td>
-<td>dev bypass 限定 loopback</td>
-<td>(mock)</td>
-<td><code>auth.py:158-168</code></td>
-</tr>
-<tr>
-<td><strong>P0-4</strong></td>
-<td>mypy 改 advisory 模式</td>
-<td>(mock)</td>
-<td><code>ci.yml:32-46</code> + <code>pyproject.toml:151-153</code></td>
-</tr>
-<tr>
-<td><strong>P0-5</strong></td>
-<td>CI 加固</td>
-<td>(mock)</td>
-<td><code>ci.yml:1-172</code></td>
-</tr>
-<tr>
-<td><strong>P0-6</strong></td>
-<td>ruff 升级</td>
-<td>(mock)</td>
-<td><code>pyproject.toml</code></td>
-</tr>
-<tr>
-<td><strong>P0-7</strong></td>
-<td>敏感词启动加载</td>
-<td>(mock)</td>
-<td><code>safety.py:39-117</code></td>
-</tr>
-<tr>
-<td><strong>P0-8</strong></td>
-<td>审计 middleware 路由元数据推断</td>
-<td>(mock)</td>
-<td><code>audit_middleware.py:114-169</code></td>
-</tr>
-</tbody>
-</table>
-<p><strong>P0-2 决策档案</strong>: 旧版 dev secret 默认值, 生产环境忘记改 LUMIO_JWT_SECRET 时, 攻击者用默认 secret 伪造 token. 修复: <code>_validate_production_security</code> 拦截占位 secret (<code>lumio-dev-secret-change-in-production</code> / <code>&lt;CHANGE_ME&gt;</code>), 强制 ≥32 字符.</p>
-<p><strong>P0-3 决策档案</strong>: 旧版 dev bypass 逻辑 <code>0.0.0.0 自查 = 任何远端部署</code>. 这意味着生产环境若 bind <code>0.0.0.0</code> 且 env 是 development, 攻击者用默认 token 即可. 修复: 显式 <code>LUMIO_DEV_AUTH_BYPASS=true</code> 开关 + 限 loopback (127.0.0.1/localhost).</p>
-<p><strong>P0-4 决策档案</strong>: 171 个 mypy 错误未收敛, 改 advisory 后<strong>新增错误立刻可见, 历史不阻塞</strong>. 务实选择.</p>
-<h3 id="B.6.2-P1-(3-commit,-高杠杆)">B.6.2 P1 (3 commit, 高杠杆)</h3>
-<table>
-<thead>
-<tr>
-<th>编号</th>
-<th>主题</th>
-<th>commit</th>
-<th>收益</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>P1-1</strong></td>
-<td>gRPC 死代码删除</td>
-<td>(mock)</td>
-<td>-479 行, 0 价值代码</td>
-</tr>
-<tr>
-<td><strong>P1-2</strong></td>
-<td>Temporal 死代码删除</td>
-<td>(mock)</td>
-<td>-800 行, 节省 1 外部服务</td>
-</tr>
-<tr>
-<td><strong>P1-3</strong></td>
-<td>Dashboard 补 3 panel</td>
-<td>(mock)</td>
-<td><code>metrics.py:46-70</code> 3 指标</td>
-</tr>
-</tbody>
-</table>
-<p><strong>P1-2 决策档案</strong>: Sprint 5 迁到 asyncio.gather 后, Temporal 代码是死代码, 留着误导新成员. 删除同时改注释明确"P3-2 整改, 不依赖 Temporal".</p>
-<p><strong>P1-3 决策档案</strong>: 原 dashboard 缺 <code>tool_confirmations_total</code> / <code>tool_guard_denials_total</code> / <code>session_phase_duration_seconds</code> 3 个 panel. P1-3 整改后, 这 3 指标 + 3 panel 一一对应.</p>
-<h3 id="B.6.3-P2-(2-commit,-中优先级)">B.6.3 P2 (2 commit, 中优先级)</h3>
-<table>
-<thead>
-<tr>
-<th>编号</th>
-<th>主题</th>
-<th>commit</th>
-<th>文件</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>P2-1</strong></td>
-<td>dashboard 5 panel 修复</td>
-<td>(mock)</td>
-<td><code>config/grafana/dashboards/</code></td>
-</tr>
-<tr>
-<td><strong>P2-4</strong></td>
-<td>OTel service.version 回退到 pyproject</td>
-<td>(mock)</td>
-<td><code>tracing.py:108-115</code></td>
-</tr>
-</tbody>
-</table>
-<p><strong>P2-4 决策档案</strong>: 旧版 <code>service.version</code> 硬编码 <code>0.0.0</code>, 改读 <code>LUMIO_VERSION</code> env, 但 env 不设时返 <code>0.0.0</code>. 修复: 优先级 <code>LUMIO_VERSION env</code> &gt; <code>pyproject.toml</code> &gt; <code>0.0.0</code>. 当前 fallback 实现同时支持 [project] (PEP 621) 和 [tool.poetry] (Poetry 1.x) 格式.</p>
-<h3 id="B.6.4-P3-(8-commit,-真-bug-修复-+-清理)">B.6.4 P3 (8 commit, 真 bug 修复 + 清理)</h3>
-<table>
-<thead>
-<tr>
-<th>编号</th>
-<th>主题</th>
-<th>commit</th>
-<th>文件</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>P3-1</strong></td>
-<td>删 chunker.py 1087 行</td>
-<td><code>e9edcff</code></td>
-<td><code>services/common/chunker.py</code> (DELETED)</td>
-</tr>
-<tr>
-<td><strong>P3-2</strong></td>
-<td>删 gRPC 残留</td>
-<td><code>b12d696</code></td>
-<td><code>services/common/grpc_*.py</code> (DELETED)</td>
-</tr>
-<tr>
-<td><strong>P3-3</strong></td>
-<td>RAG NameError 修复</td>
-<td><code>d842c4e</code></td>
-<td><code>services/common/retrieval.py</code></td>
-</tr>
-<tr>
-<td><strong>P3-4</strong></td>
-<td>Bot HTTPException → LumioError</td>
-<td><code>d2f2a79</code></td>
-<td><code>services/bot/router.py</code></td>
-</tr>
-<tr>
-<td><strong>P3-5</strong></td>
-<td>Redis key 集中化</td>
-<td><code>722a95c</code></td>
-<td><code>services/common/session.py:24-50</code></td>
-</tr>
-<tr>
-<td><strong>P3-6</strong></td>
-<td>健康检查脱敏</td>
-<td><code>28457e0</code></td>
-<td><code>shared/health.py:29-42</code></td>
-</tr>
-<tr>
-<td><strong>P3-7</strong></td>
-<td>输入限长</td>
-<td><code>19ac8f6</code></td>
-<td><code>shared/models.py:501-504</code> + <code>bot/router.py:1232</code></td>
-</tr>
-<tr>
-<td><strong>P3-8</strong></td>
-<td>transfer.py 路径修复</td>
-<td><code>97a9945</code></td>
-<td><code>services/common/transfer.py</code></td>
-</tr>
-<tr>
-<td><strong>P3-9</strong></td>
-<td>静默返空 → 503</td>
-<td><code>19ac8f6</code></td>
-<td><code>services/bot/router.py:1465-1471</code></td>
-</tr>
-</tbody>
-</table>
-<p><strong>P3-3 决策档案</strong>: 嵌入失败时, 旧版 <code>for t in (bm25_task, vector_task)</code> 引用 vector_task 时可能未赋值, 抛 NameError. 修复: <code>vector_task: asyncio.Task | None = None</code>, 仅 cancel vector_task. <strong>真 bug, 5% 概率生产崩溃</strong>.</p>
-<p><strong>P3-6 决策档案</strong>: 健康检查错误用 <code>str(e)[:100]</code> 直接吐客户端, 泄露 <code>password authentication failed for user "lumio"</code> / <code>ConnectionRefusedError: 192.168.x.x:6379</code>. 修复: <code>_ERROR_CODE_BY_DEP</code> 7 分类码, 详细异常走 <code>logger.warning(..., exc_info=True)</code>. <strong>银行合规, 不暴露凭证/IP</strong>.</p>
-<p><strong>P3-7 决策档案</strong>: 1MB 消息 / 1GB 文件能进 Redis Stream + LLM, 引发 DoS. 修复: <code>message</code> max_length=2000 + 文件 50MB + 扩展名白名单. <strong>DoS 防护</strong>.</p>
-<p><strong>P3-9 决策档案</strong>: Bot <code>list_sessions</code> 端点在服务异常时静默返空 <code>[]</code>, 客户端无法区分"系统故障"vs"无消息". 修复: 抛 <code>ServiceOverloadedError(5002)</code>, 客户端返 503. <strong>可观测性</strong>.</p>
-<h2 id="B.7-完整时间线-(一张图)">B.7 完整时间线 (一张图)</h2>
-<pre><code class="language-mermaid">timeline
-    title Lumio 演进时间线
-    2025-12 : Sprint 1 — 基础设施 + 骨架
-             : 12 SubSettings + Docker Compose
-    2026-02 : Sprint 2 — RAG 核心
-             : 摄入 5 阶段 + 混合检索 + 父-子分块
-    2026-04 : Sprint 3 — Agent 编排
-             : LumioAgent + Redis Stream + 工具循环
-    2026-05 : Sprint 4 — LLM 集成
-             : 4 级降级 + 熔断器 + 可观测性
-    2026-06 : Sprint 5 — Assist 引擎
-             : asyncio.gather 替代 Temporal
-    2026-07 : P0-P3 整改 (21 commit)
-             : 安全基线 + 死代码 + 真 bug
-    2026-08 : docs/book/ 技术深度剖析
-             : 14 章节 + 6 图 + 3 附录
-    2026-08 : 五轮架构审核 (98 项修复)
-             : R1-R2 编排/上下文 → R3 死代码接线 → R4 上下文工程重构
-             : → R5 安全合规 + CI/部署; 716 测试通过
-</code></pre>
-<h2 id="B.8-决策哲学总结">B.8 决策哲学总结</h2>
-<p>跨 5 个 Sprint + 4 个 P 批次 + 5 轮架构审核, Lumio 一致遵循的设计哲学:</p>
-<ol>
-<li><strong>接口兼容优先</strong>: P2-4 AliasChoices 模式, 1 行代码换 0 故障切换</li>
-<li><strong>「为什么」优先于「是什么」</strong>: 每个 P 整改都回答"为什么"</li>
-<li><strong>零回归 opt-in</strong>: MCP_ENABLED=false / gateway profile / Temporal 双轨</li>
-<li><strong>纵深防御</strong>: Python 端 + Higress 网关 + 数据库审计</li>
-<li><strong>「真中间件 + 真实子进程」哲学</strong>: 测试用真实环境, 不用 mock 失真</li>
-<li><strong>降级优先于拒客</strong>: 银行不能 503, 必须有兜底话术</li>
-<li><strong>银行合规 &gt; 业务便利</strong>: P0-2 / P0-3 / P3-6 / P3-7 都是合规优先</li>
-<li><strong>历史决策可追溯</strong>: 每个 P 整改都引 commit hash + commit message</li>
-<li><strong>接线审计</strong>: 每个能力模块必须回答"调用点在哪 / 失败降级到哪 / 哪个指标证明它在工作" — 三问答不上就是死代码 (R3 核心教训)</li>
-<li><strong>安全默认拒绝</strong>: 认证用显式依赖, 合规过滤缺失字段视为不合规, <code>dict.get(key, 默认放行)</code> 是漏洞 (R5)</li>
-</ol>
-<hr />
-<blockquote>
-<p><strong>下一步</strong>: 阅读 <a href="C-troubleshooting.md">附录 C 故障排查</a>, 把历史决策变成排障手册.</p>
-</blockquote>
-</section>
 <section class="chapter" id="附录-C-故障排查">
 <h1 class="chapter-title">附录 C 故障排查</h1>
 <h1 id="附录-C:-常见问题排查">附录 C: 常见问题排查</h1>
@@ -10300,10 +9559,10 @@ psql -U lumio -d lumio -c &quot;SELECT id, title, approval_status FROM kb_docume
 - ES 挂 → 重启, 检查磁盘空间
 - Milvus 挂 → 检查 etcd + minio 是否健康
 - 文档未发布 → 走审批流到 PUBLISHED</p>
-<h3 id="C.2.3-RAG-NameError-(P3-3-已修复,-历史问题)">C.2.3 RAG NameError (P3-3 已修复, 历史问题)</h3>
+<h3 id="C.2.3-RAG-NameError">C.2.3 RAG NameError</h3>
 <p><strong>症状</strong>: 嵌入失败时, RAG 整个崩溃, 5% 概率生产事故.</p>
 <p><strong>原因</strong>: 旧版 <code>for t in (bm25_task, vector_task)</code> 引用 vector_task 时未赋值.</p>
-<p><strong>修复</strong>: P3-3 commit <code>d842c4e</code> 已修, 当前不会发生. 若遇到, 升级到最新 commit.</p>
+<p><strong>修复</strong>: 当前版本已修, 不会发生. 若遇到, 升级到最新代码.</p>
 <h2 id="C.3-中间件故障">C.3 中间件故障</h2>
 <h3 id="C.3.1-Redis-不可达">C.3.1 Redis 不可达</h3>
 <p><strong>症状</strong>: Bot 502 + Assist 502, 所有 Stream/Pub-Sub 失败.</p>
@@ -10409,10 +9668,10 @@ poetry run python -c &quot;import jwt; print(jwt.decode('eyJ...', 'lumio-dev-sec
 <p><strong>修复</strong>:
 - 用 <code>logger.info("user input", extra={"text": mask_pii(text)})</code>
 - Loki 侧用 pipeline 做二次脱敏</p>
-<h3 id="C.5.5-健康检查暴露敏感信息-(P3-6-已修复)">C.5.5 健康检查暴露敏感信息 (P3-6 已修复)</h3>
+<h3 id="C.5.5-健康检查暴露敏感信息">C.5.5 健康检查暴露敏感信息</h3>
 <p><strong>症状</strong>: <code>/api/health/ready</code> 返 <code>{"redis_unreachable": "ConnectionRefusedError: 192.168.1.10:6379"}</code>.</p>
 <p><strong>原因</strong>: 旧版 <code>str(e)[:100]</code> 直接吐客户端.</p>
-<p><strong>修复</strong>: P3-6 commit <code>28457e0</code> 已修, 当前只返 7 个分类码 (<code>redis_unreachable</code> / <code>postgres_unreachable</code> / ...). 若遇到, 升级到最新.</p>
+<p><strong>修复</strong>: 当前版本只返 7 个分类码 (<code>redis_unreachable</code> / <code>postgres_unreachable</code> / ...). 若遇到, 升级到最新代码.</p>
 <h2 id="C.6-可观测性">C.6 可观测性</h2>
 <h3 id="C.6.1-跨服务-trace-断裂">C.6.1 跨服务 trace 断裂</h3>
 <p><strong>症状</strong>: Jaeger 里 Python → Java 的 trace 不连.</p>
@@ -10432,7 +9691,7 @@ curl http://localhost:8090/actuator/metrics | grep tracing
 <p><strong>症状</strong>: Grafana dashboard 某 panel 显示 "No data".</p>
 <p><strong>原因</strong>:
 - Prometheus 抓取失败
-- 指标命名不一致 (P2-1 修复前)
+- 指标命名不一致
 - 业务代码没打点</p>
 <p><strong>排查</strong>:</p>
 <pre><code class="language-bash"># 1. 查指标是否被采集
@@ -10445,8 +9704,8 @@ curl http://localhost:8000/metrics | grep lumio_
 - 业务端: 补打点 + 重启</p>
 <h3 id="C.6.3-Grafana-dashboard-报错">C.6.3 Grafana dashboard 报错</h3>
 <p><strong>症状</strong>: dashboard 加载失败, "Template variable not found".</p>
-<p><strong>原因</strong>: dashboard JSON 引用了不存在的 metric (P2-1 修复前常见).</p>
-<p><strong>修复</strong>: P2-1 commit 已修 5 个 panel. 仍遇到, 跑 <code>make verify-observability</code> 静态校验.</p>
+<p><strong>原因</strong>: dashboard JSON 引用了不存在的 metric.</p>
+<p><strong>修复</strong>: 跑 <code>make verify-observability</code> 静态校验, 确认 dashboard 引用的指标都已在代码中定义.</p>
 <h2 id="C.7-会话状态机">C.7 会话状态机</h2>
 <h3 id="C.7.1-会话状态非法转换-(3005-InvalidTransitionError)">C.7.1 会话状态非法转换 (<code>3005 InvalidTransitionError</code>)</h3>
 <p><strong>症状</strong>: Bot 转换 phase 失败, 客户端返 422.</p>
@@ -10508,11 +9767,11 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 启动超时</p>
 <p><strong>修复</strong>:
 - 短期: 接受现实, 55% 覆盖率门槛
-- 长期: P1-6 修 RecursionError, 提到 60% 门槛</p>
+- 长期: 修掉 RecursionError 后, 提到 60% 门槛</p>
 <h3 id="C.9.2-mypy-错误累积">C.9.2 mypy 错误累积</h3>
 <p><strong>症状</strong>: 171 → 200 个 mypy 错误, 还在涨.</p>
 <p><strong>原因</strong>: mypy advisory 模式不阻塞 CI, 错误自然累积.</p>
-<p><strong>修复</strong>: 季度集中整改 (类似 P0-P3 批次), 不会无限累积.</p>
+<p><strong>修复</strong>: 按模块拆分, 指定 owner 季度集中收敛.</p>
 <h3 id="C.9.3-e2e-失败">C.9.3 e2e 失败</h3>
 <p><strong>症状</strong>: main 分支 e2e job 失败, 提示 <code>/api/chat/send</code> 返 5xx.</p>
 <p><strong>原因</strong>:
@@ -10535,17 +9794,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 <p><strong>调优</strong>:
 - 调小 <code>ORCH_E1_SLA_SECONDS</code> (当前 3s)
 - 减少 E1 chunks 数量 (top_k=5 → 3)</p>
-<h2 id="C.11-数据迁移与升级">C.11 数据迁移与升级</h2>
-<h3 id="C.11.1-9-态-→-3×7-状态机迁移">C.11.1 9 态 → 3×7 状态机迁移</h3>
-<p><strong>状态</strong>: P3 commit <code>df2b6bc</code> 已完成.</p>
-<p><strong>回滚</strong>: 不建议, 旧 <code>legacy</code> phase 兼容.</p>
-<h3 id="C.11.2-gRPC-→-asyncio.gather-迁移">C.11.2 gRPC → asyncio.gather 迁移</h3>
-<p><strong>状态</strong>: P1-2 + P3-2 已完成 (commit <code>b12d696</code>).</p>
-<p><strong>回滚</strong>: 不可能, Temporal 已删. 但 asyncio.gather 简化代码, 0 价值回滚.</p>
-<h3 id="C.11.3-smartcs-→-lumio-重命名">C.11.3 smartcs → lumio 重命名</h3>
-<p><strong>状态</strong>: commit <code>4be1d67</code> 已完成.</p>
-<p><strong>回滚</strong>: 不可能, 全仓 0 处 smartcs 引用.</p>
-<h2 id="C.12-应急联系">C.12 应急联系</h2>
+<h2 id="C.11-应急联系">C.11 应急联系</h2>
 <table>
 <thead>
 <tr>
@@ -10673,7 +9922,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 检查 LLM 服务 (<code>make verify</code>)
 - 检查 session_meta 写权限 (Redis ping)
 - 长期: 摘要失败时记录到 <code>lumio:summary_failed:{session_id}</code> 计数, 累积 3 次触发告警</p>
-<h3 id="C.13.6-槽位追踪器意图切换时清空-(P0-体验问题)">C.13.6 槽位追踪器意图切换时清空 (P0 体验问题)</h3>
+<h3 id="C.13.6-槽位追踪器意图切换时清空-(高优先级体验问题)">C.13.6 槽位追踪器意图切换时清空 (高优先级体验问题)</h3>
 <p><strong>症状</strong>: 客户从"问账单"切换到"问积分", Bot 重新问"卡号后四位"等已收集过的信息.</p>
 <p><strong>根因排查</strong> (<code>bot_agent.py:799-802</code>):</p>
 <pre><code class="language-python">if raw:
@@ -10714,7 +9963,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 长期: 客户"为什么"点击 → 弹窗显示具体原因 (但需鉴权, 不暴露给攻击者)</p>
 <hr />
 <blockquote>
-<p><strong>下一步</strong>: 回到 <a href="../README.md">README.md</a> 看其他章节, 或去 <a href="B-sprint-timeline.md">附录 B</a> 追溯历史决策.</p>
+<p><strong>下一步</strong>: 回到 <a href="../README.md">README.md</a> 看其他章节.</p>
 </blockquote>
 </section>
     <footer style="color:var(--muted);font-size:13px;margin-top:40px">

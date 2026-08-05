@@ -68,5 +68,4 @@ nav:
       - 17 工具调用与确认状态机: book/chapters/17-tool-calling-and-confirmation.md
   - 附录:
       - A 术语表: book/appendix/A-glossary.md
-      - B Sprint 时间线: book/appendix/B-sprint-timeline.md
       - C 故障排查: book/appendix/C-troubleshooting.md

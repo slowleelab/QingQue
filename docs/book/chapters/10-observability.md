@@ -89,7 +89,7 @@ graph LR
 
 另外,业务域里三个 Gauge(`semaphore_utilization` / `active_workers` / `stream_pending`)反映的是 Bot 运行时状态,由 router 的监控循环周期性刷新——**这些 Gauge 不在 PrometheusMiddleware 里写,而是有专门的 background coroutine 每 5s 同步一次**。这种"指标自治"的拆分让中间件不必知道业务有多少种 Gauge,新加业务指标只需要在 router 里写,不需要改 shared 库。
 
-P1-3 整改又新增了 3 个 session 维度的指标:`session_phase_duration_seconds` 用来观察每个子阶段(等待用户/处理中等)的停留分布,桶覆盖 5s 到 3600s;`tool_confirmations_total` 区分"用户确认 / 取消 / 模糊 / 过期"四种决策,帮助产品观察敏感工具的用户体验;`tool_guard_denials_total` 区分"角色不足"与"额度超限",给安全团队一个独立的拦截监控面。
+另有 3 个 session 维度的指标:`session_phase_duration_seconds` 用来观察每个子阶段(等待用户/处理中等)的停留分布,桶覆盖 5s 到 3600s;`tool_confirmations_total` 区分"用户确认 / 取消 / 模糊 / 过期"四种决策,帮助产品观察敏感工具的用户体验;`tool_guard_denials_total` 区分"角色不足"与"额度超限",给安全团队一个独立的拦截监控面。
 
 ### PrometheusMiddleware:自动打点与反馈循环防护
 
@@ -119,7 +119,7 @@ _PATH_PARAM_RE = re.compile(r"/(?=[0-9a-zA-Z-]*[0-9-])[0-9a-zA-Z-]{8,}")
 # /api/sessions/550e8400-.../messages → /api/sessions/{param}/messages
 ```
 
-这里有一个常被忽略但很致命的细节:`_EXCLUDED_PATHS = {"/metrics", "/health", "/favicon.ico"}`(`metrics.py:129`)。如果不排除 `/metrics` 端点本身,Prometheus 每 15s 抓一次就会产生一条新指标,这个指标又会触发下一次抓取——**指标反馈循环**会让 TSDB 在几小时内被自己的噪声打爆。`/health` 同样如此(LB 健康检查通常 QPS 极高,会把 `http_request_duration_seconds` 的 P99 拉到不可信)。这个 3 项白名单是踩过坑之后才加上的,目前被 P0 整改锁定为"不允许删"。
+这里有一个常被忽略但很致命的细节:`_EXCLUDED_PATHS = {"/metrics", "/health", "/favicon.ico"}`(`metrics.py:129`)。如果不排除 `/metrics` 端点本身,Prometheus 每 15s 抓一次就会产生一条新指标,这个指标又会触发下一次抓取——**指标反馈循环**会让 TSDB 在几小时内被自己的噪声打爆。`/health` 同样如此(LB 健康检查通常 QPS 极高,会把 `http_request_duration_seconds` 的 P99 拉到不可信)。这个 3 项白名单是防御反馈循环的关键,被锁定为"不允许删"。
 
 ## 10.3 JSON 结构化日志
 
@@ -189,13 +189,13 @@ sequenceDiagram
 | `service.version` | 见下文优先级 | 发版前后对比 |
 | `deployment.environment` | 从 `Settings.environment` 读 | 区分 dev/staging/prod |
 
-`service.version` 的读取优先级是 **P2-4 整改的核心**(`tracing.py:24-54`):
+`service.version` 的读取优先级是 (`tracing.py:24-54`):
 
 ```text
 LUMIO_VERSION env > pyproject.toml [project].version > 0.0.0
 ```
 
-最初实现里没有这段 fallback 逻辑,只读 env,本地开发没设 env 就拿到空字符串,Jaeger 看到的所有 span 都是"未版号化"的,排查"这个 bug 在哪个版本引入"非常费劲。整改后,从 `pyproject.toml` 读 PEP 621 的 `[project].version`,真正"开箱即用",CI 上再被 `LUMIO_VERSION` 覆盖。兼容旧字段 `LUMIO_TRACING_ENABLED` 用 Pydantic 的 `AliasChoices` 做了别名兼容,升级期不会破坏现有 `.env`。
+设计要点:只读 env 时,本地开发没设 env 就拿到空字符串,Jaeger 看到的所有 span 都是"未版号化"的,排查"这个 bug 在哪个版本引入"非常费劲。因此从 `pyproject.toml` 读 PEP 621 的 `[project].version` 兜底,真正"开箱即用",CI 上再被 `LUMIO_VERSION` 覆盖。兼容旧字段 `LUMIO_TRACING_ENABLED` 用 Pydantic 的 `AliasChoices` 做了别名兼容,升级期不会破坏现有 `.env`。
 
 `_read_service_version` 还做了三件小事:① 用 `tomllib`(Python 3.11+)或 `tomli` 回退,跨版本都跑得起来;② 兼容 Poetry 1.x 的 `[tool.poetry].version`;③ 读不到时返回 `"0.0.0"` 而不是抛异常,符合 OTel 规范对 `service.version` 的"non-empty string"要求。
 
@@ -223,7 +223,7 @@ except Exception:
 
 `_write_audit_log`(`audit_middleware.py:58-111`)从 JWT 解出 `actor_id / actor_role`,再调 `_infer_action` 推断操作类型。`actor_id` 默认 `"anonymous"`,在开发环境下会用 `dev-user` 兜底,方便本地手测时不必每次都拿 token。`detail` 字段除了 `elapsed_ms`,还会记录脱敏后的 query params——这条细节在合规审计里很重要:如果某个 `DELETE` 出问题了,审计员需要能复现当时的过滤条件。
 
-**P0 整改的关键是 `_ENDPOINT_ACTION_MAP`**(`audit_middleware.py:174-206`):24 个端点函数名 → `(action, target_type)` 的精确映射表。`_infer_action` 的优先级是「**先查路由元数据,再 fallback 到路径字符串**」:
+**核心是 `_ENDPOINT_ACTION_MAP`**(`audit_middleware.py:174-206`):24 个端点函数名 → `(action, target_type)` 的精确映射表。`_infer_action` 的优先级是「**先查路由元数据,再 fallback 到路径字符串**」:
 
 ```python
 # audit_middleware.py:124-132
@@ -237,9 +237,9 @@ if route is not None and hasattr(route, "endpoint"):
         return action, target_type, target_id
 ```
 
-为什么"路由元数据"比"路径字符串"更可靠?因为路径可以被改、被翻译、被装饰器插入,例如 `PUT /api/v1/session/{id}/hold` 既可能被认成 `session.transition` 也可能被认成 `session.hold`;但 `hold_session` 这个函数名唯一对应 `session.hold`。P0 之前只用路径推断,出过多次"action 记错"的事故。GET 类不审计(`_AUDITED_METHODS` 只含 POST/PUT/PATCH/DELETE),纯读操作不需要合规留痕。
+为什么"路由元数据"比"路径字符串"更可靠?因为路径可以被改、被翻译、被装饰器插入,例如 `PUT /api/v1/session/{id}/hold` 既可能被认成 `session.transition` 也可能被认成 `session.hold`;但 `hold_session` 这个函数名唯一对应 `session.hold`。仅用路径推断容易"action 记错"。GET 类不审计(`_AUDITED_METHODS` 只含 POST/PUT/PATCH/DELETE),纯读操作不需要合规留痕。
 
-24 个端点覆盖了三类业务:`assist/router.py` 的会话/反馈/通知/复盘类、`bot/router.py` 的聊天/文档类、`faq_router.py` 的 FAQ 全生命周期类,加上 `auth_router.py` 的 `login`。新增端点时,需要同步在映射表里登记,否则会回退到路径推断——这一约束被 P0 整改固化为 code review checklist。审计模块的 connection pool 与请求池分开,即使审计慢也不会拖垮主业务。
+24 个端点覆盖了三类业务:`assist/router.py` 的会话/反馈/通知/复盘类、`bot/router.py` 的聊天/文档类、`faq_router.py` 的 FAQ 全生命周期类,加上 `auth_router.py` 的 `login`。新增端点时,需要同步在映射表里登记,否则会回退到路径推断——这是 code review checklist 的固定项。审计模块的 connection pool 与请求池分开,即使审计慢也不会拖垮主业务。
 
 ## 10.6 Grafana 仪表盘与告警规则
 
@@ -262,11 +262,11 @@ if route is not None and hasattr(route, "endpoint"):
 
 `ServiceDown` 是唯一 critical,因为单个服务下线意味着用户体验直接受损;其余都是 warning,给 SRE 留出调查窗口。两类工具错误率分开告警是因为 MCP 错误可能来自下游 Java 服务,Python 侧错误可能来自编排逻辑,二者的根因和处置路径完全不同。
 
-告警规则里有几个值得展开的细节:`clamp_min(..., 1e-9)`(`alerts.yml:23-24`)在分母为 0 时兜底,避免 `rate(...)/0` 出现 `NaN`(Prometheus 对 `NaN` 的处理是"不触发告警",反而让错误隐藏);`histogram_quantile(0.99, sum(rate(...)) by (le))`(`alerts.yml:49`)的分位计算必须在 `by (le)` 之后聚合,这是新人常踩的坑;所有 warning 都用 `for: 5m` 过滤掉抖动,这是 P0 整改时加上的——之前用 `for: 1m` 时,一次 GC 抖动就会拉一堆告警,让 on-call 同学对告警失去敏感度。`Alertmanager` 在配置里是 opt-in,默认只让 Prometheus 把告警状态显示在 UI 的 Alerts 页,适合还没接 Slack/钉钉的小团队。
+告警规则里有几个值得展开的细节:`clamp_min(..., 1e-9)`(`alerts.yml:23-24`)在分母为 0 时兜底,避免 `rate(...)/0` 出现 `NaN`(Prometheus 对 `NaN` 的处理是"不触发告警",反而让错误隐藏);`histogram_quantile(0.99, sum(rate(...)) by (le))`(`alerts.yml:49`)的分位计算必须在 `by (le)` 之后聚合,这是新人常踩的坑;所有 warning 都用 `for: 5m` 过滤掉抖动——如果用 `for: 1m`,一次 GC 抖动就会拉一堆告警,让 on-call 同学对告警失去敏感度。`Alertmanager` 在配置里是 opt-in,默认只让 Prometheus 把告警状态显示在 UI 的 Alerts 页,适合还没接 Slack/钉钉的小团队。
 
 ## 10.7 小结
 
-Lumio 的可观测性是按"开发愿意用、运维信得过"双向目标设计的:开发侧只有 `@traced` 一行成本,业务代码不需要 import OTel 包;运维侧有 17 指标 + 3 dashboard + 6 告警的标准化视图。P0/P1/P2 系列整改把"反馈循环"、"路由元数据精确审计"、"resource version fallback"这些边界条件都固化为代码,确保新同学不会在不知情时再踩同样的坑。
+Lumio 的可观测性是按"开发愿意用、运维信得过"双向目标设计的:开发侧只有 `@traced` 一行成本,业务代码不需要 import OTel 包;运维侧有 17 指标 + 3 dashboard + 6 告警的标准化视图。"反馈循环"、"路由元数据精确审计"、"resource version fallback"这些边界条件都固化为代码,确保新同学不会在不知情时再踩同样的坑。
 
 > **延伸阅读**:
 > - [第 8 章 错误处理](08-error-handling.md) — 错误响应体格式

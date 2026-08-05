@@ -412,8 +412,8 @@ MCP 链路发射 6 个核心指标:
 |---|---|---|---|
 | `mcp_tool_calls_total` | Counter | tool, status (success/error) | mcp_client.py:309 |
 | `tool_calls_total` | Counter | tool, status | tool_executor.py:298/309 |
-| `tool_confirmations_total` | Counter | decision (pending/confirm/cancel/unclear/expired) | tool_executor.py:261 (**P1-3 新增**) |
-| `tool_guard_denials_total` | Counter | tool, reason (role_denied/amount_exceeded) | tool_executor.py:378 (**P1-3 新增**) |
+| `tool_confirmations_total` | Counter | decision (pending/confirm/cancel/unclear/expired) | tool_executor.py:261 |
+| `tool_guard_denials_total` | Counter | tool, reason (role_denied/amount_exceeded) | tool_executor.py:378 |
 | `mcp_connection_state` | Gauge | backend (default/card/loan/...) | mcp_client.py:80 |
 | `http_requests_total` | Counter | method, endpoint, status | 全局 |
 
@@ -449,7 +449,7 @@ MCP 工具集成是 Lumio 业务执行的"手脚":
 - **零回归 opt-in**: `MCP_ENABLED=false` 默认, 不连接返回空, Bot 走 RAG 兜底
 - **Higress 集中治理**: 鉴权/限流/脱敏/审计统一网关, Nacos 注册发现
 
-> **下一章预告**: [第 8 章 错误处理](chapters/08-error-handling.md) 深入 35 错误码 + 统一响应体 + P3 整改.
+> **下一章预告**: [第 8 章 错误处理](chapters/08-error-handling.md) 深入 35 错误码 + 统一响应体.
 
 ---
 

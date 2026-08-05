@@ -16,7 +16,7 @@ tags: ["glossary", "术语"]
 
 | 术语 | 英文 | 含义 |
 |---|---|---|
-| 灵智 | Lumio | 项目名, 银行信用卡智能客服平台. 前身 SmartCS. |
+| 灵智 | Lumio | 项目名, 银行信用卡智能客服平台. |
 | 自助问答 | Bot Self-Service | 客户通过文本/语音直接与 AI 对话, 不经坐席. :8000. |
 | 坐席辅助 | Agent Assist | 坐席与客户通话时, AI 实时推送话术/知识/合规提醒. :8001. |
 | 转人工 | Transfer to Agent | Bot 无法处理时, 将会话升级到人工坐席. |
@@ -304,10 +304,10 @@ tags: ["glossary", "术语"]
 | **subprocess.Popen** | uvicorn 子进程拉起, 端口 8765/8766 避免冲突 |
 | **e2e (end-to-end)** | 端到端测试, 真实中间件 + 真实子进程 |
 | **覆盖率门槛** | 55% (pyproject 锁, CI 同), 留 buffer → 后续提到 60% |
-| **mypy advisory** | P0-4 整改, 类型错误不阻塞 CI, 但新增错误立刻可见 |
+| **mypy advisory** | 类型错误不阻塞 CI, 但新增错误立刻可见 |
 | **pre-commit** | 8 步钩子: trailing-whitespace / eof / yaml / toml / large-files 500KB / merge-conflict / private-key / ruff |
 | **pytest.skip** | 中间件不可用时跳过, 不算失败 |
-| **35 errors** | 已知失败用例: 启动超时 + 无 Docker skip (commit 99d3173 基线) |
+| **35 errors** | 已知失败用例: 启动超时 + 无 Docker skip |
 
 ## A.13 其他通用术语
 
@@ -318,7 +318,7 @@ tags: ["glossary", "术语"]
 | **PydanticAI** | 类型安全 AI Agent 框架 (本项目**未使用**, 注释明确) |
 | **FastAPI** | 异步 Web 框架, 0.115+ |
 | **asyncio.gather** | 并发执行多个协程 (替代 Temporal) |
-| **Temporal** | 工作流编排引擎, Sprint 5 已移除 (P1-2) |
+| **Temporal** | 工作流编排引擎 (本项目未采用, 用 asyncio.gather 替代) |
 | **Circuit Breaker** | 熔断器, 三态 CLOSED / OPEN / HALF_OPEN |
 | **DegradationManager** | 4 级降级 NORMAL / DEGRADED / FALLBACK |
 | **slug** | 文档友好 URL 段, 例如 `credit-card-policy-v2` |

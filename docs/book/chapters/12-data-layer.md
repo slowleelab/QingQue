@@ -178,7 +178,7 @@ Redis 在 Lumio 里承担 5 类职责, 共 15+ 种 key prefix:
 | `lumio:rag:cache:{type}:{hash}` | String JSON | 300s | 检索结果缓存 |
 | `lumio:slot:{session_id}` | String JSON | 3600s | 槽位状态 |
 
-> **历史决策**: P3-5 阶段我们把分散在各服务的 Redis key 集中到 `session.py` 与 `redis_keys.py` 统一管理, 此前每个文件自己拼字符串, 出现过多起 `lumio:chat:stream` 与 `lumio:chat_stream` 并存的"灵异 bug"。
+> **设计要点**: 分散在各服务的 Redis key 集中在 `session.py` 与 `redis_keys.py` 统一管理 — 避免每个文件自己拼字符串出现 `lumio:chat:stream` 与 `lumio:chat_stream` 并存的问题。
 
 ### 12.4.1 CAS Lua: Redis 端的乐观锁
 

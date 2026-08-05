@@ -13,13 +13,13 @@ code_references:
   - "agent/lumio/shared/audit_middleware.py"
   - "agent/lumio/shared/health.py"
 last_updated: "2026-08-05"
-summary: "JWT 流程 + PBKDF2 密码 + Aho-Corasick 敏感词 + 双重审计 + 银行合规字段 + P0 整改."
+summary: "JWT 流程 + PBKDF2 密码 + Aho-Corasick 敏感词 + 双重审计 + 银行合规字段."
 tags: ["安全", "JWT", "PBKDF2", "审计", "合规"]
 ---
 
 # 第 11 章: 安全合规
 
-Lumio 是一款银行场景的智能客服助手,任何一次越权读、一次敏感词漏检、一次错误响应里泄露的数据库连接串,都可能触发银保监的合规审查。本章从纵深防御的全局视角出发,逐层拆解边缘网关、接入鉴权、业务授权、数据脱敏与审计回溯这五道防线的设计动机与代码实现,并重点回顾 P0/P3 阶段几次关键整改背后的权衡。
+Lumio 是一款银行场景的智能客服助手,任何一次越权读、一次敏感词漏检、一次错误响应里泄露的数据库连接串,都可能触发银保监的合规审查。本章从纵深防御的全局视角出发,逐层拆解边缘网关、接入鉴权、业务授权、数据脱敏与审计回溯这五道防线的设计动机与代码实现。
 
 ## 11.1 纵深防御:为什么需要 5 层
 
@@ -110,13 +110,13 @@ chat/session 全部端点强制 `user: CurrentUser` 依赖,并带 **session 归�
 
 **原则**: 安全代码的默认值必须是拒绝 — 认证用显式依赖而非可选参数, 角色用 `require_role` 依赖而非函数内 if, 合规过滤缺失字段视为不合规而非默认放行。
 
-## 11.3 P0-2 / P0-3 整改:占位密钥与 dev 旁路的正确关闭方式
+## 11.3 占位密钥与 dev 旁路的正确关闭方式
 
-合规上线前两次关键 P0 整改值得专门记录,因为它们揭示了"配置安全"与"环境默认"两个最易被忽视的失败模式。
+"配置安全"与"环境默认"是两个最易被忽视的失败模式。
 
-### 11.3.1 P0-2:JWT 占位密钥拦截
+### 11.3.1 JWT 占位密钥拦截
 
-历史问题:`Settings.jwt_secret` 默认值是 `lumio-dev-secret-change-in-production`,代码里没有强制覆盖。如果运维漏配 `LUMIO_JWT_SECRET`,服务会**静默用默认密钥启动**,所有 token 可被任何人伪造。
+风险:`Settings.jwt_secret` 默认值是 `lumio-dev-secret-change-in-production`,若没有强制覆盖,运维漏配 `LUMIO_JWT_SECRET` 时服务会**静默用默认密钥启动**,所有 token 可被任何人伪造。
 
 `config.py:473-498` 的 `_validate_production_security` 修复了这个问题:
 
@@ -136,9 +136,9 @@ if self.environment == "production" and len(self.jwt_secret) < 32:
 
 设计动机:生产环境**硬阻断**,dev/test 环境**告警但不阻断**——避免本地开发时每次都要 `openssl rand` 改 secret。生产长度门槛定在 32 字符,刚好覆盖 `hex(32)` 生成的 64 字符熵。
 
-### 11.3.2 P0-3:dev bypass 限定 loopback
+### 11.3.2 dev bypass 限定 loopback
 
-历史 bug 更隐蔽:旧版 `get_current_user` 在 dev + 本地绑定场景下,无 token 直接放行 `admin`。问题在于"本地绑定"的判断是 `service_host` 不在公网 IP 列表,但容器化部署若把 `0.0.0.0` 当成自查通过的依据,任何能访问容器 8080 端口的远端流量都会获得 admin。
+风险更隐蔽:`get_current_user` 若在 dev + 本地绑定场景下无 token 直接放行 `admin`,且"本地绑定"仅以 `service_host` 不在公网 IP 列表判断,容器化部署把 `0.0.0.0` 当成自查通过的依据时,任何能访问容器 8080 端口的远端流量都会获得 admin。
 
 修复 (auth.py:158-168) 引入显式开关 `dev_auth_bypass` + 严格 loopback 校验:
 
@@ -231,14 +231,14 @@ return f"pbkdf2_sha256$600000${b64(salt)}${b64(digest)}"
 
 7 态审批不是过度设计:`DRAFT`(撰写中)与 `IN_REVIEW`(审核中)必须可区分,否则审核员看不到积压;`REJECTED` 与 `ARCHIVED` 看似都不可用,实际 `REJECTED` 是被打回要修改、`ARCHIVED` 是已废弃不可恢复,合规报表需要分别统计。
 
-## 11.9 输入验证:P3-7 整改(commit 19ac8f6)
+## 11.9 输入验证
 
-合规审查发现早期接口对输入长度几乎不设防,埋了两个隐患:
+接口对输入长度设防,覆盖两个隐患:
 
 - 用户消息无上限,一次 POST 几 MB 文本就能撑爆网关与日志存储;
 - session_id / customer_id 无字符限制,可通过特殊字符试探 SQL 注入(虽然 ORM 已参数化,但日志里出现的奇怪字符串会让运维误判)。
 
-修复 (P3-7, commit `19ac8f6`) 后:
+限制如下:
 
 - `message` 字段 `max_length=2000`,覆盖正常客户咨询 3-5 倍冗余;
 - `session_id` / `customer_id` `max_length=128`,远超 UUID 与业务主键长度;
@@ -246,15 +246,15 @@ return f"pbkdf2_sha256$600000${b64(salt)}${b64(digest)}"
 
 50MB 是经验值:银行 PDF 章程通常 5-20MB,知识库批量上传峰值场景 50MB 留 2-3 倍冗余;再大就强制走对象存储分片上传,不走 HTTP body。
 
-## 11.10 健康检查脱敏:P3-6 整改(commit 28457e0)
+## 11.10 健康检查脱敏
 
-`/api/health/ready` 端点历史 bug:依赖故障时把 `str(e)[:100]` 直接吐给客户端。看似贴心的"错误详情"实际会泄露:
+`/api/health/ready` 端点如果依赖故障时把 `str(e)[:100]` 直接吐给客户端,看似贴心的"错误详情"实际会泄露:
 
 - `password authentication failed for user "lumio"` —— 数据库账号名暴露;
 - `ConnectionRefusedError: 192.168.10.5:6379` —— 内网 IP 与端口拓扑暴露;
 - `psycopg2.OperationalError` —— 驱动类名,攻击者可针对性找 0day。
 
-修复 (P3-6, commit `28457e0`) 在 `health.py:20-41` 引入 `_ERROR_CODE_BY_DEP` 7 个分类码,响应体只返回 `{"status": "down", "error_code": "redis_unreachable"}`,真实异常走 `logger.warning(..., exc_info=True)` 进日志(含完整 traceback),运维通过日志定位、客户端只看到分类码。**给机器看的和给人看的必须分流**,这是合规响应设计的铁律。
+因此 `health.py:20-41` 引入 `_ERROR_CODE_BY_DEP` 7 个分类码,响应体只返回 `{"status": "down", "error_code": "redis_unreachable"}`,真实异常走 `logger.warning(..., exc_info=True)` 进日志(含完整 traceback),运维通过日志定位、客户端只看到分类码。**给机器看的和给人看的必须分流**,这是合规响应设计的铁律。
 
 ## 11.11 统一错误响应:第 8 章的合规延伸
 
@@ -276,7 +276,7 @@ return f"pbkdf2_sha256$600000${b64(salt)}${b64(digest)}"
 
 ## 11.13 小结
 
-Lumio 的安全合规不是某一个库或某一段代码的功劳,而是**5 层独立防线**的协同:边缘网关挡 DDoS、JWT 验身份、RBAC 验权限、PII 守数据、审计留证据。两次 P0 整改(占位密钥、dev 旁路)与两次 P3 整改(输入验证、健康检查脱敏)证明,合规不是一次性合规,而是每次发版前都要重新过一遍的清单。
+Lumio 的安全合规不是某一个库或某一段代码的功劳,而是**5 层独立防线**的协同:边缘网关挡 DDoS、JWT 验身份、RBAC 验权限、PII 守数据、审计留证据。合规不是一次性合规,而是每次发版前都要重新过一遍的清单。
 
 下次设计新接口时,先问自己 4 个问题:谁会调?会带什么 PII?出错时给客户看什么?事后谁来查?这 4 个问题的答案,会自然引导你走完本章的 5 层防御。
 

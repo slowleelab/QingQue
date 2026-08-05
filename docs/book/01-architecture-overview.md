@@ -10,13 +10,13 @@ code_references:
   - "agent/lumio/shared/config.py"
   - "deploy/docker-compose.yml"
 last_updated: "2026-08-05"
-summary: "三层架构 + 两个 FastAPI 实例的边界划分 + 5 个核心设计决策 + Sprint 1-5 演进时间线."
+summary: "三层架构 + 两个 FastAPI 实例的边界划分 + 5 个核心设计决策."
 tags: ["架构", "fastapi", "分层", "技术选型"]
 ---
 
 # 第 1 章: 整体架构
 
-> 本章用一张架构图 + 5 个设计决策 + Sprint 时间线, 让你 18 分钟内理解 Lumio 的宏观布局.
+> 本章用一张架构图 + 5 个设计决策, 让你 18 分钟内理解 Lumio 的宏观布局.
 
 ## 1.1 三层架构总览
 
@@ -39,7 +39,7 @@ graph TB
     end
 
     subgraph Capability["AI 能力层 (gRPC 规划中)"]
-        Note1["ClassificationService :50051<br/>RetrievalService :50052<br/>SafetyFilterService :50053<br/>(P3-2 已清理)"]
+        Note1["ClassificationService :50051<br/>RetrievalService :50052<br/>SafetyFilterService :50053<br/>(规划中)"]
     end
 
     subgraph Data["数据层 (6 大中间件)"]
@@ -93,7 +93,7 @@ graph TB
 | **AI 能力层** | (规划) LLM / 嵌入 / 重排序 / 分类的 gRPC 抽象 | **当前未实现, 由编排层直接调用 HTTP** |
 | **数据层** | 持久化 / 缓存 / 检索 / 事件 | 各组件独立降级 |
 
-**关键事实**: AI 能力层在 Sprint 1-5 中是**空头规划** — `pyproject.toml` 已删除 grpcio 依赖 (P3-2 commit `b12d696`), `agent/proto/` 目录是空壳, `shared/grpc_clients.py` 不存在. 当前所有 AI 能力都通过 HTTP 调用外部服务 (Ollama / TEI / Higress MCP).
+**关键事实**: AI 能力层目前是**规划态** — `agent/proto/` 目录是空壳, gRPC stub 未实现. 当前所有 AI 能力都通过 HTTP 调用外部服务 (Ollama / TEI / Higress MCP).
 
 ## 1.2 两个 FastAPI 实例的边界
 
@@ -149,7 +149,7 @@ class _SuppressExceptions:
     def __exit__(self, *args): return True
 ```
 
-关闭时**逆序**调用每个步骤的 close 函数, 任何步骤失败都不影响后续. 这是 P3 整改中强调的"清理优先于报错"原则.
+关闭时**逆序**调用每个步骤的 close 函数, 任何步骤失败都不影响后续 — "清理优先于报错"原则.
 
 ## 1.3 共享基础层 (`shared/`)
 
@@ -178,15 +178,15 @@ class _SuppressExceptions:
 | `password.py` | 45 | PBKDF2-HMAC-SHA256 |
 | `rate_limit.py` | 67 | slowapi 限流 |
 
-**关键设计**: 共享基础层**不依赖任何具体服务**, Bot 和 Assist 都通过 `from lumio.shared.xxx import YYY` 引用. 这是 P3-5 (commit `722a95c`) 集中 Redis key 后的进一步解耦.
+**关键设计**: 共享基础层**不依赖任何具体服务**, Bot 和 Assist 都通过 `from lumio.shared.xxx import YYY` 引用.
 
 ## 1.4 5 个核心设计决策 (技术选型)
 
-下面 5 个决策是 Lumio 与同类系统最大差异点. 每个决策都引用了 P0-P3 批次的 commit, 体现决策痕迹.
+下面 5 个决策是 Lumio 与同类系统最大差异点.
 
 ### 决策 1: 不用 Temporal, 用纯 asyncio.gather
 
-**背景**: Sprint 1-4 用过 Temporal Workflow, 编排 D1/D2/D3 + E1/E2/E3. P1-2 (commit) 决定迁移.
+Assist 引擎的 D/E 五阶段 (D1/D2/D3 + E1/E2/E3) 用 asyncio.gather 并行编排, 不引入外部工作流引擎.
 
 **理由**:
 1. **运维成本**: Temporal 需要单独的 Workflow Server + Namespace 管理 + Worker 注册
@@ -322,19 +322,7 @@ for parent in [c for c in chunks if c.is_parent]:
 
 > 详细 RAG 摄入管线见 [第 9 章 RAG 摄入](chapters/09-rag-ingestion.md).
 
-## 1.5 Sprint 1-5 演进时间线
-
-| Sprint | 时间 | 主题 | 关键成果 |
-|---|---|---|---|
-| 1 | 2025-12 | 基础设施 + 骨架 | 12 SubSettings / Docker Compose / 两个 FastAPI 工厂 |
-| 2 | 2026-02 | RAG 核心 + 知识库 | 摄入 5 阶段 / BM25 + 向量 + RRF / 父-子分块 |
-| 3 | 2026-04 | Agent 编排 + Bot MVP | Redis Stream / `LumioAgent` / 工具循环 / 槽位追踪 |
-| 4 | 2026-05 | LLM 集成 + 降级 | 4 级降级 / 熔断器 / 健康监控 / PII 脱敏 |
-| 5 | 2026-06 | Assist 引擎 | asyncio.gather 替代 Temporal / D1/D2/D3 + E1/E2/E3 / 仲裁器 |
-
-之后是 2026-07-08 启动的 P0-P3 技术债批次, 21 个 commit 全部已推送 main (见 [附录 B](appendix/B-sprint-timeline.md)).
-
-## 1.6 模块依赖图
+## 1.5 模块依赖图
 
 下面用 mermaid 展示 shared / bot / assist / common 之间的依赖关系:
 
@@ -364,7 +352,6 @@ Lumio 的整体架构可以概括为:
 - **三层分层**: 编排 (FastAPI) / AI 能力 (gRPC 规划中) / 数据 (6 大中间件)
 - **两个服务**: Bot :8000 (高频低延迟) + Assist :8001 (低频高复杂度), 共享底层
 - **5 个关键决策**: asyncio.gather 替代 Temporal / Redis Stream 替代 Kafka / 手写 Agent 替代 LangChain / PBKDF2 替代 argon2 / 父-子分块
-- **Sprint 1-5**: 5 个月从骨架到生产, 2026-07-08 起 P0-P3 21 commit 集中整改技术债
 
 ---
 
@@ -372,4 +359,3 @@ Lumio 的整体架构可以概括为:
 > - [第 2 章 配置系统](02-configuration-system.md) — 12+ SubSettings 的完整体系
 > - [第 3 章 Bot 自助问答](03-bot-self-service.md) — Bot :8000 内部细节
 > - [第 4 章 坐席辅助引擎](04-assist-engine.md) — Assist :8001 内部细节
-> - [附录 B Sprint 时间线](appendix/B-sprint-timeline.md) — Sprint 1-5 详细决策档案

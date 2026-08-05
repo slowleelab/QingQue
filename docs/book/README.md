@@ -10,9 +10,9 @@ tags: ["lumio", "索引", "阅读路径"]
 
 > **灵智 (Lumio)** — 银行信用卡场景的智能客服平台, 提供 AI Agent 实时坐席辅助 (Assist) 与 Bot 自助问答 (Bot) 两大核心能力.
 
-本系列文章源自 2026-08-05 一次完整代码库梳理, 覆盖 Lumio 项目全部 16,000 行 Python + 22 工具 Java + 24 个 Docker 服务的核心设计决策. 文章基于 git 状态 (commit 99d3173 起) 编写, 文中所有行号引用 `file_path:line` 形式, 配 mermaid 图. 后续五轮架构审核 (98 项修复) 的关键设计变更已同步到对应章节 (上下文工程/安全合规/测试策略/部署/工具调用等), 行号以最新代码为准.
+本系列文章覆盖 Lumio 项目全部 16,000 行 Python + 22 工具 Java + 24 个 Docker 服务的核心设计决策. 文中所有行号引用 `file_path:line` 形式, 配 mermaid 图, 行号以最新代码为准.
 
-**总规模**: 17 章节 / ~75,000 字 / 7 张 mermaid 图 / 3 附录.
+**总规模**: 17 章节 / ~75,000 字 / 7 张 mermaid 图 / 2 附录.
 
 ---
 
@@ -22,7 +22,7 @@ tags: ["lumio", "索引", "阅读路径"]
 
 | 章节 | 标题 | 难度 | 时长 |
 |---|---|---|---|
-| [00-preface](00-preface.md) | 序言: 项目缘起 + 写作约定 | 通识 | 5 分 |
+| [00-preface](00-preface.md) | 序言: 项目介绍 + 写作约定 | 通识 | 5 分 |
 | [README](README.md) | 当前页: 目录 + 阅读路径 | — | — |
 
 ### 第一部分: 整体设计 (第 1-2 章)
@@ -69,7 +69,6 @@ tags: ["lumio", "索引", "阅读路径"]
 | 章节 | 标题 |
 |---|---|
 | [A](appendix/A-glossary.md) | 术语表 (60+ 词) |
-| [B](appendix/B-sprint-timeline.md) | Sprint 1-5 + P0-P3 技术债批次时间线 |
 | [C](appendix/C-troubleshooting.md) | 常见问题排查 (20+ 场景) |
 
 ---
@@ -92,7 +91,7 @@ tags: ["lumio", "索引", "阅读路径"]
 00-preface → 01 整体架构 → 02 配置系统 → 04 坐席辅助 → 05 RAG → 11 安全合规 → 13 部署
 ```
 
-**目的**: 评估架构选型, 理解 5 个核心 P0/P1/P2/P3 设计决策 (Temporal → asyncio / Redis Stream vs Kafka / PydanticAI / PBKDF2 / 父-子分块).
+**目的**: 评估架构选型, 理解 5 个核心设计决策 (asyncio 编排 / Redis Stream vs Kafka / PydanticAI / PBKDF2 / 父-子分块).
 
 ### 路径 3: 业务开发者 (1 天, 接需求时)
 
@@ -123,12 +122,12 @@ tags: ["lumio", "索引", "阅读路径"]
 ## 文档约定
 
 - **代码引用**: `file_path:line` 形式, 例如 `agent/lumio/main.py:138` 指 `main.py` 第 138 行.
-- **行号基于 git commit 99d3173**, 后续 commit 可能漂移.
+- **行号基于当前 main 分支**, 后续提交可能漂移.
 - **Mermaid 图**: 时序图/状态图/流程图一律使用 mermaid, 源码在 `diagrams/*.mmd`.
 - **中英混排**: 项目内代码英文 (函数名/类名), 文档解释中文.
 - **错误码**: 形式 `CODE: 名 (3xxx 业务)`, 例如 `3004: SessionNotFoundError`.
 - **配置项**: 形式 `LUMIO_DATABASE__HOST`, 顶层 `LUMIO_`, 嵌套 `__` 分隔.
-- **历史决策**: 引用 `commit 简写` 或 `P0-3` 这种 P-batch 编号, P0 最高优先级.
+- **命名统一**: 术语与错误码与正文严格一致, 完整清单见[附录 A](appendix/A-glossary.md).
 
 ---
 

@@ -457,7 +457,7 @@ class GlobalArbitrator:
 | **WARN** | 警告 | 主推 + 风控徽章 + 营销降级 |
 | **PASS** | 通过 | 正常 3 路全推 |
 
-## 4.8 3s 延迟反馈 (H2 整改)
+## 4.8 3s 延迟反馈
 
 `router.py:630-700` `record_feedback` 端点实现**3s 延迟确认**:
 
@@ -481,7 +481,7 @@ async def record_feedback(body: FeedbackRequest, request: Request):
     return {"status": "buffered", "undo_window": 3}
 ```
 
-**关键设计**: 客户点"忽略/没用"后, 坐席想撤销, 有 3s 窗口. 这比立即提交友好, 符合 H2 人类工程学 (Human-Computer Interaction). 详细见 [附录 B](appendix/B-sprint-timeline.md#h2-3s-延迟确认).
+**关键设计**: 客户点"忽略/没用"后, 坐席想撤销, 有 3s 窗口. 这比立即提交友好, 符合人类工程学 (Human-Computer Interaction).
 
 ## 4.9 话后小结生成
 
@@ -514,19 +514,19 @@ async def generate_call_summary(session_id, session_manager, llm):
 
 **关键设计**: LLM JSON 模式 (response_format=json_object) + Pydantic `CallSummary` 校验, 失败重试 1 次.
 
-## 4.10 从 Temporal → asyncio.gather 的迁移故事
+## 4.10 编排方式: asyncio.gather 而非工作流引擎
 
-Sprint 1-4 用过 Temporal Workflow 编排 D1/D2/D3 + E1/E2/E3. Sprint 5 决定迁移, 详见 [附录 B](appendix/B-sprint-timeline.md#sprint-5-assist-引擎). 关键决策依据:
+Assist 引擎的 D/E 五阶段 (D1/D2/D3 + E1/E2/E3) 用 asyncio.gather 并行编排, 不引入外部工作流引擎. 关键决策依据:
 
-1. **运维成本**: Temporal 需独立 Server + Namespace + Worker, 部署复杂
-2. **调试**: Temporal Web UI 才能看 trace, 调试不能直接看 Jaeger
-3. **依赖**: Python + Java SDK 双维护
+1. **运维成本**: 工作流引擎需独立 Server + Namespace + Worker, 部署复杂
+2. **调试**: 外部工作流引擎的 trace 不能在 Jaeger 直接看
+3. **依赖**: 多语言 SDK 双维护
 4. **业务规模**: 5 阶段 < 5s, 协程足够
 
-迁移后:
-- 节省 1 个外部服务 (Temporal Server)
+选择纯 asyncio 编排的好处:
+- 少一个外部服务
 - 跨服务 trace 全在 Jaeger, 调试更直观
-- 代码量减少 (P1-2 commit 删了 800+ 行 Temporal 相关)
+- 代码量更小
 
 ## 4.11 监控指标
 
@@ -539,8 +539,8 @@ Assist 引擎发射 8 个核心指标 (assist_engine.py:47-120):
 | `lumio_assist_engine_degradation_total` | Counter | agent, reason (ai/risk/no_executor/breaker_open/timeout) |
 | `http_requests_total` / `http_request_duration_seconds` | 全局 | |
 | `session_transitions_total` | Counter | 5 labels |
-| `session_phase_duration_seconds` | Histogram | sub_phase (**P1-3 新增**) |
-| `tool_guard_denials_total` | Counter | tool, reason (**P1-3 新增**) |
+| `session_phase_duration_seconds` | Histogram | sub_phase |
+| `tool_guard_denials_total` | Counter | tool, reason |
 | `llm_call_duration_seconds` | Histogram | model, method |
 
 ## 4.12 测试覆盖

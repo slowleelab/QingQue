@@ -148,7 +148,7 @@ async def retrieve(request, es_client, milvus_collection, embedding_provider, re
 | ✗ | ✓ | Vector only | ES 挂 |
 | ✗ | ✗ | 空结果 | 双挂 |
 
-**P3-3 修复**: 旧版 `for t in (bm25_task, vector_task)` 引用 vector_task 时可能未赋值, 抛 NameError. 修复: `vector_task: asyncio.Task | None = None`, 仅 cancel vector_task.
+**并行任务防御**: `vector_task: asyncio.Task | None = None` 初始化, 仅在任务确实创建后 cancel — 避免并发路径下引用未赋值任务.
 
 ## 5.4 BM25 检索: ES + IK
 
@@ -456,7 +456,7 @@ RAG 链路发射 4 个核心指标:
 `agent/tests/test_retrieval.py` (22 用例) 覆盖:
 
 - `test_hybrid_search_rrf_fusion` — RRF 公式正确性
-- `test_embedding_failure_degrades_to_bm25` (P3-3 新增) — NameError 修复回归
+- `test_embedding_failure_degrades_to_bm25` — 嵌入失败降级到 BM25 的回归用例
 - `test_compliance_filter_mandatory` — 合规字段硬注入
 - `test_cache_hit_skips_retrieval` — 缓存命中
 - `test_milvus_filter_post_processing` — 后过滤

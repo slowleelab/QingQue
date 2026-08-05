@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: list[str] = ["*"]
     jwt_secret: str = "lumio-dev-secret-change-in-production"
-    dev_auth_bypass: bool = False  # P0-3 整改, 默认 False
+    dev_auth_bypass: bool = False  # 默认关闭, 仅开发环境可开
     rate_limit_enabled: bool = True
     rate_limit_default: str = "60/minute"
     rate_limit_chat: str = "30/minute"
@@ -184,9 +184,9 @@ LUMIO_LOG_LEVEL=WARNING
 
 **注意**: 嵌套分隔符仅在**根 `Settings` 读取时**生效, 单独 `DatabaseSettings()` 不识别 `LUMIO_DATABASE__HOST`. 实际项目里 `get_db()` 拿的是 `settings.database` (工厂构造), 因此一致.
 
-## 2.4 AliasChoices 兼容模式 (P2-4 整改)
+## 2.4 AliasChoices 兼容模式
 
-P2-4 之前, 项目用 `LUMIO_TRACING_ENABLED` 顶层 env 控制追踪. 整改后, 统一到 `ObservabilitySettings` 子配置, 用 `OBSERVABILITY_TRACING_ENABLED`. 但**旧 env 名不能直接放弃** — 存量 docker-compose / .env / 文档可能还在用.
+追踪配置统一收在 `ObservabilitySettings` 子配置下, 用 `OBSERVABILITY_TRACING_ENABLED`. 但**旧 env 名不能直接放弃** — 存量 docker-compose / .env / 文档可能还在用, 因此用 `AliasChoices` 做别名兼容:
 
 ### 2.4.1 兼容实现
 
@@ -222,11 +222,9 @@ class ObservabilitySettings(BaseSettings):
 
 ### 2.4.2 关键设计哲学
 
-P2-4 整改的注释明确写:
+> 接口稳定性 > 配置简洁性. 改 env 名 = 改 docker-compose + .env.example + 文档, 改动面 > 10 文件. 用 AliasChoices 多保留 1 行代码, 换 0 故障切换.
 
-> 接口稳定性 > 配置简洁性. 项目运行 6 个月后, 改 env 名 = 改 docker-compose + .env.example + 文档, 改动面 > 10 文件. 用 AliasChoices 多保留 1 行代码, 换 0 故障切换.
-
-这是 P0-P3 整改中"接口兼容优先"的代表性决策, 详见 [附录 B](appendix/B-sprint-timeline.md#p2-4).
+这是"接口兼容优先"的代表性决策.
 
 ## 2.5 MCP 路由模式 vs 单后端模式
 
@@ -275,7 +273,7 @@ LUMIO_DEBUG=false
 LUMIO_LOG_LEVEL=INFO
 LUMIO_CORS_ORIGINS=*
 LUMIO_JWT_SECRET=                        # 生产环境必填 ≥32 字符
-LUMIO_DEV_AUTH_BYPASS=false              # P0-3 整改, 默认 False
+LUMIO_DEV_AUTH_BYPASS=false              # 默认关闭, 仅开发环境可开
 
 # ─── 数据库 ───
 POSTGRES_HOST=localhost
@@ -400,7 +398,7 @@ def test_settings_override(monkeypatch):
     assert len(settings.jwt_secret) == 32
 ```
 
-`test_auth.py:105` 等多处使用此模式. P0-3 整改后, 强制**生产环境 JWT secret 长度校验**, 这个测试验证了拦截逻辑.
+`test_auth.py:105` 等多处使用此模式, 验证了**生产环境 JWT secret 长度校验**的拦截逻辑.
 
 ## 2.9 本章小结
 
@@ -408,8 +406,8 @@ Lumio 配置系统是项目"零硬编码"的关键:
 
 - **16 个 SubSettings + 12 个独立 env_prefix**: 业界标准 12-factor 风格
 - **`__` 嵌套分隔符**: 部署期差异化配置的统一入口
-- **`AliasChoices` 兼容模式**: P2-4 整改的接口稳定性策略
-- **`_validate_production_security`**: 启动期 fail-fast — 生产环境强制校验 JWT 密钥 (≥32 字符, 禁占位) + **LLM_API_KEY / MINIO / ES / REDIS 五类外部凭据非默认值** (第五轮扩展, 此前仅拦 JWT, 漏配用假凭证直连外部服务)
+- **`AliasChoices` 兼容模式**: 接口兼容优先的稳定性策略
+- **`_validate_production_security`**: 启动期 fail-fast — 生产环境强制校验 JWT 密钥 (≥32 字符, 禁占位) + **LLM_API_KEY / MINIO / ES / REDIS 五类外部凭据非默认值**
 - **分层 token 预算真实消费**: `budget_static/customer/rag/history/current` 由上下文构建器强制分配 (第 15 章), 不再是死配置
 - **MCP 路由 vs 单后端**: `backends=[]` 零回归切换
 - **`@lru_cache` 单例**: 减少 Pydantic 校验开销

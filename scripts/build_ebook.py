@@ -41,7 +41,6 @@ CHAPTERS: list[tuple[str, str, bool]] = [
     ("16 客户记忆与知识图谱", "chapters/16-customer-memory-and-kg.md", False),
     ("17 工具调用与确认状态机", "chapters/17-tool-calling-and-confirmation.md", False),
     ("附录 A 术语表", "appendix/A-glossary.md", True),
-    ("附录 B Sprint 时间线", "appendix/B-sprint-timeline.md", False),
     ("附录 C 故障排查", "appendix/C-troubleshooting.md", False),
 ]
 

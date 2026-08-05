@@ -125,13 +125,13 @@ psql -U lumio -d lumio -c "SELECT id, title, approval_status FROM kb_document WH
 - Milvus 挂 → 检查 etcd + minio 是否健康
 - 文档未发布 → 走审批流到 PUBLISHED
 
-### C.2.3 RAG NameError (P3-3 已修复, 历史问题)
+### C.2.3 RAG NameError
 
 **症状**: 嵌入失败时, RAG 整个崩溃, 5% 概率生产事故.
 
 **原因**: 旧版 `for t in (bm25_task, vector_task)` 引用 vector_task 时未赋值.
 
-**修复**: P3-3 commit `d842c4e` 已修, 当前不会发生. 若遇到, 升级到最新 commit.
+**修复**: 当前版本已修, 不会发生. 若遇到, 升级到最新代码.
 
 ## C.3 中间件故障
 
@@ -299,13 +299,13 @@ poetry run python -c "import jwt; print(jwt.decode('eyJ...', 'lumio-dev-secret-c
 - 用 `logger.info("user input", extra={"text": mask_pii(text)})`
 - Loki 侧用 pipeline 做二次脱敏
 
-### C.5.5 健康检查暴露敏感信息 (P3-6 已修复)
+### C.5.5 健康检查暴露敏感信息
 
 **症状**: `/api/health/ready` 返 `{"redis_unreachable": "ConnectionRefusedError: 192.168.1.10:6379"}`.
 
 **原因**: 旧版 `str(e)[:100]` 直接吐客户端.
 
-**修复**: P3-6 commit `28457e0` 已修, 当前只返 7 个分类码 (`redis_unreachable` / `postgres_unreachable` / ...). 若遇到, 升级到最新.
+**修复**: 当前版本只返 7 个分类码 (`redis_unreachable` / `postgres_unreachable` / ...). 若遇到, 升级到最新代码.
 
 ## C.6 可观测性
 
@@ -335,7 +335,7 @@ curl http://localhost:8090/actuator/metrics | grep tracing
 
 **原因**:
 - Prometheus 抓取失败
-- 指标命名不一致 (P2-1 修复前)
+- 指标命名不一致
 - 业务代码没打点
 
 **排查**:
@@ -354,9 +354,9 @@ curl http://localhost:8000/metrics | grep lumio_
 
 **症状**: dashboard 加载失败, "Template variable not found".
 
-**原因**: dashboard JSON 引用了不存在的 metric (P2-1 修复前常见).
+**原因**: dashboard JSON 引用了不存在的 metric.
 
-**修复**: P2-1 commit 已修 5 个 panel. 仍遇到, 跑 `make verify-observability` 静态校验.
+**修复**: 跑 `make verify-observability` 静态校验, 确认 dashboard 引用的指标都已在代码中定义.
 
 ## C.7 会话状态机
 
@@ -455,7 +455,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 
 **修复**:
 - 短期: 接受现实, 55% 覆盖率门槛
-- 长期: P1-6 修 RecursionError, 提到 60% 门槛
+- 长期: 修掉 RecursionError 后, 提到 60% 门槛
 
 ### C.9.2 mypy 错误累积
 
@@ -463,7 +463,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 
 **原因**: mypy advisory 模式不阻塞 CI, 错误自然累积.
 
-**修复**: 季度集中整改 (类似 P0-P3 批次), 不会无限累积.
+**修复**: 按模块拆分, 指定 owner 季度集中收敛.
 
 ### C.9.3 e2e 失败
 
@@ -498,27 +498,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 调小 `ORCH_E1_SLA_SECONDS` (当前 3s)
 - 减少 E1 chunks 数量 (top_k=5 → 3)
 
-## C.11 数据迁移与升级
-
-### C.11.1 9 态 → 3×7 状态机迁移
-
-**状态**: P3 commit `df2b6bc` 已完成.
-
-**回滚**: 不建议, 旧 `legacy` phase 兼容.
-
-### C.11.2 gRPC → asyncio.gather 迁移
-
-**状态**: P1-2 + P3-2 已完成 (commit `b12d696`).
-
-**回滚**: 不可能, Temporal 已删. 但 asyncio.gather 简化代码, 0 价值回滚.
-
-### C.11.3 smartcs → lumio 重命名
-
-**状态**: commit `4be1d67` 已完成.
-
-**回滚**: 不可能, 全仓 0 处 smartcs 引用.
-
-## C.12 应急联系
+## C.11 应急联系
 
 | 类别 | 联系人 | 渠道 |
 |---|---|---|
@@ -635,7 +615,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 检查 session_meta 写权限 (Redis ping)
 - 长期: 摘要失败时记录到 `lumio:summary_failed:{session_id}` 计数, 累积 3 次触发告警
 
-### C.13.6 槽位追踪器意图切换时清空 (P0 体验问题)
+### C.13.6 槽位追踪器意图切换时清空 (高优先级体验问题)
 
 **症状**: 客户从"问账单"切换到"问积分", Bot 重新问"卡号后四位"等已收集过的信息.
 
@@ -689,4 +669,4 @@ if raw:
 
 ---
 
-> **下一步**: 回到 [README.md](../README.md) 看其他章节, 或去 [附录 B](B-sprint-timeline.md) 追溯历史决策.
+> **下一步**: 回到 [README.md](../README.md) 看其他章节.

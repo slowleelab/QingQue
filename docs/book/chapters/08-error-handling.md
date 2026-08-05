@@ -10,7 +10,7 @@ code_references:
   - "agent/lumio/shared/middleware.py"
   - "agent/lumio/shared/health.py"
 last_updated: "2026-08-05"
-summary: "35 错误码 + 统一响应体 + LumioError 异常层次 + P3 整改."
+summary: "35 错误码 + 统一响应体 + LumioError 异常层次."
 tags: ["错误处理", "异常体系", "错误码"]
 ---
 
@@ -18,7 +18,7 @@ tags: ["错误处理", "异常体系", "错误码"]
 
 ## 为什么需要一套自研错误体系
 
-Lumio 是面向银行客户的对话平台,涉及支付、签约、转账等强合规场景。一个不能精确表达"业务问题"还是"系统问题"、一个会把"PG 密码错误"或"Redis IP"直接吐回给前端的错误响应,在生产环境是不可接受的。P0 阶段我们调研过直接抛 `HTTPException` 的方案,放弃的核心理由有三点: 第一,业务语义丢失——422 和 500 无法区分"用户输入问题"和"上游 LLM 抖动"; 第二,合规审计需要稳定的错误码而不是动态消息; 第三,前端需要按错误码做精细分支(比如 3005 非法状态转换要回到登录态,3001 知识库未命中要降级到兜底话术)。
+Lumio 是面向银行客户的对话平台,涉及支付、签约、转账等强合规场景。一个不能精确表达"业务问题"还是"系统问题"、一个会把"PG 密码错误"或"Redis IP"直接吐回给前端的错误响应,在生产环境是不可接受的。曾调研过直接抛 `HTTPException` 的方案,放弃的核心理由有三点: 第一,业务语义丢失——422 和 500 无法区分"用户输入问题"和"上游 LLM 抖动"; 第二,合规审计需要稳定的错误码而不是动态消息; 第三,前端需要按错误码做精细分支(比如 3005 非法状态转换要回到登录态,3001 知识库未命中要降级到兜底话术)。
 
 基于这些约束,我们设计了 **35 个错误码 + 5 段式分段 + LumioError 异常类层次 + 统一 JSON 响应体** 的四层结构。本章沿着"为什么 → 是什么 → 怎么用 → 怎么演化"的顺序,把这套体系讲清楚。
 
@@ -158,7 +158,7 @@ graph TD
 
 层次设计有两条原则:第一,**5 大子类在语义上对应 5 段错误码**,通过单根继承让中间件 `isinstance(exc, LumioError)` 一行就能拦截所有业务异常;第二,**个别异常允许自定义 `__init__` 接收上下文参数**,如 `SessionNotFoundError(session_id)`、`InvalidTransitionError(detail)`、`CircuitBreakerOpenError(executor_name)`(`exceptions.py:93`、`104`、`178`),这样错误消息能带上具体定位信息,运维不用翻 trace。`StateConflictError`(`exceptions.py:200-204`)更进一步,在 message 里把 CAS 期望版本和当前版本都打出来,这种"自描述"异常在并发场景下能省掉一次 grep。
 
-值得指出,**我们刻意没有为每条错误码都建一个类**——比如 4001 / 4002 都是 LLM 相关,但运行时常常分不清"是 timeout 还是 inference error",硬要分类反而会引入边界判断开销。当业务侧确实需要细分时,再从 `LLMError` 基类派生;P0 阶段保持 35 错误码对应的扁平结构,演进成本最低。
+值得指出,**我们刻意没有为每条错误码都建一个类**——比如 4001 / 4002 都是 LLM 相关,但运行时常常分不清"是 timeout 还是 inference error",硬要分类反而会引入边界判断开销。当业务侧确实需要细分时,再从 `LLMError` 基类派生;当前保持 35 错误码对应的扁平结构,演进成本最低。
 
 ## PII 脱敏贯穿异常 message
 
@@ -193,9 +193,9 @@ exc_type = type(exc).__name__ if settings.environment == "development" else "Int
 
 原因:Python 异常类名会暴露使用的库(`asyncpg.PostgresError`、`httpx.ConnectError`、`pydantic.ValidationError`...),这些都是攻击者的侦察情报。开发环境保留真实类名方便定位,生产环境一律抹平。完整 traceback 仍然走 `logger.exception` 进日志(`middleware.py:108`),研发用 `request_id` 关联即可。
 
-## P3-6 整改:健康检查脱敏
+## 健康检查脱敏
 
-旧版 `_check_redis` / `_check_db` / `_check_es` 把 `str(exc)[:100]` 直接吐给客户端,在合规审计时被标记为高危——会泄露 `"password authentication failed for user \"lumio\""`、`"ConnectionRefusedError: 192.168.x.x:6379"`、库内部异常文本等敏感信息。P3-6(commit `28457e0`)的整改方案是**对外只返回分类码、详细信息走日志**:
+`_check_redis` / `_check_db` / `_check_es` **对外只返回分类码、详细信息走日志**:
 
 ```python
 # agent/lumio/shared/health.py:29
@@ -207,17 +207,17 @@ def _error_response(dep_name: str, exc: Exception) -> dict[str, str]:
     }
 ```
 
-`_ERROR_CODE_BY_DEP`(`health.py:20-26`)定义了 7 个稳定的分类码——`redis_unreachable` / `postgres_unreachable` / `elasticsearch_unreachable` / `milvus_unreachable` / `minio_unreachable` / `llm_unreachable` / `embedding_unreachable`——它们是面向客户端的"运维可定位但不含内部细节"的最佳折中。`logger.warning(..., exc_info=True)` 通过 `exc_info=True` 自动附加完整 traceback 到日志,运维侧要查 192.168.x.x:6379 还是去 ELK 查 `request_id` 关联的日志。
+`_ERROR_CODE_BY_DEP`(`health.py:20-26`)定义了 7 个稳定的分类码——`redis_unreachable` / `postgres_unreachable` / `elasticsearch_unreachable` / `milvus_unreachable` / `minio_unreachable` / `llm_unreachable` / `embedding_unreachable`——它们是面向客户端的"运维可定位但不含内部细节"的最佳折中。若把 `str(exc)` 直接吐给客户端,会泄露 `"password authentication failed for user \"lumio\""`、`"ConnectionRefusedError: 192.168.x.x:6379"` 等敏感信息——这是合规审计的高危项。`logger.warning(..., exc_info=True)` 自动附加完整 traceback 到日志,运维侧要查 192.168.x.x:6379 还是去 ELK 查 `request_id` 关联的日志。
 
-## P3-9 整改:Bot 静默返空改为显式 503
+## Bot 静默返空改为显式 503
 
-旧版 Bot 在 LLM 不可达时直接 `return []`(空列表),前端以为"用户没说话"继续等待,实际是上游已经熔断。P3-9(commit `19ac8f6`)的整改是**显式抛 `ServiceOverloadedError`(5002)**,由中间件统一映射为 503:
+Bot 在 LLM 不可达时**显式抛 `ServiceOverloadedError`(5002)**,由中间件统一映射为 503,而非返回空列表:
 
 ```python
 raise ServiceOverloadedError("LLM 熔断中,请稍后重试")
 ```
 
-前端拿到 503 + 错误码 5002 后,可以走"稍后重试"提示,而不是傻等。5002→503 的映射在 `_HTTP_STATUS_OVERRIDES` 表里(`middleware.py:29`)早就预留了,P3-9 主要做的是把业务侧从"静默失败"切到"显式失败"。这是一次典型的"错误处理不只是技术问题,而是产品决策"的体现——静默返空看似容错,实际是给用户制造假象。
+设计动机:静默返空时前端以为"用户没说话"继续等待,实际是上游已经熔断。前端拿到 503 + 错误码 5002 后,可以走"稍后重试"提示,而不是傻等。5002→503 的映射在 `_HTTP_STATUS_OVERRIDES` 表里(`middleware.py:29`)。这是"错误处理不只是技术问题,而是产品决策"的体现——静默返空看似容错,实际是给用户制造假象。
 
 ## 测试覆盖
 

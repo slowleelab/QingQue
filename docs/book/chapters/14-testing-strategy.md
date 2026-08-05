@@ -132,18 +132,18 @@ sequenceDiagram
     GHA-->>Main: ✅ 烟测通过
 ```
 
-## 14.6 覆盖率门槛 55% → 60% 渐进
+## 14.6 覆盖率门槛渐进
 
-`unit-tests` job 加了 `--cov-fail-under=55` (`.github/workflows/ci.yml:108`), 同时 `agent/pyproject.toml:160-163` 锁了 `[tool.coverage.report] fail_under = 55`。两处对齐是 P1-7 整改的产物, 之前只有 `pyproject` 的锁, 但 pytest 不读, 实际没生效。
+`unit-tests` job 加了 `--cov-fail-under=55` (`.github/workflows/ci.yml:108`), 同时 `agent/pyproject.toml:160-163` 锁了 `[tool.coverage.report] fail_under = 55`。两处对齐, pytest 才会真正读取门槛 (只有 `pyproject` 的锁而 pytest 不读, 实际不生效)。
 
-为什么不直接锁 60%? 因为 `test_retrieval.RecursionError` 在某些 PG 版本下会拉低覆盖率, 当前实测在 57% 附近, 卡 60% 会被这个历史 bug 反复绊倒。注释里写得很直白 (`.github/workflows/ci.yml:99-101`):
+为什么不直接锁 60%? 因为 `test_retrieval.RecursionError` 在某些 PG 版本下会拉低覆盖率, 当前实测在 57% 附近, 卡 60% 会被这个已知问题反复绊倒。注释里写得很直白 (`.github/workflows/ci.yml:99-101`):
 
 ```yaml
 # 当前实测 ~57% (test_retrieval RecursionError 拉低), 留 buffer
-# 后续 P1-6 修 RecursionError 后再提到 60
+# 后续修 RecursionError 后再提到 60
 ```
 
-这就是**渐进式门槛**的工程意义: 让 CI 立刻 fail 在新写的代码上, 但不要 fail 在**已经知道、还没修**的历史债上 — 等 P1-6 修完 RecursionError 再提到 60。
+这就是**渐进式门槛**的工程意义: 让 CI 立刻 fail 在新写的代码上, 但不要 fail 在**已经知道、还没修**的问题上。
 
 ## 14.7 已知 35 errors 的根因
 
@@ -155,9 +155,9 @@ sequenceDiagram
 
 启动超时 (90s 容忍线) 是第三条线 — 容器内 cold start + 模型预热超过 90s 的话, `bot_server` 调 `pytest.fail`, 后续全部 fixture 级联失败。
 
-解决方案不是再放宽门槛, 而是**让 e2e 在 CI 也能跑** — 比如改用 TestContainers 化 e2e, 但工作量较大, 留到后续 Sprint。
+解决方案不是再放宽门槛, 而是**让 e2e 在 CI 也能跑** — 比如改用 TestContainers 化 e2e。
 
-## 14.8 mypy advisory 模式 (P0-4 整改)
+## 14.8 mypy advisory 模式
 
 `unit-tests` job 跑 `mypy lumio/`, 但用的是 **advisory 模式**, 不 fail CI (`.github/workflows/ci.yml:32-46`):
 
@@ -175,7 +175,7 @@ sequenceDiagram
     echo "mypy_error_count=${errors}"
 ```
 
-为什么改 advisory? 在 P0-4 整改之前, 配置是 `mypy ... || true`, 静默吞掉所有错误 — 表面上 CI 绿, 实际上谁也不知道有多少类型债。advisory 模式做了一件关键事: **`set +e` 让 mypy 跑完, 再统计 error 数打到日志末尾**, 这样开发者一眼能看到当前 171 个错误 (历史) + 新增错误 (新引入的), 但不会被历史债阻塞 PR。
+为什么用 advisory? 如果配置是 `mypy ... || true`, 会静默吞掉所有错误 — 表面上 CI 绿, 实际上谁也不知道有多少类型债。advisory 模式做了一件关键事: **`set +e` 让 mypy 跑完, 再统计 error 数打到日志末尾**, 这样开发者一眼能看到当前存量错误 + 新增错误 (新引入的), 但不会被存量阻塞 PR。
 
 配套的软化在 `agent/pyproject.toml:151-153`:
 
@@ -227,21 +227,21 @@ disallow_untyped_defs = false
 
 为什么不在 pre-commit 也加 mypy advisory? 答案在 ruff 的 `--exit-non-zero-on-fix`: **任何修改都让提交者看到自己改了什么**, 这是比"silent fix"更安全的契约。mypy 在 pre-commit 阶段保持 strict, 是因为**提交前**是"代码进入版本库前的最后一道关", 没必要 advisory。
 
-## 14.11 `make verify-observability` 一致性测试 (P1-4)
+## 14.11 `make verify-observability` 一致性测试
 
 `unit-tests` job 跑 `make verify-observability` (`.github/workflows/ci.yml:48-52`):
 
 ```yaml
 - name: Observability loop check
   working-directory: agent
-  # P1-4 整改: verify-observability 入 CI, 防止 dashboard 名字错回归
-  # (commit e86a962 那种 lumio_session_transitions_total → session_transitions_total 错)
+  # verify-observability 入 CI, 防止 dashboard 名字错回归
+  # (lumio_session_transitions_total → session_transitions_total 那种错)
   run: make verify-observability
 ```
 
-这个目标的存在本身就是一段历史教训: commit e86a962 有人把指标名从 `lumio_session_transitions_total` 改成 `session_transitions_total`, 业务代码没动, 但 Grafana dashboard 全挂 (因为 dashboard 用 metric name 选 panel)。`make verify-observability` 做的事是**静态解析 dashboard JSON + 校验所有引用的 metric 名称都在代码里被定义过** — 这是一种"配置-代码"双向一致性测试, 防止 dashboard 改完漏改业务代码, 或反过来。
+这个目标的存在有其原因: 曾有人把指标名从 `lumio_session_transitions_total` 改成 `session_transitions_total`, 业务代码没动, 但 Grafana dashboard 全挂 (因为 dashboard 用 metric name 选 panel)。`make verify-observability` 做的事是**静态解析 dashboard JSON + 校验所有引用的 metric 名称都在代码里被定义过** — 这是一种"配置-代码"双向一致性测试, 防止 dashboard 改完漏改业务代码, 或反过来。
 
-P1-4 整改之前, 这条检查只在本地手动跑 — 现在它进了 CI 的 `lint` job, 跟 ruff 平级。
+这条检查进了 CI 的 `lint` job, 跟 ruff 平级。
 
 ## 14.12 已知 trade-off
 
@@ -249,15 +249,14 @@ P1-4 整改之前, 这条检查只在本地手动跑 — 现在它进了 CI 的 
 
 **E2E 只在 main 分支跑**。PR 阶段没有端到端保护, 意味着有问题的合并可能在 `build` + `e2e-tests` 之前就已经合进 main, 触发回滚成本。**应对**: 增量加强 e2e 反馈时间, 把 e2e 拆成"PR 子集" + "main 全量"两档。
 
-**mypy 改 advisory 后, 类型错误累积**。171 个历史错误 + 每天新增, 没有 fail CI 卡住, 全靠"开发者自觉看末尾 echo"。**应对**: 后续 P1-1b 整改批次, 集中把 171 错误按模块拆给 owner 收敛。
+**mypy advisory 模式下, 类型错误可能累积**。存量错误 + 每天新增, 没有 fail CI 卡住, 全靠"开发者自觉看末尾 echo"。**应对**: 按模块拆分, 指定 owner 逐步收敛。
 
-**E2E 在 CI 排除导致覆盖率上限 57%**。`test_bot_api.py` 等 5 个文件一旦在 CI 跑, 覆盖率立刻上 60+, 但 90s 启动 + 中间件依赖让 unit-tests job 时间翻倍。**应对**: 改用 TestContainers, 把 e2e 完全容器化后塞回 unit-tests, 但工作量较大, 留待后续 Sprint。
+**E2E 在 CI 排除导致覆盖率上限 57%**。`test_bot_api.py` 等 5 个文件一旦在 CI 跑, 覆盖率立刻上 60+, 但 90s 启动 + 中间件依赖让 unit-tests job 时间翻倍。**应对**: 改用 TestContainers, 把 e2e 完全容器化后塞回 unit-tests, 但工作量较大, 留待后续迭代。
 
 ## 14.13 小结
 
 Lumio 的测试策略是把"CI 时间"当稀缺资源分配: **快反馈 (lint + unit + 55% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main**。真实中间件 + 真实子进程的哲学让测试信号更有价值, 但代价是 e2e 只能在 main 跑, 覆盖率被锁在 57%。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。
 
 > **延伸阅读**:
-> - [附录 B Sprint 时间线](../appendix/B-sprint-timeline.md) — P0-4 / P1-4 / P1-7 整改细节
 > - [第 8 章 错误处理](08-error-handling.md) — `test_middleware.py` 覆盖
 > - [第 10 章 可观测性](10-observability.md) — `test_observability.py` 覆盖

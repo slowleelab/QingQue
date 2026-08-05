@@ -327,12 +327,12 @@ async def persist_dialogue(self, session_id: str):
 - **fire-and-forget**: `asyncio.create_task` 不阻塞 `transition_phase` 调用
 - **Redis 留 7 天**: 临时备份, 7 天后过期
 
-## 6.7 Redis key 集中化 (P3-5 整改)
+## 6.7 Redis key 集中化
 
-P3-5 之前, key 命名散落各模块. 整改后集中到 `session.py`:
+Redis key 命名集中在 `session.py` 统一管理:
 
 ```python
-# session.py:24-50 (简化) - P3-5 新增
+# session.py:24-50 (简化)
 def session_meta_key(session_id: str) -> str:
     return f"lumio:session:{session_id}:meta"
 
@@ -353,34 +353,28 @@ class SessionManager:
         return session_history_key(session_id)  # 委托
 ```
 
-**P3-5 收益**:
+**集中管理收益**:
 - **未来 prefix 改动**: 单点修改 `session.py:24-50`, 全局生效
 - **测试更简单**: 测试可以 mock helper 函数
 - **审计清晰**: `session_meta_scan_pattern()` 给 SCAN 用, 避免散落
 
-## 6.8 历史演进: 9 态 → 3×7 矩阵
+## 6.8 状态模型: 3×7 矩阵
 
-P3 之前的会话状态机是**扁平 9 态**:
+会话状态机采用 **4 phase (顶层) × 7 sub-state (子)** 的矩阵模型:
 
 ```
-INIT → BOT_ACTIVE → WAITING_HUMAN → HUMAN_ACTIVE → HOLDING
-      → REVIEWING → ENDED → ABANDONED → TRANSFERRED
+PHASE:   BOT → AGENT → ENDED
+SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWING ...
 ```
 
-问题:
-- 9 态互相转换规则复杂 (9×9 = 81 种)
-- `WAITING_HUMAN` 状态无法表达"排队中 vs 已分配"区别
-- `ABANDONED` 和 `TRANSFERRED` 跟 `ENDED` 有重叠
+设计动机:
+- 扁平状态互相转换规则复杂 (N×N 组合)
+- `WAITING_HUMAN` 需要表达"排队中 vs 已分配"区别
+- 终结态统一归 `ENDED`, 用 `reason` 字段区分 (abandoned / transferred / normal)
+- 21 种组合但只允许 11 种合法转换, 非法转换直接拒绝
 
-**commit `df2b6bc` 整改**:
-- 引入 4 phase (顶层) + 7 sub-state (子), 21 种组合但只允许 11 种合法转换
-- `ABANDONED` / `TRANSFERRED` 合并到 `ENDED` (用 `reason` 字段区分)
-- `HOLDING` → `AG_ON_HOLD`, 更明确
-
-迁移策略:
-- 新数据用新模型
-- 旧数据读时转换, 写时升级
-- `legacy` phase 兼容 1 个版本
+兼容策略:
+- `legacy` phase 兼容旧数据读取
 
 ## 6.9 监控指标
 
@@ -390,11 +384,11 @@ INIT → BOT_ACTIVE → WAITING_HUMAN → HUMAN_ACTIVE → HOLDING
 |---|---|---|---|
 | `session_transitions_total` | Counter | from_phase, from_sub, to_phase, to_sub, reason | session.py:403 |
 | `session_timeouts_total` | Counter | sub_phase, reason | session_timeout.py:155 |
-| `session_phase_duration_seconds` | Histogram | sub_phase | session.py:412 (**P1-3 新增**, 5s-3600s buckets) |
+| `session_phase_duration_seconds` | Histogram | sub_phase | session.py:412 (5s-3600s buckets) |
 | `state_conflict_retries_total` | Counter | - | session.py:285 (CAS 冲突重试) |
 | `dialogue_log_persist_total` | Counter | status (success/error) | session.py:395 |
 
-**6 类指标 0 冲突**: P2-1 整改后, 全部指标名 + label 在 Grafana dashboard 有对应 panel.
+**6 类指标 0 冲突**: 全部指标名 + label 在 Grafana dashboard 有对应 panel.
 
 ## 6.10 测试覆盖
 
@@ -434,7 +428,7 @@ async def test_intent_stack_incremental_merge(redis):
 - **ZSET 分布式超时**: 替代 asyncio.Task, 多实例支持, 5s 轮询 + ZREM 原子竞争
 - **5 类超时**: BOT_IDLE / QUEUE / RINGING / SESSION / REVIEW, 各 TTL 不同
 - **PG 异步落库**: 5-7 年合规留存, fire-and-forget 不阻塞
-- **key 集中化** (P3-5): 未来 prefix 改动单点
+- **key 集中化**: 未来 prefix 改动单点
 
 > **下一章预告**: [第 7 章 MCP 工具集成](07-mcp-tool-integration.md) 深入 22 个 Java 工具 + Higress 网关 + Python 端零回归.
 

@@ -137,7 +137,7 @@ CREATE INDEX ix_dialogue_log_customer_time
   WHERE speaker = 'customer';
 ```
 
-**为何 PARTIAL INDEX**: `speaker='customer'` 过滤选择比 50% (实际约 30-40%), 部分索引把索引大小减半. 当前 commit 99d3173 时此索引尚未显式创建, 依赖 `ix_dialogue_log_customer_id` 单列索引 → 性能瓶颈在 P1+ 阶段需补. (见 16.10 改进项)
+**为何 PARTIAL INDEX**: `speaker='customer'` 过滤选择比 50% (实际约 30-40%), 部分索引把索引大小减半. 当前此索引尚未显式创建, 依赖 `ix_dialogue_log_customer_id` 单列索引 → 性能瓶颈待补. (见 16.10 改进项)
 
 ## 16.3 3 类信号推断规则详解
 

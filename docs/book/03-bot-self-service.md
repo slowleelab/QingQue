@@ -79,7 +79,7 @@ sequenceDiagram
 @router.post("/api/chat/send")
 async def chat_send(body: ChatSendRequest, request: Request) -> dict:
     """异步入口: 写 Stream + 立即返回 202"""
-    # 1. 校验 (P3-7 整改: max_length=2000)
+    # 1. 校验 (max_length=2000)
     if len(body.message) > 2000:
         raise DocumentFormatError("消息超过 2000 字符", code=2003)
 
@@ -308,7 +308,7 @@ stateDiagram-v2
     pending --> confirm: 客户说"确认"
     pending --> cancel: 客户说"取消"
     pending --> unclear: 客户回复不明确
-    pending --> expired: 5min TTL (P1-3 从 30s 调到 300s)
+    pending --> expired: 5min TTL
     confirm --> [*]: 执行工具
     cancel --> [*]: 清除 pending
     unclear --> pending: 提示再次确认
@@ -391,9 +391,9 @@ class BotWorkerPool:
 | **FALLBACK** | 显式触发 | 跳过 LLM → 模板 (无检索) |
 | **Bot Semaphore 满** | 10 个并发 | 走 `_FAST_REPLIES` 紧急话术 |
 
-## 3.8 文件上传 50MB 限制 (P3-7)
+## 3.8 文件上传 50MB 限制
 
-`agent/lumio/services/bot/router.py:1194-1270` `upload_document` 端点, P3-7 整改加上双重限制:
+`agent/lumio/services/bot/router.py:1194-1270` `upload_document` 端点有双重限制:
 
 ```python
 # 简化
@@ -420,7 +420,7 @@ async def upload_document(file: UploadFile, request: Request):
     ...
 ```
 
-**P3-7 整改前**: 完全没有大小检查, 1MB 消息 / 1GB 文件都能进 Redis Stream + LLM, 引发 DoS 风险. 修复后, message `max_length=2000` + 文件 50MB + 扩展名白名单三道关.
+**设计动机**: 入口不设限, 1MB 消息 / 1GB 文件都能进 Redis Stream + LLM, 引发 DoS 风险. 因此 message `max_length=2000` + 文件 50MB + 扩展名白名单三道关.
 
 ## 3.9 客户画像 + 知识图谱
 
@@ -431,7 +431,7 @@ async def upload_document(file: UploadFile, request: Request):
 - **CustomerMemory**: 跨 90 天 SQL `string_agg` 聚合, 推断卡种 (platinum/diamond/gold/standard) / VIP 等级 (private_banking/wealth_management/vip, max-score 评分) / 风险偏好 (R1~R4 累加). `apply_learned_profile` 用 CAS patch 写入 SessionState, **不覆盖已显式声明**.
 - **KnowledgeGraph**: 5 实体 (信用卡/账单/额度/分期/挂失) × 3 关系 × 8 谓词的内存版图谱, 仅在 `_handle_knowledge` 分支注入 RAG 上下文 (Markdown `## 知识图谱补充信息:` 格式).
 
-这些都是 Sprint 5 之后的渐进增强, 当前不是核心路径. 触发时机 / 失败兜底 / 设计取舍 (正则 vs LLM / 90 天 window / 内存版 vs Neo4j) 见 [第 16 章](chapters/16-customer-memory-and-kg.md).
+这些都是渐进增强, 当前不是核心路径. 触发时机 / 失败兜底 / 设计取舍 (正则 vs LLM / 90 天 window / 内存版 vs Neo4j) 见 [第 16 章](chapters/16-customer-memory-and-kg.md).
 
 ## 3.10 监控指标
 
@@ -445,9 +445,9 @@ async def upload_document(file: UploadFile, request: Request):
 | `lumio_active_workers` | Gauge | - | router.py:810 |
 | `lumio_stream_length` | Gauge | - | router.py:809 |
 | `lumio_stream_pending_total` | Gauge | - | router.py:808 (PEL pending) |
-| `tool_confirmations_total` | Counter | decision (pending/confirm/cancel/unclear/expired) | bot_agent.py:416/447/458/468 (**P1-3 新增**) |
+| `tool_confirmations_total` | Counter | decision (pending/confirm/cancel/unclear/expired) | bot_agent.py:416/447/458/468 |
 | `tool_calls_total` | Counter | tool, status | tool_executor.py:298/309 |
-| `tool_guard_denials_total` | Counter | tool, reason | tool_executor.py:378 (**P1-3 新增**) |
+| `tool_guard_denials_total` | Counter | tool, reason | tool_executor.py:378 |
 | `http_requests_total` | Counter | method, endpoint, status | 全局 |
 | `http_request_duration_seconds` | Histogram | method, endpoint | 全局 |
 | `llm_call_duration_seconds` | Histogram | model, method | llm.py:174/250 |
