@@ -23,30 +23,14 @@
 | `web/` | [README](../web/README.md) — 前端工作台 |
 | `mcp-server/` | Java Spring AI MCP Server（22 个信用卡工具，mock 数据） |
 
-## 设计文档（迭代历史）
+## 技术深度剖析（电子书）
 
-`docs/superpowers/specs/` 收录各迭代的完整设计：
+> 全栈技术剖析：架构 / 配置 / Agent / RAG / 会话状态机 / 安全合规 / 部署 / 测试，共 21 章 + 2 附录。
 
-| 文档 | 主题 |
+| 文档 | 说明 |
 |------|------|
-| [Sprint 3 设计](./superpowers/specs/2026-05-01-sprint3-agent-orchestration-design.md) | Agent 编排 + Bot 对话 MVP |
-| [Sprint 4 设计](./superpowers/specs/2026-05-03-sprint4-degradation-design.md) | LLM 集成 + 系统化降级策略 |
-| [chat-svc 集成设计](./superpowers/specs/2026-05-04-chat-svc-integration-design.md) | 在线客服接入方案 |
-| [超级图设计](./superpowers/specs/2026-05-01-super-diagram-design.md) | 三层架构图（编排 / 能力 / 数据） |
-
-各 Sprint 的实施计划见 [`docs/superpowers/plans/`](./superpowers/plans/)。
-
-## 品牌重命名说明
-
-`SmartCS` → `灵智（Lumio）` 的重命名分三个 commit 完成：
-
-| Commit | 范围 |
-|--------|------|
-| `4be1d67` | Python 包 `smartcs` → `lumio`，异常基类 `SmartCSError` → `LumioError`（24 个子类同改） |
-| `0908f82` | 资源 / 容器 / 镜像 / Java `mcp-server` / `chat-svc` / proto / web 前端；Java groupId `com.smartcs` → `com.lumio` |
-| 本 commit | 文档 / 历史 / UAT / 博客 |
-
-详细迁移清单见 [CHANGELOG.md](../CHANGELOG.md)。
+| [电子书目录](./book/README.md) | 阅读路径与全部章节索引 |
+| [序言](./book/00-preface.md) | 项目介绍与写作约定 |
 
 ## 贡献
 

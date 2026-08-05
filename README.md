@@ -312,18 +312,6 @@ make clean        # 清理缓存
 | Kafka | 9092 | 消息队列 |
 | MCP Server (Java) | 8090 | 信用卡工具服务（Spring AI MCP，SSE，mock 数据） |
 
-## Sprint 规划
-
-| Sprint | 目标 | 状态 |
-|--------|------|------|
-| Sprint 1 | 基础设施 + 项目骨架 | ✅ 已完成 |
-| Sprint 2 | RAG 核心 + 知识库 | ✅ 已完成 |
-| Sprint 3 | Agent 编排 + 机器人 MVP | ✅ 已完成 |
-| Sprint 4 | 大模型集成 + 降级策略 | ✅ 已完成 |
-| Sprint 5 | 坐席辅助服务 + 坐席辅助引擎 | ✅ 已完成 |
-| Sprint 6 | chat-svc 集成 + 超级图 | ✅ 已完成 |
-| Sprint 7 | kb-service P0 业务审计增强 + P1-3 SLO 端点 | ✅ 已完成 |
-
 ## 文档
 
 - **[文档中心](docs/README.md)** — 全部文档索引

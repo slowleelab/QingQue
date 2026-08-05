@@ -158,18 +158,18 @@ Java 侧 `mcp-server` 暴露 **22 个信用卡工具**（账单/卡服务/额度
 
 ### 会话状态机
 
-会话采用 **3 阶段 × 7 子状态**模型（`BOT → AGENT → ENDED`），完整状态存于 Redis（`SessionState`），key 前缀 `lumio:session:{id}:meta` 与 `lumio:session:{id}:history`。Sprint 5 重构后阶段统一为 `bot: / agent: / ended` 三个 phase，每个 phase 下含若干 sub_phase，转换由 `validate_transition()` 校验，非法转换抛 `LumioError`。
+会话采用 **3 阶段 × 7 子状态**模型（`BOT → AGENT → ENDED`），完整状态存于 Redis（`SessionState`），key 前缀 `lumio:session:{id}:meta` 与 `lumio:session:{id}:history`。阶段统一为 `bot: / agent: / ended` 三个 phase，每个 phase 下含若干 sub_phase，转换由 `validate_transition()` 校验，非法转换抛 `LumioError`。
 
 ## 关键设计决策
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
 | **混合检索** | BM25 + 向量 + RRF 融合 | 兼顾精确关键词与语义召回；支持 BM25-only / 向量-only 降级 |
-| **降级策略** | 熔断器 + 健康监控 + 内容降级 | LLM/检索故障时自动切换兜底路径，保证可用性（见 Sprint 4 设计） |
+| **降级策略** | 熔断器 + 健康监控 + 内容降级 | LLM/检索故障时自动切换兜底路径，保证可用性 |
 | **会话状态** | Redis 全量存储 | 无状态编排层可水平扩展，状态共享 |
 | **OE 仲裁** | 风险优先级最高 | 金融风险拦截可覆盖营销/服务推荐，合规第一 |
 | **反馈闭环** | Redis 缓冲 + 3s 延迟提交 | 坐席可在延迟期内撤销误操作反馈 |
-| **异常基类** | `LumioError`（24 个子类） | 替换历史 `SmartCSError`，按错误码层级映射 HTTP 状态 |
+| **异常基类** | `LumioError`（24 个子类） | 按错误码层级映射 HTTP 状态 |
 | **AI 网关** | Higress + Nacos 单平面 | SSE ↔ streamable-http 桥接，统一 MCP 数据面 + 治理 |
 
 ## 可观测性
@@ -217,4 +217,4 @@ Java 侧 `mcp-server` 暴露 **22 个信用卡工具**（账单/卡服务/额度
 - [API 参考](./api-reference.md) — REST / WebSocket 接口
 - [部署指南](./deployment.md) — 中间件与服务启动
 - [配置参考](./configuration.md) — `LUMIO_*` 环境变量全览
-- 设计文档（迭代历史）：[`docs/superpowers/specs/`](./superpowers/specs/)
+- 设计文档：[`docs/superpowers/specs/`](./superpowers/specs/)
