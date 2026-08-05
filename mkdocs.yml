@@ -1,0 +1,72 @@
+site_name: Lumio 技术深度剖析
+site_description: 灵智 (Lumio) 银行信用卡智能客服平台全栈技术剖析 — 写给开发者与架构师
+site_url: https://slowleelab.github.io/lumio/
+repo_url: https://github.com/slowleelab/lumio
+edit_uri: blob/main/docs/
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+
+nav:
+  - 序言: book/00-preface.md
+  - 阅读路径: book/README.md
+  - 第一部分 · 整体设计:
+      - 01 整体架构: book/01-architecture-overview.md
+      - 02 配置系统: book/02-configuration-system.md
+  - 第二部分 · 核心代码:
+      - 03 Bot 自助问答: book/03-bot-self-service.md
+      - 04 坐席辅助引擎: book/04-assist-engine.md
+      - 05 RAG 检索全链路: book/05-rag-pipeline.md
+      - 06 会话状态机: book/06-session-state-machine.md
+      - 07 MCP 工具集成: book/07-mcp-tool-integration.md
+  - 第三部分 · 横切关注点:
+      - 08 错误处理: book/chapters/08-error-handling.md
+      - 09 RAG 摄入管线: book/chapters/09-rag-ingestion.md
+      - 10 可观测性: book/chapters/10-observability.md
+      - 11 安全合规: book/chapters/11-security-compliance.md
+      - 12 数据层: book/chapters/12-data-layer.md
+      - 13 部署: book/chapters/13-deployment.md
+      - 14 测试策略: book/chapters/14-testing-strategy.md
+  - 第四部分 · 客服 Agent 能力深挖:
+      - 15 上下文工程: book/chapters/15-context-engineering.md
+      - 16 客户记忆与知识图谱: book/chapters/16-customer-memory-and-kg.md
+      - 17 工具调用与确认状态机: book/chapters/17-tool-calling-and-confirmation.md
+  - 附录:
+      - A 术语表: book/appendix/A-glossary.md
+      - B Sprint 时间线: book/appendix/B-sprint-timeline.md
+      - C 故障排查: book/appendix/C-troubleshooting.md
