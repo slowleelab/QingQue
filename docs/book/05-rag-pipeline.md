@@ -378,6 +378,38 @@ if result and request.search_type != "vector":
 - **vector_only 不缓存**: 向量查询个性化强 (customer_id 不同结果不同), 缓存命中率低且会污染
 - 命中率指标: `lumio_retrieval_cache_hit_total` (Counter, label=hit/miss)
 
+**全链路接线**: Bot Agent 检索路径 (`bot_agent._retrieve`) 把 `session_manager._redis` 传入
+`retrieve(redis_client=...)` — 缓存读写在知识问答路径真实生效. 相同问题 5 分钟内重复问 =
+直接命中缓存, 不再重复打 ES/Milvus + embedding + rerank.
+
+## 5.10a 重复提问检测 (多轮对话)
+
+知识问答入口先做**归一化重复检测** — 与上一轮客户消息归一化后相同 → 直接复用上次回答:
+
+```python
+# bot_agent._detect_repeat_question (简化)
+norm = self._normalize_question(user_input)   # 去标点/空白/语气词 ("额度多少？" → "额度多少")
+history = await self._session_manager.get_history(session_id, limit=4)
+# 找到相同客户消息 → 返回其后的 Bot 回答 (source="repeat")
+```
+
+- **轻量精确匹配**而非语义相似度 — 不误伤"额度多少"→"额度怎么提升"这类真实新问题
+- 短消息 (<4 字符) 不判定, 避免"好的"/"嗯"误判
+- 命中时跳过检索 + LLM + 摘要, 3 次重复提问省 3 次全链路开销
+
+## 5.10b 检索熔断检查
+
+Bot 检索前主动查 ES/Milvus 熔断器 (`app.state.es_breaker` / `milvus_breaker`):
+
+```python
+# bot_agent._retrieve 入口
+if es_breaker.is_open and milvus_breaker.is_open:
+    return ""   # 双挂时主动跳过检索, 直接走无知识降级 (不打满超时)
+```
+
+- 单边熔断仍走单路降级 (BM25 only / Vector only, 见 5.3)
+- 熔断器由 `init_dependency_breakers` 装配: failure_threshold=0.5 / window=20 / recovery=30s
+
 ## 5.11 摄入端 5 阶段 (概览)
 
 完整摄入端细节见 [第 9 章 RAG 摄入管线](chapters/09-rag-ingestion.md), 这里只列关键 5 阶段:
@@ -402,7 +434,7 @@ flowchart LR
 2. Milvus 写 → 失败回滚 ES (`_rollback_es_docs` 逐个删)
 3. 全部成功 → 落 KbChunk 表 + 写 7 阶段流水日志
 
-## 5.12 检索端到端流程图
+## 5.14 检索端到端流程图
 
 ```mermaid
 sequenceDiagram
@@ -438,7 +470,7 @@ sequenceDiagram
     end
 ```
 
-## 5.13 监控指标
+## 5.15 监控指标
 
 RAG 链路发射 4 个核心指标:
 
@@ -451,7 +483,7 @@ RAG 链路发射 4 个核心指标:
 
 **降级告警**: Prometheus 规则 `EmbeddingUnavailabilityHigh` (>5 次/分钟, 持续 5m) → warning.
 
-## 5.14 测试覆盖
+## 5.16 测试覆盖
 
 `agent/tests/test_retrieval.py` (22 用例) 覆盖:
 
@@ -464,7 +496,7 @@ RAG 链路发射 4 个核心指标:
 - `test_parent_child_chunk_relationship` — 父-子分块
 - `test_filter_by_keywords_array` — ARRAY_CONTAINS
 
-## 5.15 本章小结
+## 5.17 本章小结
 
 RAG 检索全链路是 Lumio 服务客户的核心:
 

@@ -294,6 +294,19 @@ async def _ensure_summary(self, session_id: str, trimmed_turns: list) -> None:
 
 **为什么不阻塞主请求**: 摘要是**锦上添花**, 不是必需. 结构化记忆 (Layer 1) 已经有对话摘要 + 客户画像 + 实体池, 摘要缺失只会让 LLM "不知道旧轮次的细节", 但不会让对话中断.
 
+**并发串行化 (per-session 锁)**: 多轮快速对话时每轮裁剪都会 spawn 一个摘要任务, 并发读写同一
+`last_summarized_turn_id` → CAS 重试后到者失败, 摘要滞后. `_ensure_summary` 外层包 per-session
+`asyncio.Lock` (`self._summary_locks[session_id]`), 同会话摘要任务**串行执行**:
+
+```python
+# bot_agent.py (简化)
+lock = self._summary_locks.setdefault(session_id, asyncio.Lock())
+async with lock:
+    await self._summary_locked(session_id, trimmed_turns)   # 实际摘要逻辑
+```
+
+锁字典随会话自然增长 (上限 = 活跃会话数), 无需清理.
+
 ## 15.5 3 层降级矩阵
 
 3 层上下文各层都有**独立的失败路径**, 不互阻塞:
@@ -456,6 +469,12 @@ system_prompt = f"{system_prompt}\n\n{slot_prompt}"  # 槽位 (第 16 章详谈)
 | 客户记忆学习 (跨会话) | CAS patch 写入 Layer 1 的客户画像字段 | bot_agent.py:124-135 |
 | 上下文压缩器 | 超预算先压缩 (质量门) 再裁剪 | context_compressor.py:265-305 |
 | Few-shot 选择 | 按意图注入 L1.5 半稳态层 (top_k=3) | few_shot.py:132 + kv_cache.py:99 |
+| 总预算截断 (兜底) | Σ各层 > context−reserved 时从最旧 user 历史裁剪 (RAG/当前轮保留) | bot_agent.py:365-380 |
+
+**总预算截断逻辑**: 分层预算各自生效后仍可能超 `max_context_tokens − reserved_tokens`
+(8192−1024). 此时**实际裁剪**而非仅告警: 从最旧的 user 历史消息开始丢弃, RAG 上下文 /
+当前轮 / 连续消息标记 (`（用户连续发送` / `<retrieved_context>` / `客户问:`) 保留 —
+历史可被摘要覆盖, 检索结果和当前诉求不可丢.
 
 ## 15.9 实战案例: 30 轮对话的第 31 轮
 

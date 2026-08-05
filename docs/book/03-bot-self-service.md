@@ -96,6 +96,35 @@ async def chat_send(body: ChatSendRequest, request: Request) -> dict:
 
 **关键设计**: 立即返回 202, 不等处理. 客户端接着用 `GET /api/chat/poll` 长轮询结果. 这是**异步 API 模式** — 银行场景下, 客户电话打过来, 客服系统提交后立刻知道"已收到", 不阻塞前端.
 
+### 3.2.1 客户端幂等 (双击/重试保护)
+
+请求体支持可选 `client_message_id` (≤64 字符). 同一 client_message_id 重复提交:
+
+```python
+# router.py:1151-1160 (简化)
+client_idem_key = f"lumio:processed:{body.client_message_id}" if body.client_message_id else None
+if client_idem_key and await redis_client.get(client_idem_key):
+    # 已处理过 → 直接返回已接受, 不进 Stream (双击/网络重试不重复执行 agent)
+    return ChatSendResponse(accepted=True, message_id=body.client_message_id, session_id=session_id)
+```
+
+- 幂等键与消费侧 `_mark_processed` (TTL 300s) 同一前缀, 覆盖 XAUTOCLAIM 60s 重投窗口
+- 客户端重复 POST 但未带 `client_message_id` → 服务端生成新 ID, 作为两条独立消息处理 (可能触发队列合并)
+
+### 3.2.2 per-customer 会话上限
+
+同一客户多设备/多标签页无限开会话会耗尽 Redis state + 守卫资源. `chat_send` 用 ZSET
+`lumio:customer_sessions:{customer_id}` 计数 (score=最后活跃时间):
+
+```python
+# 清理 24h 前记录 → zcard 计数 → 超上限 (默认 3) 拒绝新会话
+if active >= get_settings().bot.max_sessions_per_customer:
+    raise BusinessError(f"同时进行的会话数量已达上限 ({max_sessions})，请先结束其他会话")
+```
+
+- 仅限制**新会话** (body 未带 session_id); 已带 session_id 的续聊不受影响
+- 上限可配: `BOT_MAX_SESSIONS_PER_CUSTOMER` (默认 3)
+
 ## 3.3 Redis Stream 设计
 
 `agent/lumio/services/bot/router.py:68-194` 集中实现 Redis Stream 的 4 个关键概念.
@@ -169,6 +198,34 @@ async def _session_worker(self, session_id: str) -> None:
 **关键设计**: 同一 session 的消息**天然有序处理**, 因为一个 Worker 一个 Queue. 取消 per-session Lock, 用 asyncio.Queue 替代 (router.py:81-83 注释说明).
 
 **300s 空闲退出**: 高峰期同时活跃 1000 session, 低谷期只 50 session, 自动伸缩.
+
+### 3.4.1 队列合并: 软打断语义
+
+用户生成期间连发多条消息 → 不排队等待逐条处理, 而是**合并进一次 LLM 调用** (上限 5 条 / 4000 字符, 超限放回队列不丢失):
+
+```python
+# router.py:514-521 (简化)
+merged_message = (
+    f"（用户连续发送了 {len(merged_contents) + 1} 条消息，请一次性综合回复）\n"
+    + message + "\n" + "\n".join(merged_contents)
+)
+```
+
+**语义标记是关键**: 前缀明确告知 LLM 这是多条连续消息, 避免把合并文本当成一句混乱的话.
+被合并消息逐一审计落库 (`source="merged"`) 并立即 XACK — 过期排队消息 (8s TTL) 直接跳过并提示.
+
+### 3.4.2 快速兜底: domain 键对齐 + 冷却
+
+Semaphore 满荷时走 `<5ms` 正则快速兜底话术 (`_FAST_REPLIES`). RuleLoader 返回的是
+domain (`card`/`bill`/`limit`), 与话术键名 (`lost_card`/`bill_query`) 不一致 → 通过别名映射对齐:
+
+```python
+_DOMAIN_TO_FAST_KEY = {"card": "lost_card", "complaint": "complaint",
+                       "bill": "bill_query", "limit": "limit_query", ...}
+```
+
+**冷却期**: `BOT_FAST_REPLY` 后写 `lumio:fast_reply:{session_id}` 时间戳
+(`fast_reply_cooldown=5s`) — 冷却期内同一会话不再二次快速兜底, 避免连续模板话术.
 
 ## 3.5 `LumioAgent` 6 步决策树
 

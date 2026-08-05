@@ -219,6 +219,47 @@ raise ServiceOverloadedError("LLM 熔断中,请稍后重试")
 
 设计动机:静默返空时前端以为"用户没说话"继续等待,实际是上游已经熔断。前端拿到 503 + 错误码 5002 后,可以走"稍后重试"提示,而不是傻等。5002→503 的映射在 `_HTTP_STATUS_OVERRIDES` 表里(`middleware.py:29`)。这是"错误处理不只是技术问题,而是产品决策"的体现——静默返空看似容错,实际是给用户制造假象。
 
+## LLM 空串回复:重试 + 熔断
+
+模型返回空 content 与超时同样危险 — 客户端会收到 `done + 空 reply` (看似成功实则无内容):
+
+```python
+# llm.py generate 循环 (简化)
+if not content.strip():
+    if attempt < max_retries - 1:
+        await asyncio.sleep(0.5 * (2 ** attempt)); continue   # 重试
+    self._breaker.record_failure()
+    raise LLMInferenceError("LLM 返回空内容")                  # 熔断 + 走降级链
+```
+
+空串视为失败而非成功 — 触发熔断计数 + 降级链, 客户端拿到模板话术而非空回复.
+
+## 降级回复 → 真实转人工
+
+降级模板 (BILL/LIMIT/FAQ 等) 文案含"请输入转人工", 但**转接本身真实触发**:
+
+```python
+# bot_agent _handle_knowledge / _handle_business (简化)
+if result.source in ("template", "fallback") and not should_transfer:
+    should_transfer = True
+    transfer_reason = f"degraded_{result.source}: LLM 不可用, 降级回复"
+```
+
+- 客户看到"请转人工"时, 人工会话已创建 — 不必再发一条"转人工"消息
+- 例外: `_handle_fallback` (chitchat 域) 仅模板回复时触发, LLM 正常闲聊不转
+
+## 死信队列: 指标 + 告警 + 人工重放
+
+消息重试 3 次仍失败 → 进死信 `lumio:chat:dead_letter` (maxlen 5000), 客户只收到
+"系统处理您的请求时出现错误"。**闭环处理**:
+
+| 机制 | 说明 |
+|---|---|
+| 指标 | `lumio_dead_letter_writes_total{reason=retry_exhausted/agent_error}` |
+| 告警 | 每次写入打 ERROR 日志 (`DEAD_LETTER: 消息进入死信队列 ... 需人工处理`), Grafana alert 依赖 |
+| 重放 | `POST /admin/dead-letter/replay` (admin) — 按 original_msg_id 定位死信, 以原内容 XADD 回主 Stream 重走完整处理链, 成功后 XDEL 死信条目 + 计数 `lumio_dead_letter_replays_total` |
+| 查看 | `GET /admin/dead-letter?count=N` (admin, 含 PII 需鉴权) |
+
 ## 测试覆盖
 
 错误处理不是"写完就好",必须有自动化测试把契约钉死。`agent/tests/test_middleware.py` 覆盖了关键映射与响应体:

@@ -295,6 +295,35 @@ class AlertEngine:
 - **R-SILENCE-001**: 沉默类, 30s+ 静默
 - **R-PROCESS-001**: 流程类, 漏步骤
 
+### 4.4.4 情绪告警与转人工接线 (Phase 5b)
+
+引擎 Phase 5b 状态回写时, 情绪检测**完整接线** — 愤怒客户不再只被压制营销:
+
+```python
+# assist_engine.py Phase 5b (简化)
+if sentiment and sentiment != "neutral":
+    state_patches["emotion_vector"] = {"label": sentiment, "score": sentiment_score, ...}
+    # 1) 情绪告警: alert_engine.check_sentiment → 坐席提示话术
+    emotion_alerts = alert_engine.check_sentiment(sent_label)
+    # 2) 强负面 → 转人工建议: emotion_transfer.should_transfer_by_emotion
+    #    (angry+conf>0.7 / negative+conf>0.85 / desperate 直接转)
+    if transfer_flag:
+        state_patches["emotion_transfer_suggested"] = True
+        state_patches["emotion_transfer_reason"] = transfer_emo_reason
+    state_patches["emotion_alerts"] = emotion_alerts
+```
+
+**落 state 而非直推 WS**: 告警写入 SessionState (`emotion_alerts` / `emotion_transfer_suggested`),
+坐席端 `assist_ready` / 轮询读取后展示 — 避免引擎与 WS 连接池耦合, 多实例下也可靠.
+
+**情绪转人工规则** (`common/emotion_transfer.py`):
+
+| 情绪 | 置信度门槛 | 动作 |
+|---|---|---|
+| `DESPERATE` (绝望) | 无门槛 | 立即转人工 (投诉升级) |
+| `ANGRY` (愤怒) | > 0.7 | 转人工建议 |
+| `NEGATIVE` (负面) | > 0.85 | 转人工建议 |
+
 ## 4.5 5 阶段编排: asyncio.gather 替代 Temporal
 
 `agent/lumio/services/common/assist_engine.py:171-220` 是核心入口:

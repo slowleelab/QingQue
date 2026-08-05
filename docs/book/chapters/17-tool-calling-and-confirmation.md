@@ -341,9 +341,27 @@ def detect_confirmation(text: str) -> ConfirmDecision:
 | **pending → expired** | `bot_agent.py:414-423` | `if pending.expires_at < now`: 清 pending + 提示"超时失效" |
 | **pending → confirm** | `bot_agent.py:427-431` | `detect_confirmation` 返回 "confirm" → **幂等键检查** → 调 `execute_confirmed_action` 执行 + 续跑 |
 | **pending → cancel** | `bot_agent.py:425-426` | `detect_confirmation` 返回 "cancel" → 清 pending + 降级到 `_handle_knowledge` |
-| **pending → unclear** | 默认分支 | pending **不消耗**, 继续追问 "请回复确认或取消" |
+| **pending → unclear** | 默认分支 | **计数递增** (`unclear_count`) → 重复确认话术; 连续 3 次 → **自动取消 + 放行新消息** (逃生路径) |
 
 **惰性过期 (lazy expiration)**: 无后台清扫任务, 每次进入 `_handle_pending_action` 时比 `expires_at`. 极简实现, 1 行代码.
+
+### 17.4.4a 确认窗口逃生路径 (unclear 自动取消)
+
+敏感工具确认窗口内, 用户发**不是确认/取消的新问题** (如"那你们客服几点下班") — 旧行为:
+新问题被吞掉, 重复确认话术直到 5 分钟过期, 用户被卡死. 现行为:
+
+```python
+# bot_agent.py unclear 分支 (简化)
+new_count = (pending.unclear_count or 0) + 1
+if new_count >= get_settings().mcp.unclear_auto_cancel_threshold:  # 默认 3
+    await self._clear_pending_action(session_id, state.version)    # 自动取消
+    return {**confirm_prompt_result, "pending_released": True}     # 标记放行
+# 未达上限: patch_state 更新 unclear_count + 话术提示"可回复『取消』放弃当前操作"
+```
+
+- `run()` 检测到 `pending_released` 标记 → **不 return**, 继续走正常意图分类处理新消息
+- 阈值可配: `LUMIO_MCP__UNCLEAR_AUTO_CANCEL_THRESHOLD` (默认 3)
+- 每次 unclear 都有提示逃生路径, 用户也可直接回复"取消"
 
 **确认幂等键 (第五轮加固)**: 敏感工具"确认后重复办理"是银行场景最高危路径 — at-least-once 重投递 + pending 清除 CAS 失败都可能让同一笔分期执行两次。修复: 以 `pending.tool_call_id` 为幂等键写 `lumio:tool:executed:{tool_call_id}` (24h TTL) —
 
@@ -496,6 +514,10 @@ _GUARD_REFUSAL = "很抱歉, 该操作目前无法为您办理. 如需帮助, �
 ```
 
 **不外泄 `decision.reason` 给用户**: 内部 reason 含 "角色 customer 无权调用 adjust_temp_credit_limit", 这是安全信息, 不能让攻击者知道角色 / 工具白名单. 给用户的是统一礼貌话术, 同时审计 detail 仍记录真实 reason (脱敏后).
+
+**护栏拒绝 → 真实转人工**: `ToolExecutionResult.should_transfer=True` 随结果回传, `bot_agent`
+构建回复时透传 `should_transfer` — 客户看到"我可以为您转接人工客服"时**转接已真实触发**,
+不必再发一条"转人工"消息. 拒绝原因 (`tool_guard_refused: {tool} ({reason})`) 写入 transfer_reason 供坐席端展示.
 
 ### 17.5.6 拒绝时仍写审计 (L378-388)
 

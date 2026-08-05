@@ -1402,6 +1402,29 @@ async def chat_send(body: ChatSendRequest, request: Request) -&gt; dict:
     return {&quot;accepted&quot;: True, &quot;request_id&quot;: body.request_id, &quot;msg_id&quot;: msg_id}
 </code></pre>
 <p><strong>关键设计</strong>: 立即返回 202, 不等处理. 客户端接着用 <code>GET /api/chat/poll</code> 长轮询结果. 这是<strong>异步 API 模式</strong> — 银行场景下, 客户电话打过来, 客服系统提交后立刻知道"已收到", 不阻塞前端.</p>
+<h3 id="3.2.1-客户端幂等-(双击/重试保护)">3.2.1 客户端幂等 (双击/重试保护)</h3>
+<p>请求体支持可选 <code>client_message_id</code> (≤64 字符). 同一 client_message_id 重复提交:</p>
+<pre><code class="language-python"># router.py:1151-1160 (简化)
+client_idem_key = f&quot;lumio:processed:{body.client_message_id}&quot; if body.client_message_id else None
+if client_idem_key and await redis_client.get(client_idem_key):
+    # 已处理过 → 直接返回已接受, 不进 Stream (双击/网络重试不重复执行 agent)
+    return ChatSendResponse(accepted=True, message_id=body.client_message_id, session_id=session_id)
+</code></pre>
+<ul>
+<li>幂等键与消费侧 <code>_mark_processed</code> (TTL 300s) 同一前缀, 覆盖 XAUTOCLAIM 60s 重投窗口</li>
+<li>客户端重复 POST 但未带 <code>client_message_id</code> → 服务端生成新 ID, 作为两条独立消息处理 (可能触发队列合并)</li>
+</ul>
+<h3 id="3.2.2-per-customer-会话上限">3.2.2 per-customer 会话上限</h3>
+<p>同一客户多设备/多标签页无限开会话会耗尽 Redis state + 守卫资源. <code>chat_send</code> 用 ZSET
+<code>lumio:customer_sessions:{customer_id}</code> 计数 (score=最后活跃时间):</p>
+<pre><code class="language-python"># 清理 24h 前记录 → zcard 计数 → 超上限 (默认 3) 拒绝新会话
+if active &gt;= get_settings().bot.max_sessions_per_customer:
+    raise BusinessError(f&quot;同时进行的会话数量已达上限 ({max_sessions})，请先结束其他会话&quot;)
+</code></pre>
+<ul>
+<li>仅限制<strong>新会话</strong> (body 未带 session_id); 已带 session_id 的续聊不受影响</li>
+<li>上限可配: <code>BOT_MAX_SESSIONS_PER_CUSTOMER</code> (默认 3)</li>
+</ul>
 <h2 id="3.3-Redis-Stream-设计">3.3 Redis Stream 设计</h2>
 <p><code>agent/lumio/services/bot/router.py:68-194</code> 集中实现 Redis Stream 的 4 个关键概念.</p>
 <h3 id="3.3.1-Consumer-Group">3.3.1 Consumer Group</h3>
@@ -1457,6 +1480,24 @@ async def _session_worker(self, session_id: str) -&gt; None:
 </code></pre>
 <p><strong>关键设计</strong>: 同一 session 的消息<strong>天然有序处理</strong>, 因为一个 Worker 一个 Queue. 取消 per-session Lock, 用 asyncio.Queue 替代 (router.py:81-83 注释说明).</p>
 <p><strong>300s 空闲退出</strong>: 高峰期同时活跃 1000 session, 低谷期只 50 session, 自动伸缩.</p>
+<h3 id="3.4.1-队列合并:-软打断语义">3.4.1 队列合并: 软打断语义</h3>
+<p>用户生成期间连发多条消息 → 不排队等待逐条处理, 而是<strong>合并进一次 LLM 调用</strong> (上限 5 条 / 4000 字符, 超限放回队列不丢失):</p>
+<pre><code class="language-python"># router.py:514-521 (简化)
+merged_message = (
+    f&quot;（用户连续发送了 {len(merged_contents) + 1} 条消息，请一次性综合回复）\n&quot;
+    + message + &quot;\n&quot; + &quot;\n&quot;.join(merged_contents)
+)
+</code></pre>
+<p><strong>语义标记是关键</strong>: 前缀明确告知 LLM 这是多条连续消息, 避免把合并文本当成一句混乱的话.
+被合并消息逐一审计落库 (<code>source="merged"</code>) 并立即 XACK — 过期排队消息 (8s TTL) 直接跳过并提示.</p>
+<h3 id="3.4.2-快速兜底:-domain-键对齐-+-冷却">3.4.2 快速兜底: domain 键对齐 + 冷却</h3>
+<p>Semaphore 满荷时走 <code>&lt;5ms</code> 正则快速兜底话术 (<code>_FAST_REPLIES</code>). RuleLoader 返回的是
+domain (<code>card</code>/<code>bill</code>/<code>limit</code>), 与话术键名 (<code>lost_card</code>/<code>bill_query</code>) 不一致 → 通过别名映射对齐:</p>
+<pre><code class="language-python">_DOMAIN_TO_FAST_KEY = {&quot;card&quot;: &quot;lost_card&quot;, &quot;complaint&quot;: &quot;complaint&quot;,
+                       &quot;bill&quot;: &quot;bill_query&quot;, &quot;limit&quot;: &quot;limit_query&quot;, ...}
+</code></pre>
+<p><strong>冷却期</strong>: <code>BOT_FAST_REPLY</code> 后写 <code>lumio:fast_reply:{session_id}</code> 时间戳
+(<code>fast_reply_cooldown=5s</code>) — 冷却期内同一会话不再二次快速兜底, 避免连续模板话术.</p>
 <h2 id="3.5-LumioAgent-6-步决策树">3.5 <code>LumioAgent</code> 6 步决策树</h2>
 <p><code>agent/lumio/services/bot/bot_agent.py:92</code> 是 Bot 服务的核心, 类结构清晰:</p>
 <pre><code class="language-python"># bot_agent.py:92 (简化)
@@ -2104,6 +2145,49 @@ class AlertEngine:
 - <strong>R-EMOTION-001</strong>: 情绪类, 愤怒阈值
 - <strong>R-SILENCE-001</strong>: 沉默类, 30s+ 静默
 - <strong>R-PROCESS-001</strong>: 流程类, 漏步骤</p>
+<h3 id="4.4.4-情绪告警与转人工接线-(Phase-5b)">4.4.4 情绪告警与转人工接线 (Phase 5b)</h3>
+<p>引擎 Phase 5b 状态回写时, 情绪检测<strong>完整接线</strong> — 愤怒客户不再只被压制营销:</p>
+<pre><code class="language-python"># assist_engine.py Phase 5b (简化)
+if sentiment and sentiment != &quot;neutral&quot;:
+    state_patches[&quot;emotion_vector&quot;] = {&quot;label&quot;: sentiment, &quot;score&quot;: sentiment_score, ...}
+    # 1) 情绪告警: alert_engine.check_sentiment → 坐席提示话术
+    emotion_alerts = alert_engine.check_sentiment(sent_label)
+    # 2) 强负面 → 转人工建议: emotion_transfer.should_transfer_by_emotion
+    #    (angry+conf&gt;0.7 / negative+conf&gt;0.85 / desperate 直接转)
+    if transfer_flag:
+        state_patches[&quot;emotion_transfer_suggested&quot;] = True
+        state_patches[&quot;emotion_transfer_reason&quot;] = transfer_emo_reason
+    state_patches[&quot;emotion_alerts&quot;] = emotion_alerts
+</code></pre>
+<p><strong>落 state 而非直推 WS</strong>: 告警写入 SessionState (<code>emotion_alerts</code> / <code>emotion_transfer_suggested</code>),
+坐席端 <code>assist_ready</code> / 轮询读取后展示 — 避免引擎与 WS 连接池耦合, 多实例下也可靠.</p>
+<p><strong>情绪转人工规则</strong> (<code>common/emotion_transfer.py</code>):</p>
+<table>
+<thead>
+<tr>
+<th>情绪</th>
+<th>置信度门槛</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DESPERATE</code> (绝望)</td>
+<td>无门槛</td>
+<td>立即转人工 (投诉升级)</td>
+</tr>
+<tr>
+<td><code>ANGRY</code> (愤怒)</td>
+<td>&gt; 0.7</td>
+<td>转人工建议</td>
+</tr>
+<tr>
+<td><code>NEGATIVE</code> (负面)</td>
+<td>&gt; 0.85</td>
+<td>转人工建议</td>
+</tr>
+</tbody>
+</table>
 <h2 id="4.5-5-阶段编排:-asyncio.gather-替代-Temporal">4.5 5 阶段编排: asyncio.gather 替代 Temporal</h2>
 <p><code>agent/lumio/services/common/assist_engine.py:171-220</code> 是核心入口:</p>
 <pre><code class="language-python"># assist_engine.py:171 (简化)
@@ -2780,6 +2864,31 @@ if result and request.search_type != &quot;vector&quot;:
 - TTL 300s: 5 分钟内同 query+filters 命中缓存, 节省 1 次 LLM/embedding 调用
 - <strong>vector_only 不缓存</strong>: 向量查询个性化强 (customer_id 不同结果不同), 缓存命中率低且会污染
 - 命中率指标: <code>lumio_retrieval_cache_hit_total</code> (Counter, label=hit/miss)</p>
+<p><strong>全链路接线</strong>: Bot Agent 检索路径 (<code>bot_agent._retrieve</code>) 把 <code>session_manager._redis</code> 传入
+<code>retrieve(redis_client=...)</code> — 缓存读写在知识问答路径真实生效. 相同问题 5 分钟内重复问 =
+直接命中缓存, 不再重复打 ES/Milvus + embedding + rerank.</p>
+<h2 id="5.10a-重复提问检测-(多轮对话)">5.10a 重复提问检测 (多轮对话)</h2>
+<p>知识问答入口先做<strong>归一化重复检测</strong> — 与上一轮客户消息归一化后相同 → 直接复用上次回答:</p>
+<pre><code class="language-python"># bot_agent._detect_repeat_question (简化)
+norm = self._normalize_question(user_input)   # 去标点/空白/语气词 (&quot;额度多少？&quot; → &quot;额度多少&quot;)
+history = await self._session_manager.get_history(session_id, limit=4)
+# 找到相同客户消息 → 返回其后的 Bot 回答 (source=&quot;repeat&quot;)
+</code></pre>
+<ul>
+<li><strong>轻量精确匹配</strong>而非语义相似度 — 不误伤"额度多少"→"额度怎么提升"这类真实新问题</li>
+<li>短消息 (&lt;4 字符) 不判定, 避免"好的"/"嗯"误判</li>
+<li>命中时跳过检索 + LLM + 摘要, 3 次重复提问省 3 次全链路开销</li>
+</ul>
+<h2 id="5.10b-检索熔断检查">5.10b 检索熔断检查</h2>
+<p>Bot 检索前主动查 ES/Milvus 熔断器 (<code>app.state.es_breaker</code> / <code>milvus_breaker</code>):</p>
+<pre><code class="language-python"># bot_agent._retrieve 入口
+if es_breaker.is_open and milvus_breaker.is_open:
+    return &quot;&quot;   # 双挂时主动跳过检索, 直接走无知识降级 (不打满超时)
+</code></pre>
+<ul>
+<li>单边熔断仍走单路降级 (BM25 only / Vector only, 见 5.3)</li>
+<li>熔断器由 <code>init_dependency_breakers</code> 装配: failure_threshold=0.5 / window=20 / recovery=30s</li>
+</ul>
 <h2 id="5.11-摄入端-5-阶段-(概览)">5.11 摄入端 5 阶段 (概览)</h2>
 <p>完整摄入端细节见 <a href="chapters/09-rag-ingestion.md">第 9 章 RAG 摄入管线</a>, 这里只列关键 5 阶段:</p>
 <pre><code class="language-mermaid">flowchart LR
@@ -2799,7 +2908,7 @@ if result and request.search_type != &quot;vector&quot;:
 1. ES 写 N 成功 (<code>es_count == len(chunks)</code>) → 才继续
 2. Milvus 写 → 失败回滚 ES (<code>_rollback_es_docs</code> 逐个删)
 3. 全部成功 → 落 KbChunk 表 + 写 7 阶段流水日志</p>
-<h2 id="5.12-检索端到端流程图">5.12 检索端到端流程图</h2>
+<h2 id="5.14-检索端到端流程图">5.14 检索端到端流程图</h2>
 <pre><code class="language-mermaid">sequenceDiagram
     participant Client as Bot/Assist
     participant Retrieval as retrieve()
@@ -2832,7 +2941,7 @@ if result and request.search_type != &quot;vector&quot;:
         Retrieval--&gt;&gt;Client: 5 chunks (200-500ms)
     end
 </code></pre>
-<h2 id="5.13-监控指标">5.13 监控指标</h2>
+<h2 id="5.15-监控指标">5.15 监控指标</h2>
 <p>RAG 链路发射 4 个核心指标:</p>
 <table>
 <thead>
@@ -2871,7 +2980,7 @@ if result and request.search_type != &quot;vector&quot;:
 </tbody>
 </table>
 <p><strong>降级告警</strong>: Prometheus 规则 <code>EmbeddingUnavailabilityHigh</code> (&gt;5 次/分钟, 持续 5m) → warning.</p>
-<h2 id="5.14-测试覆盖">5.14 测试覆盖</h2>
+<h2 id="5.16-测试覆盖">5.16 测试覆盖</h2>
 <p><code>agent/tests/test_retrieval.py</code> (22 用例) 覆盖:</p>
 <ul>
 <li><code>test_hybrid_search_rrf_fusion</code> — RRF 公式正确性</li>
@@ -2883,7 +2992,7 @@ if result and request.search_type != &quot;vector&quot;:
 <li><code>test_parent_child_chunk_relationship</code> — 父-子分块</li>
 <li><code>test_filter_by_keywords_array</code> — ARRAY_CONTAINS</li>
 </ul>
-<h2 id="5.15-本章小结">5.15 本章小结</h2>
+<h2 id="5.17-本章小结">5.17 本章小结</h2>
 <p>RAG 检索全链路是 Lumio 服务客户的核心:</p>
 <ul>
 <li><strong>三路召回互补</strong>: BM25 关键词精确 + 向量语义相似 + RRF 融合无需训练</li>
@@ -3215,43 +3324,54 @@ class SessionTimeoutManager:
                 # 3. 触发超时处理
                 await self._handle_timeout(session_id, TimeoutType(timeout_type))
 </code></pre>
-<p><strong>5 类超时</strong>:</p>
+<p><strong>超时守卫映射</strong> (<code>session_timeout.py:238-248</code>):</p>
 <table>
 <thead>
 <tr>
-<th>Type</th>
+<th>SubPhase</th>
 <th>TTL</th>
 <th>触发动作</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>BOT_IDLE</code></td>
-<td>1800s (30 分钟)</td>
-<td>客户 30 分钟无消息, 自动 ENDED</td>
+<td><code>BOT_ACTIVE</code></td>
+<td>180s</td>
+<td>客户 180s 无消息 → ENDED (reason=<code>bot:active_timeout</code>)</td>
 </tr>
 <tr>
-<td><code>QUEUE</code></td>
+<td><code>AG_QUEUED</code></td>
 <td>60s</td>
-<td>转人工排队 60s 仍无坐席, 提示客户选择继续等或回 Bot</td>
+<td>排队 60s 仍无坐席 → <strong>回退 BOT</strong> (降级而非结束)</td>
 </tr>
 <tr>
-<td><code>RINGING</code></td>
-<td>30s</td>
-<td>已分配坐席 30s 未响应, 重新排队</td>
+<td><code>AG_ASSIGNED</code></td>
+<td>无守卫</td>
+<td>由外部 chat-svc 驱动振铃, 本地不设超时</td>
 </tr>
 <tr>
-<td><code>SESSION</code></td>
-<td>1800s (30 分钟)</td>
-<td>通话总时长 30 分钟, 提示结束</td>
+<td><code>AG_ACTIVE</code></td>
+<td>1800s</td>
+<td>通话总时长 30 分钟 → ENDED</td>
 </tr>
 <tr>
-<td><code>REVIEW</code></td>
-<td>300s (5 分钟)</td>
-<td>通话结束 5 分钟内必须生成话后小结</td>
+<td><code>AG_ON_HOLD</code></td>
+<td>1800s</td>
+<td>保持超 30 分钟 → ENDED</td>
+</tr>
+<tr>
+<td><code>AG_REVIEWING</code></td>
+<td>120s</td>
+<td>通话结束 2 分钟内必须生成话后小结 → ENDED</td>
 </tr>
 </tbody>
 </table>
+<p><strong>守卫生命周期</strong> (关键设计):</p>
+<ul>
+<li><strong>创建即启动</strong>: <code>create_session</code> 时即启动 <code>BOT_ACTIVE</code> 守卫 — 新会话也能被空闲超时回收, 不依赖 Redis TTL 兜底</li>
+<li><strong>随对话续期</strong>: <code>add_turn</code> 每轮对话刷新 BOT 守卫 (<code>start_guard</code> 幂等 ZREM+ZADD) — 活跃会话不会被空闲超时误杀; 若只依赖 transition 启停, 出现过"转人工回退后的会话 120s 必被误杀、全新会话却永不超时"的行为不一致</li>
+<li><strong><code>start_guard</code> 原子性</strong>: 先 await ZREM 清旧守卫再 ZADD 新守卫 (顺序执行), 避免竞态删掉新守卫</li>
+</ul>
 <p><strong>关键设计</strong>: ZSET 而非 asyncio.Task. 原因:
 - <strong>多实例支持</strong>: Bot 和 Assist 都能处理同一会话超时
 - <strong>重启恢复</strong>: 服务重启后 ZSET 数据仍在 Redis, 自动恢复
@@ -3328,7 +3448,39 @@ SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWIN
 - 21 种组合但只允许 11 种合法转换, 非法转换直接拒绝</p>
 <p>兼容策略:
 - <code>legacy</code> phase 兼容旧数据读取</p>
-<h2 id="6.9-监控指标">6.9 监控指标</h2>
+<h2 id="6.9-会话复活与收尾-(多轮对话边界)">6.9 会话复活与收尾 (多轮对话边界)</h2>
+<h3 id="6.9.1-ENDED-会话复活">6.9.1 ENDED 会话复活</h3>
+<p>客户超时/主动结束后再次发消息 → <code>router.py:_run_agent</code> 检测 <code>current_phase == ended</code>, 调
+<code>transition_phase(BOT, BOT_ACTIVE, reason="customer_returned")</code> 复活会话:</p>
+<pre><code class="language-python"># router.py:607-619 (简化)
+if state.current_phase.value == &quot;ended&quot;:
+    await session_manager.transition_phase(
+        session_id, SessionPhase.BOT,
+        new_sub_phase=SessionSubPhase.BOT_ACTIVE,
+        reason=&quot;customer_returned&quot;,
+    )
+</code></pre>
+<p><strong>设计要点</strong>:
+- 同一 session_id、同一 Redis key — 历史 / conversation_summary / 实体池 / 意图栈全部保留
+- 守卫由 transition_phase 重新启动 (BOT_ACTIVE 180s 空闲超时生效)
+- 若 meta 已过期 (Redis TTL 到) → <code>get_or_create</code> 新建会话, 画像经 customer_memory 90 天窗口重新学习</p>
+<h3 id="6.9.2-告别即收尾">6.9.2 告别即收尾</h3>
+<p>客户说"再见/拜拜/谢谢" → <code>_is_farewell</code> 快速路径, 同时<strong>真正结束会话</strong>:</p>
+<ul>
+<li><code>transition_phase(ENDED, reason="customer_farewell")</code> — 触发 PG 落库审计</li>
+<li><code>pending_action</code> 一并清除 — 避免复活后第一句普通消息被当成确认/取消误判</li>
+<li>回复模板话术, 不调 LLM</li>
+</ul>
+<h3 id="6.9.3-AG_ASSIGNED-死状态">6.9.3 AG_ASSIGNED 死状态</h3>
+<p><code>agent:assigned</code> (振铃) 在 lumio 本地<strong>无触发路径</strong>, 由外部 chat-svc 回调驱动:</p>
+<ul>
+<li><code>VALID_TRANSITIONS</code> 保留表项 (兼容外部回调 <code>queued → assigned → active</code>)</li>
+<li><strong>本地不设超时守卫</strong> (<code>_get_timeout</code> 无 AG_ASSIGNED 映射) — 避免本地 30s 误杀外部驱动的振铃会话</li>
+</ul>
+<h3 id="6.9.4-转人工排队期间的消息真实记录">6.9.4 转人工排队期间的消息真实记录</h3>
+<p>会话进入 AGENT 阶段后客户发消息 → 返回"已为您记录"话术, <strong>同时真实写入 Redis 历史</strong>
+(<code>add_turn</code>), 供坐席摘要 / 转回 Bot 时保留上下文 — 话术与事实一致.</p>
+<h2 id="6.10-监控指标">6.10 监控指标</h2>
 <p>会话状态机发射 5 个核心指标:</p>
 <table>
 <thead>
@@ -3373,7 +3525,7 @@ SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWIN
 </tbody>
 </table>
 <p><strong>6 类指标 0 冲突</strong>: 全部指标名 + label 在 Grafana dashboard 有对应 panel.</p>
-<h2 id="6.10-测试覆盖">6.10 测试覆盖</h2>
+<h2 id="6.11-测试覆盖">6.11 测试覆盖</h2>
 <p><code>agent/tests/</code> 中会话相关:</p>
 <ul>
 <li><code>test_session.py</code> (25 用例, <strong>TOP 4</strong>): 会话生命周期 + 转换</li>
@@ -3397,7 +3549,7 @@ async def test_intent_stack_incremental_merge(redis):
     assert &quot;complaint&quot; in state.intent_stack
     assert &quot;faq&quot; in state.intent_stack
 </code></pre>
-<h2 id="6.11-本章小结">6.11 本章小结</h2>
+<h2 id="6.12-本章小结">6.12 本章小结</h2>
 <p>会话状态机是 Lumio 处理客户对话的"中枢神经":</p>
 <ul>
 <li><strong>3 phase × 7 sub-state</strong>: 21 组合, 11 合法转换, 白名单控制</li>
@@ -4236,6 +4388,56 @@ def _error_response(dep_name: str, exc: Exception) -&gt; dict[str, str]:
 <pre><code class="language-python">raise ServiceOverloadedError(&quot;LLM 熔断中,请稍后重试&quot;)
 </code></pre>
 <p>设计动机:静默返空时前端以为"用户没说话"继续等待,实际是上游已经熔断。前端拿到 503 + 错误码 5002 后,可以走"稍后重试"提示,而不是傻等。5002→503 的映射在 <code>_HTTP_STATUS_OVERRIDES</code> 表里(<code>middleware.py:29</code>)。这是"错误处理不只是技术问题,而是产品决策"的体现——静默返空看似容错,实际是给用户制造假象。</p>
+<h2 id="LLM-空串回复:重试-+-熔断">LLM 空串回复:重试 + 熔断</h2>
+<p>模型返回空 content 与超时同样危险 — 客户端会收到 <code>done + 空 reply</code> (看似成功实则无内容):</p>
+<pre><code class="language-python"># llm.py generate 循环 (简化)
+if not content.strip():
+    if attempt &lt; max_retries - 1:
+        await asyncio.sleep(0.5 * (2 ** attempt)); continue   # 重试
+    self._breaker.record_failure()
+    raise LLMInferenceError(&quot;LLM 返回空内容&quot;)                  # 熔断 + 走降级链
+</code></pre>
+<p>空串视为失败而非成功 — 触发熔断计数 + 降级链, 客户端拿到模板话术而非空回复.</p>
+<h2 id="降级回复-→-真实转人工">降级回复 → 真实转人工</h2>
+<p>降级模板 (BILL/LIMIT/FAQ 等) 文案含"请输入转人工", 但<strong>转接本身真实触发</strong>:</p>
+<pre><code class="language-python"># bot_agent _handle_knowledge / _handle_business (简化)
+if result.source in (&quot;template&quot;, &quot;fallback&quot;) and not should_transfer:
+    should_transfer = True
+    transfer_reason = f&quot;degraded_{result.source}: LLM 不可用, 降级回复&quot;
+</code></pre>
+<ul>
+<li>客户看到"请转人工"时, 人工会话已创建 — 不必再发一条"转人工"消息</li>
+<li>例外: <code>_handle_fallback</code> (chitchat 域) 仅模板回复时触发, LLM 正常闲聊不转</li>
+</ul>
+<h2 id="死信队列:-指标-+-告警-+-人工重放">死信队列: 指标 + 告警 + 人工重放</h2>
+<p>消息重试 3 次仍失败 → 进死信 <code>lumio:chat:dead_letter</code> (maxlen 5000), 客户只收到
+"系统处理您的请求时出现错误"。<strong>闭环处理</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>指标</td>
+<td><code>lumio_dead_letter_writes_total{reason=retry_exhausted/agent_error}</code></td>
+</tr>
+<tr>
+<td>告警</td>
+<td>每次写入打 ERROR 日志 (<code>DEAD_LETTER: 消息进入死信队列 ... 需人工处理</code>), Grafana alert 依赖</td>
+</tr>
+<tr>
+<td>重放</td>
+<td><code>POST /admin/dead-letter/replay</code> (admin) — 按 original_msg_id 定位死信, 以原内容 XADD 回主 Stream 重走完整处理链, 成功后 XDEL 死信条目 + 计数 <code>lumio_dead_letter_replays_total</code></td>
+</tr>
+<tr>
+<td>查看</td>
+<td><code>GET /admin/dead-letter?count=N</code> (admin, 含 PII 需鉴权)</td>
+</tr>
+</tbody>
+</table>
 <h2 id="测试覆盖">测试覆盖</h2>
 <p>错误处理不是"写完就好",必须有自动化测试把契约钉死。<code>agent/tests/test_middleware.py</code> 覆盖了关键映射与响应体:</p>
 <ul>
@@ -4958,6 +5160,26 @@ return f&quot;pbkdf2_sha256$600000${b64(salt)}${b64(digest)}&quot;
 </ol>
 <h3 id="11.5.2-双重过滤">11.5.2 双重过滤</h3>
 <p>合规要求"出口必查":任何用户输入在<strong>应用层</strong>先过一次 <code>check_input()</code>,命中即拒绝;同时所有原始文本进入<strong>审计层</strong>时再过一次 <code>filter_output()</code>,把命中的敏感词替换为 <code>*</code> 后再写日志。这样即使应用层策略被绕过,审计日志里也不会出现原始敏感词,事后追溯不被污染。</p>
+<h3 id="11.5.3-危机干预-(客户自伤/轻生意图)">11.5.3 危机干预 (客户自伤/轻生意图)</h3>
+<p>银行客服可能遇到客户表达自伤/轻生意图 — 这是<strong>合规最高优先级</strong>场景, 不能走常规 LLM 应答:</p>
+<ol>
+<li><strong>词库</strong>: <code>sensitive_words.txt</code> 危机干预类 8 词 (自杀/自残/轻生/不想活/活不下去/想死/绝望/抑郁)</li>
+<li><strong>检测</strong>: <code>SafetyFilter.is_crisis_input(text)</code> — 归一化后子串匹配, 独立于 AC 自动机 (类常量, 不依赖词库加载)</li>
+<li><strong>响应</strong>: <code>bot_agent.run()</code> 入口处 (优先级高于问候/告别/意图分类) 命中 → 立即返回安抚话术 + <strong>强制转人工</strong>:</li>
+</ol>
+<pre><code class="language-python"># bot_agent.py (简化)
+if safety_filter.is_crisis_input(user_input):
+    return self._build_result(
+        session_id, user_input, CRISIS_RESPONSE, &quot;template&quot;, &quot;crisis&quot;,
+        should_transfer=True, transfer_reason=&quot;crisis_intervention: ...&quot;,
+    )
+</code></pre>
+<ol start="4">
+<li><strong>话术</strong> (<code>prompts/__init__.py CRISIS_RESPONSE</code>): 表达关心 + 已优先转人工专员 + 提供
+   24 小时心理援助热线 (12356 / 400-161-9995), 不评判、不追问细节</li>
+</ol>
+<p><strong>设计取舍</strong>: 关键词匹配会误伤 ("我绝望了, 这卡什么时候能提额" 是夸张表达) — 但银行合规场景
+<strong>宁可误转人工, 不可漏判</strong>; 转人工后由坐席判断真实意图, 成本远低于漏判风险.</p>
 <h2 id="11.6-PII-脱敏:5-类规则-+-顺序敏感">11.6 PII 脱敏:5 类规则 + 顺序敏感</h2>
 <p><code>shared/pii.py:20-77</code> 提供 5 类脱敏,各自一条正则:</p>
 <table>
@@ -6394,6 +6616,15 @@ async def _ensure_summary(self, session_id: str, trimmed_turns: list) -&gt; None
 - 摘要内容空 → 静默
 - CAS patch 失败 → <code>logger.warning(...)</code> 可见, 但不抛</p>
 <p><strong>为什么不阻塞主请求</strong>: 摘要是<strong>锦上添花</strong>, 不是必需. 结构化记忆 (Layer 1) 已经有对话摘要 + 客户画像 + 实体池, 摘要缺失只会让 LLM "不知道旧轮次的细节", 但不会让对话中断.</p>
+<p><strong>并发串行化 (per-session 锁)</strong>: 多轮快速对话时每轮裁剪都会 spawn 一个摘要任务, 并发读写同一
+<code>last_summarized_turn_id</code> → CAS 重试后到者失败, 摘要滞后. <code>_ensure_summary</code> 外层包 per-session
+<code>asyncio.Lock</code> (<code>self._summary_locks[session_id]</code>), 同会话摘要任务<strong>串行执行</strong>:</p>
+<pre><code class="language-python"># bot_agent.py (简化)
+lock = self._summary_locks.setdefault(session_id, asyncio.Lock())
+async with lock:
+    await self._summary_locked(session_id, trimmed_turns)   # 实际摘要逻辑
+</code></pre>
+<p>锁字典随会话自然增长 (上限 = 活跃会话数), 无需清理.</p>
 <h2 id="15.5-3-层降级矩阵">15.5 3 层降级矩阵</h2>
 <p>3 层上下文各层都有<strong>独立的失败路径</strong>, 不互阻塞:</p>
 <table>
@@ -6632,8 +6863,17 @@ system_prompt = f&quot;{system_prompt}\n\n{slot_prompt}&quot;  # 槽位 (第 16 
 <td>按意图注入 L1.5 半稳态层 (top_k=3)</td>
 <td>few_shot.py:132 + kv_cache.py:99</td>
 </tr>
+<tr>
+<td>总预算截断 (兜底)</td>
+<td>Σ各层 &gt; context−reserved 时从最旧 user 历史裁剪 (RAG/当前轮保留)</td>
+<td>bot_agent.py:365-380</td>
+</tr>
 </tbody>
 </table>
+<p><strong>总预算截断逻辑</strong>: 分层预算各自生效后仍可能超 <code>max_context_tokens − reserved_tokens</code>
+(8192−1024). 此时<strong>实际裁剪</strong>而非仅告警: 从最旧的 user 历史消息开始丢弃, RAG 上下文 /
+当前轮 / 连续消息标记 (<code>（用户连续发送</code> / <code>&lt;retrieved_context&gt;</code> / <code>客户问:</code>) 保留 —
+历史可被摘要覆盖, 检索结果和当前诉求不可丢.</p>
 <h2 id="15.9-实战案例:-30-轮对话的第-31-轮">15.9 实战案例: 30 轮对话的第 31 轮</h2>
 <p>假设客户与 Bot 聊了 30 轮, 涉及:
 - 轮 1-5: 问白金卡权益
@@ -6967,6 +7207,18 @@ async def apply_learned_profile(
 
     return False
 </code></pre>
+<h3 id="16.4.0-画像时间戳持久化-(D0-衰减的前提)">16.4.0 画像时间戳持久化 (D0 衰减的前提)</h3>
+<p>画像字段带 <code>vip_level_updated_at / risk_tolerance_updated_at / card_types_updated_at</code>
+三个时间戳 (Unix 秒), 是 D0 衰减 (<code>0.95^days</code>) 的计算基础. 这三个字段<strong>全量序列化</strong>进
+<code>_save_meta</code> (session.py) 并从 <code>get_session</code> 读回 — 学习写入后跨轮次/跨会话保留:</p>
+<pre><code class="language-python"># session.py _save_meta (简化)
+&quot;vip_level_updated_at&quot;: state.vip_level_updated_at,
+&quot;risk_tolerance_updated_at&quot;: state.risk_tolerance_updated_at,
+&quot;card_types_updated_at&quot;: state.card_types_updated_at,
+</code></pre>
+<p><strong>衰减语义</strong>: <code>vip_days = (now − vip_level_updated_at)/86400</code>, 无时间戳 (0) 视为 999 天 →
+衰减系数 <code>0.95^999 ≈ 0</code> → VIP 降级一档、card_types 不生效. 时间戳持久化后, 学习一次
+90 天窗口内保持有效, 90 天后按天渐隐, 跌破阈值自动降级 (保守化处理).</p>
 <h3 id="16.4.1-&quot;不覆盖已显式声明&quot;-判定">16.4.1 "不覆盖已显式声明" 判定</h3>
 <table>
 <thead>
@@ -7796,11 +8048,26 @@ def detect_confirmation(text: str) -&gt; ConfirmDecision:
 <tr>
 <td><strong>pending → unclear</strong></td>
 <td>默认分支</td>
-<td>pending <strong>不消耗</strong>, 继续追问 "请回复确认或取消"</td>
+<td><strong>计数递增</strong> (<code>unclear_count</code>) → 重复确认话术; 连续 3 次 → <strong>自动取消 + 放行新消息</strong> (逃生路径)</td>
 </tr>
 </tbody>
 </table>
 <p><strong>惰性过期 (lazy expiration)</strong>: 无后台清扫任务, 每次进入 <code>_handle_pending_action</code> 时比 <code>expires_at</code>. 极简实现, 1 行代码.</p>
+<h3 id="17.4.4a-确认窗口逃生路径-(unclear-自动取消)">17.4.4a 确认窗口逃生路径 (unclear 自动取消)</h3>
+<p>敏感工具确认窗口内, 用户发<strong>不是确认/取消的新问题</strong> (如"那你们客服几点下班") — 旧行为:
+新问题被吞掉, 重复确认话术直到 5 分钟过期, 用户被卡死. 现行为:</p>
+<pre><code class="language-python"># bot_agent.py unclear 分支 (简化)
+new_count = (pending.unclear_count or 0) + 1
+if new_count &gt;= get_settings().mcp.unclear_auto_cancel_threshold:  # 默认 3
+    await self._clear_pending_action(session_id, state.version)    # 自动取消
+    return {**confirm_prompt_result, &quot;pending_released&quot;: True}     # 标记放行
+# 未达上限: patch_state 更新 unclear_count + 话术提示&quot;可回复『取消』放弃当前操作&quot;
+</code></pre>
+<ul>
+<li><code>run()</code> 检测到 <code>pending_released</code> 标记 → <strong>不 return</strong>, 继续走正常意图分类处理新消息</li>
+<li>阈值可配: <code>LUMIO_MCP__UNCLEAR_AUTO_CANCEL_THRESHOLD</code> (默认 3)</li>
+<li>每次 unclear 都有提示逃生路径, 用户也可直接回复"取消"</li>
+</ul>
 <p><strong>确认幂等键 (第五轮加固)</strong>: 敏感工具"确认后重复办理"是银行场景最高危路径 — at-least-once 重投递 + pending 清除 CAS 失败都可能让同一笔分期执行两次。修复: 以 <code>pending.tool_call_id</code> 为幂等键写 <code>lumio:tool:executed:{tool_call_id}</code> (24h TTL) —</p>
 <pre><code class="language-python"># bot_agent.py (确认分支)
 idem_key = f&quot;lumio:tool:executed:{pending.tool_call_id or pending.created_at.isoformat()}&quot;
@@ -7946,6 +8213,9 @@ def _coerce_number(value: Any) -&gt; float | None:
 _GUARD_REFUSAL = &quot;很抱歉, 该操作目前无法为您办理. 如需帮助, 我可以为您转接人工客服.&quot;
 </code></pre>
 <p><strong>不外泄 <code>decision.reason</code> 给用户</strong>: 内部 reason 含 "角色 customer 无权调用 adjust_temp_credit_limit", 这是安全信息, 不能让攻击者知道角色 / 工具白名单. 给用户的是统一礼貌话术, 同时审计 detail 仍记录真实 reason (脱敏后).</p>
+<p><strong>护栏拒绝 → 真实转人工</strong>: <code>ToolExecutionResult.should_transfer=True</code> 随结果回传, <code>bot_agent</code>
+构建回复时透传 <code>should_transfer</code> — 客户看到"我可以为您转接人工客服"时<strong>转接已真实触发</strong>,
+不必再发一条"转人工"消息. 拒绝原因 (<code>tool_guard_refused: {tool} ({reason})</code>) 写入 transfer_reason 供坐席端展示.</p>
 <h3 id="17.5.6-拒绝时仍写审计-(L378-388)">17.5.6 拒绝时仍写审计 (L378-388)</h3>
 <pre><code class="language-python"># tool_executor.py:378
 TOOL_GUARD_DENIALS.labels(tool=tool_call.name, reason=decision.code or &quot;denied&quot;).inc()

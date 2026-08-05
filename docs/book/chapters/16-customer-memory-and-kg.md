@@ -260,6 +260,23 @@ async def apply_learned_profile(
     return False
 ```
 
+### 16.4.0 画像时间戳持久化 (D0 衰减的前提)
+
+画像字段带 `vip_level_updated_at / risk_tolerance_updated_at / card_types_updated_at`
+三个时间戳 (Unix 秒), 是 D0 衰减 (`0.95^days`) 的计算基础. 这三个字段**全量序列化**进
+`_save_meta` (session.py) 并从 `get_session` 读回 — 学习写入后跨轮次/跨会话保留:
+
+```python
+# session.py _save_meta (简化)
+"vip_level_updated_at": state.vip_level_updated_at,
+"risk_tolerance_updated_at": state.risk_tolerance_updated_at,
+"card_types_updated_at": state.card_types_updated_at,
+```
+
+**衰减语义**: `vip_days = (now − vip_level_updated_at)/86400`, 无时间戳 (0) 视为 999 天 →
+衰减系数 `0.95^999 ≈ 0` → VIP 降级一档、card_types 不生效. 时间戳持久化后, 学习一次
+90 天窗口内保持有效, 90 天后按天渐隐, 跌破阈值自动降级 (保守化处理).
+
 ### 16.4.1 "不覆盖已显式声明" 判定
 
 | 字段 | 默认值 | 判定条件 | 行为 |

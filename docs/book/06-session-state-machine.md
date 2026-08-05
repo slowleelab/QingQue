@@ -273,15 +273,22 @@ class SessionTimeoutManager:
                 await self._handle_timeout(session_id, TimeoutType(timeout_type))
 ```
 
-**5 类超时**:
+**超时守卫映射** (`session_timeout.py:238-248`):
 
-| Type | TTL | 触发动作 |
+| SubPhase | TTL | 触发动作 |
 |---|---|---|
-| `BOT_IDLE` | 1800s (30 分钟) | 客户 30 分钟无消息, 自动 ENDED |
-| `QUEUE` | 60s | 转人工排队 60s 仍无坐席, 提示客户选择继续等或回 Bot |
-| `RINGING` | 30s | 已分配坐席 30s 未响应, 重新排队 |
-| `SESSION` | 1800s (30 分钟) | 通话总时长 30 分钟, 提示结束 |
-| `REVIEW` | 300s (5 分钟) | 通话结束 5 分钟内必须生成话后小结 |
+| `BOT_ACTIVE` | 180s | 客户 180s 无消息 → ENDED (reason=`bot:active_timeout`) |
+| `AG_QUEUED` | 60s | 排队 60s 仍无坐席 → **回退 BOT** (降级而非结束) |
+| `AG_ASSIGNED` | 无守卫 | 由外部 chat-svc 驱动振铃, 本地不设超时 |
+| `AG_ACTIVE` | 1800s | 通话总时长 30 分钟 → ENDED |
+| `AG_ON_HOLD` | 1800s | 保持超 30 分钟 → ENDED |
+| `AG_REVIEWING` | 120s | 通话结束 2 分钟内必须生成话后小结 → ENDED |
+
+**守卫生命周期** (关键设计):
+
+- **创建即启动**: `create_session` 时即启动 `BOT_ACTIVE` 守卫 — 新会话也能被空闲超时回收, 不依赖 Redis TTL 兜底
+- **随对话续期**: `add_turn` 每轮对话刷新 BOT 守卫 (`start_guard` 幂等 ZREM+ZADD) — 活跃会话不会被空闲超时误杀; 若只依赖 transition 启停, 出现过"转人工回退后的会话 120s 必被误杀、全新会话却永不超时"的行为不一致
+- **`start_guard` 原子性**: 先 await ZREM 清旧守卫再 ZADD 新守卫 (顺序执行), 避免竞态删掉新守卫
 
 **关键设计**: ZSET 而非 asyncio.Task. 原因:
 - **多实例支持**: Bot 和 Assist 都能处理同一会话超时
@@ -376,7 +383,49 @@ SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWIN
 兼容策略:
 - `legacy` phase 兼容旧数据读取
 
-## 6.9 监控指标
+## 6.9 会话复活与收尾 (多轮对话边界)
+
+### 6.9.1 ENDED 会话复活
+
+客户超时/主动结束后再次发消息 → `router.py:_run_agent` 检测 `current_phase == ended`, 调
+`transition_phase(BOT, BOT_ACTIVE, reason="customer_returned")` 复活会话:
+
+```python
+# router.py:607-619 (简化)
+if state.current_phase.value == "ended":
+    await session_manager.transition_phase(
+        session_id, SessionPhase.BOT,
+        new_sub_phase=SessionSubPhase.BOT_ACTIVE,
+        reason="customer_returned",
+    )
+```
+
+**设计要点**:
+- 同一 session_id、同一 Redis key — 历史 / conversation_summary / 实体池 / 意图栈全部保留
+- 守卫由 transition_phase 重新启动 (BOT_ACTIVE 180s 空闲超时生效)
+- 若 meta 已过期 (Redis TTL 到) → `get_or_create` 新建会话, 画像经 customer_memory 90 天窗口重新学习
+
+### 6.9.2 告别即收尾
+
+客户说"再见/拜拜/谢谢" → `_is_farewell` 快速路径, 同时**真正结束会话**:
+
+- `transition_phase(ENDED, reason="customer_farewell")` — 触发 PG 落库审计
+- `pending_action` 一并清除 — 避免复活后第一句普通消息被当成确认/取消误判
+- 回复模板话术, 不调 LLM
+
+### 6.9.3 AG_ASSIGNED 死状态
+
+`agent:assigned` (振铃) 在 lumio 本地**无触发路径**, 由外部 chat-svc 回调驱动:
+
+- `VALID_TRANSITIONS` 保留表项 (兼容外部回调 `queued → assigned → active`)
+- **本地不设超时守卫** (`_get_timeout` 无 AG_ASSIGNED 映射) — 避免本地 30s 误杀外部驱动的振铃会话
+
+### 6.9.4 转人工排队期间的消息真实记录
+
+会话进入 AGENT 阶段后客户发消息 → 返回"已为您记录"话术, **同时真实写入 Redis 历史**
+(`add_turn`), 供坐席摘要 / 转回 Bot 时保留上下文 — 话术与事实一致.
+
+## 6.10 监控指标
 
 会话状态机发射 5 个核心指标:
 
@@ -390,7 +439,7 @@ SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWIN
 
 **6 类指标 0 冲突**: 全部指标名 + label 在 Grafana dashboard 有对应 panel.
 
-## 6.10 测试覆盖
+## 6.11 测试覆盖
 
 `agent/tests/` 中会话相关:
 
@@ -418,7 +467,7 @@ async def test_intent_stack_incremental_merge(redis):
     assert "faq" in state.intent_stack
 ```
 
-## 6.11 本章小结
+## 6.12 本章小结
 
 会话状态机是 Lumio 处理客户对话的"中枢神经":
 

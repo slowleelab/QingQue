@@ -188,6 +188,29 @@ return f"pbkdf2_sha256$600000${b64(salt)}${b64(digest)}"
 
 合规要求"出口必查":任何用户输入在**应用层**先过一次 `check_input()`,命中即拒绝;同时所有原始文本进入**审计层**时再过一次 `filter_output()`,把命中的敏感词替换为 `*` 后再写日志。这样即使应用层策略被绕过,审计日志里也不会出现原始敏感词,事后追溯不被污染。
 
+### 11.5.3 危机干预 (客户自伤/轻生意图)
+
+银行客服可能遇到客户表达自伤/轻生意图 — 这是**合规最高优先级**场景, 不能走常规 LLM 应答:
+
+1. **词库**: `sensitive_words.txt` 危机干预类 8 词 (自杀/自残/轻生/不想活/活不下去/想死/绝望/抑郁)
+2. **检测**: `SafetyFilter.is_crisis_input(text)` — 归一化后子串匹配, 独立于 AC 自动机 (类常量, 不依赖词库加载)
+3. **响应**: `bot_agent.run()` 入口处 (优先级高于问候/告别/意图分类) 命中 → 立即返回安抚话术 + **强制转人工**:
+
+```python
+# bot_agent.py (简化)
+if safety_filter.is_crisis_input(user_input):
+    return self._build_result(
+        session_id, user_input, CRISIS_RESPONSE, "template", "crisis",
+        should_transfer=True, transfer_reason="crisis_intervention: ...",
+    )
+```
+
+4. **话术** (`prompts/__init__.py CRISIS_RESPONSE`): 表达关心 + 已优先转人工专员 + 提供
+   24 小时心理援助热线 (12356 / 400-161-9995), 不评判、不追问细节
+
+**设计取舍**: 关键词匹配会误伤 ("我绝望了, 这卡什么时候能提额" 是夸张表达) — 但银行合规场景
+**宁可误转人工, 不可漏判**; 转人工后由坐席判断真实意图, 成本远低于漏判风险.
+
 ## 11.6 PII 脱敏:5 类规则 + 顺序敏感
 
 `shared/pii.py:20-77` 提供 5 类脱敏,各自一条正则:
