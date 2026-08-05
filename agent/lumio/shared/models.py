@@ -114,6 +114,8 @@ class AssistEngineState(StrEnum):
 
 VALID_TRANSITIONS: dict[tuple[str, str], set[str]] = {
     ("bot", "bot:active"): {"agent:queued", "ended"},
+    # FIX-8: agent:assigned (振铃) 由外部 chat-svc 驱动, lumio 本地无触发路径 —
+    # 保留表项兼容外部回调, 但不设本地超时守卫 (见 session_timeout._get_timeout)
     ("agent", "agent:queued"): {"agent:assigned", "bot:active", "ended"},
     ("agent", "agent:assigned"): {"agent:active", "agent:queued", "ended"},
     ("agent", "agent:active"): {"agent:on_hold", "agent:assigned", "agent:reviewing", "bot:active", "ended"},
@@ -227,6 +229,7 @@ class PendingAction(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = None  # 过期时间，超时需重新发起
     trace_id: str = ""  # 链路追踪 id
+    unclear_count: int = 0  # 确认窗口内无法判定的次数, ≥3 自动取消并放行新消息
 
 
 class SessionState(BaseModel):
@@ -508,6 +511,8 @@ class ChatRequest(BaseModel):
     # P3-7 整改: message 加 max_length=2000 防 DoS (单条消息 1MB 直接进 Redis Stream + LLM 浪费 token)
     message: str = Field(..., max_length=2000)
     channel: ChannelType = ChannelType.WEB
+    # FIX-7: 客户端幂等键 — 双击/重试时携带同一 client_message_id, 服务端只处理一次
+    client_message_id: str | None = Field(default=None, max_length=64)
 
 
 class ChatResponse(BaseModel):

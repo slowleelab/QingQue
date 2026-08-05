@@ -78,7 +78,7 @@ class TestPendingActionStateMachine:
 
     async def test_unclear_reasks_without_clearing(self):
         sm = MagicMock()
-        sm.patch_state = AsyncMock()
+        sm.patch_state = AsyncMock(return_value={"ok": True, "new_version": 4})
         tool_exec = MagicMock()
         tool_exec.execute_confirmed_action = AsyncMock()
         agent = _make_agent(sm, tool_exec)
@@ -86,9 +86,33 @@ class TestPendingActionStateMachine:
 
         result = await agent._handle_pending_action("s1", "今天天气不错", state, "c1")
 
-        assert result["response"] == state.pending_action.confirm_prompt
+        # FIX-3: unclear 不清除 pending, 但会递增 unclear_count (为自动取消逃生路径计数)
+        assert state.pending_action.confirm_prompt in result["response"]
         tool_exec.execute_confirmed_action.assert_not_awaited()
-        sm.patch_state.assert_not_awaited()  # 不清除
+        sm.patch_state.assert_awaited_once()
+        patches = sm.patch_state.await_args.kwargs["patches"]
+        assert patches["pending_action"]["unclear_count"] == 1  # 计数递增, pending 未清除
+
+    async def test_unclear_three_times_auto_cancel_and_release(self):
+        """FIX-3: 连续 3 次无法判定 → 自动取消 pending + released 标记, 新消息继续正常处理"""
+        sm = MagicMock()
+        sm.patch_state = AsyncMock(return_value={"ok": True, "new_version": 4})
+        tool_exec = MagicMock()
+        tool_exec.audit_decision = AsyncMock()
+        tool_exec.execute_confirmed_action = AsyncMock()
+        agent = _make_agent(sm, tool_exec)
+        # 已计数 2 次, 本次为第 3 次 → 触发自动取消
+        state = _state_with_pending()
+        state.pending_action.unclear_count = 2
+
+        result = await agent._handle_pending_action("s1", "帮我查下账单", state, "c1")
+
+        assert result.get("pending_released") is True  # run() 据此继续处理新消息
+        assert "取消" in result["response"]
+        tool_exec.execute_confirmed_action.assert_not_awaited()
+        sm.patch_state.assert_awaited_once()
+        patches = sm.patch_state.await_args.kwargs["patches"]
+        assert patches == {"pending_action": None}  # pending 已清除
 
     async def test_expired_clears_and_prompts_restart(self):
         sm = MagicMock()

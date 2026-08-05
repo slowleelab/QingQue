@@ -10,6 +10,8 @@ import asyncio
 import contextlib
 import json
 import time
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -54,6 +56,9 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
 
     await websocket.accept()
     cancel_event = asyncio.Event()
+    # FIX-9: 连接级获取 session_manager (app.state 注入), 供历史上下文加载
+    session_manager = getattr(getattr(websocket, "app", None), "state", None)
+    session_manager = getattr(session_manager, "session_manager", None) if session_manager else None
 
     try:
         while True:
@@ -62,9 +67,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
             try:
                 msg = json.loads(data)
             except json.JSONDecodeError:
-                await websocket.send_json(
-                    {"type": "error", "message": "invalid_json"}
-                )
+                await websocket.send_json({"type": "error", "message": "invalid_json"})
                 continue
 
             msg_type = msg.get("type")
@@ -87,9 +90,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
             if msg_type == "message":
                 user_input = msg.get("content", "").strip()
                 if not user_input:
-                    await websocket.send_json(
-                        {"type": "error", "message": "empty_content"}
-                    )
+                    await websocket.send_json({"type": "error", "message": "empty_content"})
                     continue
 
                 # S8 第五轮修复: 并发取消 — 旧实现 receive 循环与流式串行,
@@ -97,15 +98,17 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 # 现: 流式跑独立 task, 主循环持续 receive, cancel 实时生效.
                 cancel_event.clear()
 
+                # FIX-9: 流式期间到达的普通消息入队, 当前流结束后按序处理 —
+                # 旧实现流式期间非 cancel/ping 帧被静默丢弃 (消息丢失)
+                pending_queue: asyncio.Queue[str] = asyncio.Queue()
+
                 # 思考提示
-                await websocket.send_json(
-                    {"type": "thinking", "content": "正在思考..."}
-                )
+                await websocket.send_json({"type": "thinking", "content": "正在思考..."})
 
                 # 默认参数绑定当前 user_input, 防 B023 循环变量捕获
                 async def _run_stream(_ui: str = user_input) -> None:
                     async for chunk_event in _process_streaming(
-                        session_id, _ui, cancel_event
+                        session_id, _ui, cancel_event, session_manager=session_manager
                     ):
                         await websocket.send_json(chunk_event)
 
@@ -113,9 +116,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 try:
                     while not stream_task.done():
                         try:
-                            ctrl = await asyncio.wait_for(
-                                websocket.receive_text(), timeout=0.1
-                            )
+                            ctrl = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
                         except TimeoutError:
                             continue
                         try:
@@ -129,6 +130,15 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                             break
                         if ctrl_msg.get("type") == "ping":
                             await websocket.send_json({"type": "pong", "ts": time.time()})
+                            continue
+                        # FIX-9: 流式期间的新消息排队, 不丢弃
+                        if ctrl_msg.get("type") == "message":
+                            new_input = (ctrl_msg.get("content") or "").strip()
+                            if new_input:
+                                await websocket.send_json(
+                                    {"type": "thinking", "content": "已收到, 上一条回答结束后继续处理..."}
+                                )
+                                pending_queue.put_nowait(new_input)
                 finally:
                     cancel_event.clear()
                 # 收集流式结果异常
@@ -157,6 +167,20 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                             }
                         )
 
+                # FIX-9: 处理流式期间排队的消息 (同一连接内串行, 保序)
+                while not pending_queue.empty():
+                    queued_input = pending_queue.get_nowait()
+                    await websocket.send_json({"type": "thinking", "content": "正在处理您的下一条消息..."})
+                    try:
+                        async for chunk_event in _process_streaming(
+                            session_id, queued_input, cancel_event, session_manager=session_manager
+                        ):
+                            await websocket.send_json(chunk_event)
+                    except Exception as exc:
+                        logger.warning("WS 排队消息处理失败: session=%s err=%s", session_id, exc)
+                        with contextlib.suppress(Exception):
+                            await websocket.send_json({"type": "error", "message": "处理失败, 请重试"})
+
     except WebSocketDisconnect:
         logger.info("WS 断开: session=%s", session_id)
     except Exception as exc:
@@ -166,22 +190,39 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
 
 
 async def _process_streaming(
-    session_id: str, user_input: str, cancel_event: asyncio.Event
-):
-    """处理单条消息并 yield 流式事件 (Yields 字典)."""
-    # 简化实现: 实际接入 Bot Agent + StreamingLLMClient
-    # 1. 加载历史
-    # 2. 拼 messages (用 A0 分层构建器)
-    # 3. 调流式 LLM
-    # 4. 收集 chunk, 周期性 yield
-    # 简化版 (无完整 Bot Agent 集成)
+    session_id: str,
+    user_input: str,
+    cancel_event: asyncio.Event,
+    session_manager: Any = None,
+) -> AsyncIterator[dict]:
+    """处理单条消息并 yield 流式事件 (Yields 字典).
+
+    FIX-9: 接入会话历史 — 从 Redis 加载最近对话, 断线重连后上下文延续.
+    """
     from lumio.services.bot.prompts import KNOWLEDGE_SYSTEM_PROMPT
     from lumio.services.bot.streaming import get_streaming_client
 
-    messages = [
+    messages: list[dict] = [
         {"role": "system", "content": KNOWLEDGE_SYSTEM_PROMPT},
-        {"role": "user", "content": user_input},
     ]
+
+    # 加载最近历史 (含当前输入), 拼成 user/assistant 交替消息
+    history: list = []
+    if session_manager is not None:
+        try:
+            history = await session_manager.get_history(session_id, limit=10)
+        except Exception as exc:
+            logger.warning("WS 加载会话历史失败: session=%s err=%s", session_id, exc)
+    for turn in history:
+        speaker = getattr(turn, "speaker", "")
+        content = getattr(turn, "content", "")
+        if not content:
+            continue
+        if speaker == "assistant" or speaker == "bot":
+            messages.append({"role": "assistant", "content": content})
+        else:
+            messages.append({"role": "user", "content": content})
+    messages.append({"role": "user", "content": user_input})
 
     client = get_streaming_client()
     full_text = ""

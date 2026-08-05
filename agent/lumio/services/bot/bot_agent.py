@@ -53,6 +53,7 @@ def _estimate_tokens(text: str) -> int:
     """
     return _token_estimate(text, base_overhead=4)
 
+
 if TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
     from pymilvus import Collection
@@ -74,11 +75,25 @@ logger = logging.getLogger(__name__)
 # ── 重要性标记 ──
 
 _IMPORTANT_KEYWORDS = [
-    "投诉", "举报", "银保监", "银监会", "人行", "央行",
-    "律师函", "法务", "法院", "起诉",
-    "盗刷", "挂失", "冻结", "风险",
-    "承诺", "保证", "一定解决",
-    "转人工", "人工客服",
+    "投诉",
+    "举报",
+    "银保监",
+    "银监会",
+    "人行",
+    "央行",
+    "律师函",
+    "法务",
+    "法院",
+    "起诉",
+    "盗刷",
+    "挂失",
+    "冻结",
+    "风险",
+    "承诺",
+    "保证",
+    "一定解决",
+    "转人工",
+    "人工客服",
 ]
 
 
@@ -140,6 +155,7 @@ class LumioAgent:
                     task = self._spawn_task(
                         apply_learned_profile(customer_id, session_id, db_sf, self._session_manager)
                     )
+
                     # 异常回调
                     def _on_profile_done(t: asyncio.Task[None]) -> None:
                         if exc := t.exception():
@@ -160,7 +176,11 @@ class LumioAgent:
             except Exception:
                 state = None
             if state is not None and state.pending_action is not None:
-                return await self._handle_pending_action(session_id, user_input, state, customer_id)
+                result = await self._handle_pending_action(session_id, user_input, state, customer_id)
+                if not result.get("pending_released"):
+                    return result
+                # pending_released: 确认窗口连续无法判定已自动取消, 继续按新消息正常处理
+                logger.info("确认窗口已自动取消, 继续处理新消息: session=%s", session_id)
 
         # 快速路径：问候/告别不调 LLM
         if _is_greeting(user_input):
@@ -258,9 +278,7 @@ class LumioAgent:
 
             examples = select_few_shot(intent.primary_intent.value, user_input, top_k=3)
             if examples:
-                few_shot_text = "\n".join(
-                    f"客户问: {e['question']}\n客服答: {e['answer']}" for e in examples
-                )
+                few_shot_text = "\n".join(f"客户问: {e['question']}\n客服答: {e['answer']}" for e in examples)
         except Exception:
             logger.debug("few-shot 选择失败, 跳过: session=%s", session_id)
 
@@ -487,8 +505,11 @@ class LumioAgent:
             await self._clear_pending_action(session_id, state.version)
             TOOL_CONFIRMATIONS.labels(decision="expired").inc()
             await self._tool_executor.audit_decision(  # type: ignore[union-attr]
-                session_id=session_id, actor_id=actor_id, actor_role="customer",
-                tool_name=pending.tool_name, decision="expired",
+                session_id=session_id,
+                actor_id=actor_id,
+                actor_role="customer",
+                tool_name=pending.tool_name,
+                decision="expired",
             )
             return self._build_result(
                 session_id, user_input, "您上一步的操作请求已超时失效，如仍需办理请重新告知我。", "template", "faq"
@@ -498,8 +519,11 @@ class LumioAgent:
 
         if decision == "confirm":
             await self._tool_executor.audit_decision(  # type: ignore[union-attr]
-                session_id=session_id, actor_id=actor_id, actor_role="customer",
-                tool_name=pending.tool_name, decision="confirm",
+                session_id=session_id,
+                actor_id=actor_id,
+                actor_role="customer",
+                tool_name=pending.tool_name,
+                decision="confirm",
             )
             # P1-1 第三轮修复: 幂等键 — 防止 at-least-once 重投递 / CAS 清除失败后重复执行敏感操作.
             # 以 pending.tool_call_id 为键 SETNX: 已执行过 → 不重复调用工具, 直接提示完成.
@@ -516,8 +540,11 @@ class LumioAgent:
                 await self._clear_pending_action(session_id, state.version)
                 TOOL_CONFIRMATIONS.labels(decision="confirm_dup").inc()
                 return self._build_result(
-                    session_id, user_input, pending.confirm_prompt.replace("请问是否办理", "该操作已完成，无需重复办理"),
-                    "template", "faq",
+                    session_id,
+                    user_input,
+                    pending.confirm_prompt.replace("请问是否办理", "该操作已完成，无需重复办理"),
+                    "template",
+                    "faq",
                 )
             try:
                 session_memory = await self._build_session_memory(session_id)
@@ -553,16 +580,60 @@ class LumioAgent:
             await self._clear_pending_action(session_id, state.version)
             TOOL_CONFIRMATIONS.labels(decision="cancel").inc()
             await self._tool_executor.audit_decision(  # type: ignore[union-attr]
-                session_id=session_id, actor_id=actor_id, actor_role="customer",
-                tool_name=pending.tool_name, decision="cancel",
+                session_id=session_id,
+                actor_id=actor_id,
+                actor_role="customer",
+                tool_name=pending.tool_name,
+                decision="cancel",
             )
             return self._build_result(
                 session_id, user_input, "好的，已为您取消该操作。还有什么可以帮您的吗？", "template", "faq"
             )
 
-        # unclear：重复确认话术，不清除
+        # unclear: 无法判定为确认/取消 — 计数, 达到上限自动取消并放行新消息
+        # (业务场景: 确认窗口内用户发新问题, 若一直吞掉会被卡死, 需给逃生路径)
+        new_count = (pending.unclear_count or 0) + 1
+        if new_count >= get_settings().mcp.unclear_auto_cancel_threshold:
+            await self._clear_pending_action(session_id, state.version)
+            TOOL_CONFIRMATIONS.labels(decision="cancel").inc()
+            await self._tool_executor.audit_decision(  # type: ignore[union-attr]
+                session_id=session_id,
+                actor_id=actor_id,
+                actor_role="customer",
+                tool_name=pending.tool_name,
+                decision="unclear_auto_cancel",
+            )
+            # 返回 released 标记: run() 检测后不 return, 继续按新消息正常处理
+            return {
+                **self._build_result(
+                    session_id,
+                    user_input,
+                    "您刚才的操作请求已为您取消。如需办理请重新告诉我，现在继续为您解答：",
+                    "template",
+                    "faq",
+                ),
+                "pending_released": True,
+            }
+        # 未达上限: 更新计数 + 重复确认话术, 并提示逃生路径
         TOOL_CONFIRMATIONS.labels(decision="unclear").inc()
-        return self._build_result(session_id, user_input, pending.confirm_prompt, "template", "faq")
+        try:
+            if self._session_manager is not None:
+                await self._session_manager.patch_state(
+                    session_id=session_id,
+                    expected_version=state.version,
+                    patches={"pending_action": {**pending.model_dump(mode="json"), "unclear_count": new_count}},
+                )
+        except Exception as exc:
+            logger.warning("unclear 计数更新失败: session=%s err=%s", session_id, exc)
+        remaining = get_settings().mcp.unclear_auto_cancel_threshold - new_count
+        return self._build_result(
+            session_id,
+            user_input,
+            f"{pending.confirm_prompt}（若需咨询其他问题，可回复『取消』放弃当前操作，"
+            f"或再回复 {remaining} 次其他内容将自动取消）",
+            "template",
+            "faq",
+        )
 
     async def _save_pending_action(self, session_id: str, pending: PendingAction) -> None:
         """将待确认操作写入会话状态（CAS）"""
@@ -913,11 +984,7 @@ class LumioAgent:
                 from lumio.shared.config import get_settings
 
                 allowlist = set(get_settings().guard.entity_pool_allowlist)
-                filtered = [
-                    e
-                    for e in state.last_entities
-                    if e.entity_type in allowlist and e.value
-                ]
+                filtered = [e for e in state.last_entities if e.entity_type in allowlist and e.value]
                 if filtered:
                     entity_strs = [f"{e.entity_type}={e.value}" for e in filtered]
                     parts.append(f"[已知实体] {', '.join(entity_strs)}")
@@ -983,7 +1050,9 @@ class LumioAgent:
 
         # 从实体池填充槽位
         if entities:
-            entity_dicts = [{"entity_type": e.entity_type, "value": e.value} for e in entities if e.entity_type and e.value]
+            entity_dicts = [
+                {"entity_type": e.entity_type, "value": e.value} for e in entities if e.entity_type and e.value
+            ]
             tracker.fill_from_entities(entity_dicts)
 
         # 持久化

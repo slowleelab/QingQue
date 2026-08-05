@@ -320,7 +320,7 @@ class SessionSettings(BaseSettings):
     # 低置信度连续计数阈值（L3 触发）
     low_confidence_threshold: int = 3
     # 超时配置（秒）
-    bot_idle_timeout: int = 120  # BOT 阶段空闲超时
+    bot_idle_timeout: int = 180  # BOT 阶段空闲超时 (银行客户可能边查资料边聊, 2 分钟易误杀)
     queue_timeout: int = 60  # AG_QUEUED 排队超时（超时回退 BOT）
     ringing_timeout: int = 30  # AG_ASSIGNED 振铃超时
     session_timeout: int = 1800  # AG_ACTIVE 会话总时长超时
@@ -522,6 +522,9 @@ class MCPSettings(BaseSettings):
     max_tool_iterations: int = 5
     # 待确认操作（pending_action）过期时间（秒）
     confirmation_ttl_seconds: int = 300
+    # 确认窗口内无法判定（unclear）连续次数上限, 达到后自动取消 pending 并放行新消息
+    # (业务: 用户确认期间发新问题不能被无限吞掉, 需逃生路径)
+    unclear_auto_cancel_threshold: int = 3
 
     # ── 工具护栏（Python 侧纵深防御，与 Higress 治理互补）──
     # 按角色的工具授权白名单：{role: [tool, ...]}。
@@ -614,10 +617,7 @@ class Settings(BaseSettings):
         }
         if self.jwt_secret in forbidden_secrets:
             if self.environment == "production":
-                raise ValueError(
-                    "生产环境必须设置 LUMIO_JWT_SECRET 环境变量, "
-                    f"禁止占位密钥 ({self.jwt_secret!r})"
-                )
+                raise ValueError("生产环境必须设置 LUMIO_JWT_SECRET 环境变量, " f"禁止占位密钥 ({self.jwt_secret!r})")
             # dev/test 也不放过, 改 WARNING, 不阻断启动 (兼容现有 dev flow)
             import logging
 
@@ -634,8 +634,7 @@ class Settings(BaseSettings):
         if self.environment == "production":
             if self.llm.api_key in ("", "ollama"):
                 raise ValueError(
-                    "生产环境必须设置 LLM_API_KEY (默认占位 'ollama' 禁止在生产使用, "
-                    "漏配会用假凭证直连外部模型服务)"
+                    "生产环境必须设置 LLM_API_KEY (默认占位 'ollama' 禁止在生产使用, " "漏配会用假凭证直连外部模型服务)"
                 )
             if self.minio.access_key in ("", "minioadmin") or self.minio.secret_key in ("", "minioadmin"):
                 raise ValueError("生产环境必须设置 MINIO_ACCESS_KEY / MINIO_SECRET_KEY (禁止默认 minioadmin)")

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -61,6 +62,7 @@ _SESSION_TIMEOUT_ZSET_KEY = "lumio:session:timeouts"
 def session_timeout_zset_key() -> str:
     """会话超时 ZSET key (按过期时间戳排序, 用于 session_timeout.py 扫描)"""
     return _SESSION_TIMEOUT_ZSET_KEY
+
 
 # ── CAS Lua 脚本（统一状态层，替代 StateManager 的独立 key）──
 
@@ -187,6 +189,10 @@ class SessionManager:
             last_active_at=now,
         )
         await self._save_meta(state)
+        # 创建即启动 BOT 空闲守卫: 保证新会话也能被空闲超时回收 (而非依赖 Redis TTL 兜底)
+        if self._timeout_manager:
+            with contextlib.suppress(Exception):
+                await self._timeout_manager.start_guard(session_id, SessionSubPhase.BOT_ACTIVE)
         return state
 
     async def get_session(self, session_id: str) -> SessionState | None:
@@ -310,6 +316,12 @@ class SessionManager:
                 state.last_entities = state.last_entities[-50:]
 
         await self._save_meta(state)
+        # BOT 活跃守卫续期: 每轮对话刷新空闲超时, 避免活跃会话被误杀.
+        # (守卫仅在 transition_phase 启停, 若此处不续期, 发生过转人工回退的会话
+        #  会在 180s 后被空闲超时 ENDED, 而新会话却永不超时 — 两处行为不一致)
+        if self._timeout_manager and state.current_phase == SessionPhase.BOT:
+            with contextlib.suppress(Exception):
+                await self._timeout_manager.start_guard(session_id, SessionSubPhase.BOT_ACTIVE)
         return state
 
     async def get_history(self, session_id: str, limit: int | None = None) -> list[DialogueTurn]:

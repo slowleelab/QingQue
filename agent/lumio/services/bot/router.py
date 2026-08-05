@@ -213,9 +213,7 @@ async def _mark_processed(redis_client, client_message_id: str) -> None:
     if not client_message_id:
         return
     try:
-        await redis_client.setex(
-            f"{_PROCESSED_PREFIX}:{client_message_id}", _PROCESSED_TTL, "1"
-        )
+        await redis_client.setex(f"{_PROCESSED_PREFIX}:{client_message_id}", _PROCESSED_TTL, "1")
     except Exception:
         pass
 
@@ -511,7 +509,14 @@ async def _session_worker(
                         await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, pending_msg_id)
 
                 if merged_contents:
-                    merged_message = message + "\n" + "\n".join(merged_contents)
+                    # FIX-5: 语义标记 — LLM 明确感知这是用户连续发送的多条消息,
+                    # 避免把合并文本当成一句混乱的话 (旧实现直接 \n 拼接无说明)
+                    merged_message = (
+                        f"（用户连续发送了 {len(merged_contents) + 1} 条消息，请一次性综合回复）\n"
+                        + message
+                        + "\n"
+                        + "\n".join(merged_contents)
+                    )
                     _metrics["mg"] += len(merged_contents)
                     logger.info(
                         "队列合并: session=%s merged=%d total_len=%d",
@@ -604,10 +609,41 @@ async def _run_agent(
     # Session 获取或创建
     state = await session_manager.get_or_create(session_id)
 
+    # ENDED 会话复活: 客户超时/主动结束后再次发消息 → 回 BOT_ACTIVE 续聊
+    # (保留历史/画像等 Redis 数据, 守卫由 transition_phase 重新启动)
+    if state.current_phase.value == "ended":
+        logger.info("会话已 ENDED, 复活为 BOT_ACTIVE: session=%s reason=%s", session_id, state.end_reason)
+        try:
+            await session_manager.transition_phase(
+                session_id,
+                SessionPhase.BOT,
+                new_sub_phase=SessionSubPhase.BOT_ACTIVE,
+                reason="customer_returned",
+            )
+        except Exception as exc:
+            logger.warning("会话复活失败, 降级按新会话处理: session=%s err=%s", session_id, exc)
+
     # 如果已进入 AGENT 阶段，跳过 bot 处理
     if state.current_phase.value == "agent":
         # P2 第三轮修复: 不再静默 XACK 丢弃 — 客户排队期间的消息需要可见反馈
         logger.info("会话已进入 AGENT 阶段, 跳过 bot: session=%s", session_id)
+        # FIX-4: 消息真实写入 Redis 历史 (此前"已记录"话术与事实不符),
+        # 供坐席摘要 / 转回 Bot 时保留上下文
+        try:
+            from lumio.shared.models import DialogueTurn
+
+            turn = DialogueTurn(
+                turn_id=uuid_module.uuid4().hex,
+                session_id=session_id,
+                speaker="customer",
+                content=message,
+                intent=None,
+                confidence=0.0,
+                entities=[],
+            )
+            await session_manager.add_turn(session_id, turn)
+        except Exception as exc:
+            logger.warning("AGENT 阶段消息写入历史失败: session=%s err=%s", session_id, exc)
         await _finish_message(
             redis_client,
             session_id,
@@ -696,9 +732,7 @@ async def _run_agent(
                 # 已知实体随转接传递 (P2 第三轮修复: 旧代码计算后未赋值, 实体列表被丢弃)
                 known_entities: list[dict[str, str]] = []
                 if state and state.last_entities:
-                    known_entities = [
-                        {"type": e.entity_type, "value": e.value} for e in state.last_entities
-                    ]
+                    known_entities = [{"type": e.entity_type, "value": e.value} for e in state.last_entities]
 
                 transfer_req = chat_client.build_transfer_request(
                     session_id=session_id,
@@ -1095,7 +1129,21 @@ async def chat_send(body: ChatSendRequest, request: Request, user: CurrentUser):
         # 敏感词不拦截，但记录审计（银行场景需要知道客户提到了什么敏感话题）
 
     session_id = body.session_id or uuid_module.uuid4().hex
-    message_id = uuid_module.uuid4().hex
+
+    # FIX-7: 客户端幂等 — 同一 client_message_id 重复提交直接返回已接受, 不进 Stream
+    # (双击/网络重试场景: 第二次提交不重复执行 agent, 幂等键由消费侧 _mark_processed 维护)
+    client_idem_key = f"lumio:processed:{body.client_message_id}" if body.client_message_id else None
+    if client_idem_key:
+        try:
+            if await redis_client.get(client_idem_key):
+                logger.info(
+                    "客户端幂等命中, 跳过重复提交: session=%s client_message_id=%s", session_id, body.client_message_id
+                )
+                return ChatSendResponse(accepted=True, message_id=body.client_message_id, session_id=session_id)
+        except Exception:
+            pass  # 幂等检查失败时放行 (at-least-once 语义)
+
+    message_id = body.client_message_id or uuid_module.uuid4().hex
 
     # 注入 trace context 到 Stream 消息 (全链路串联)
     trace_ctx = ""
@@ -1354,17 +1402,13 @@ async def upload_document(
     content_length = file.size if hasattr(file, "size") else None
     max_upload_size = 50 * 1024 * 1024
     if content_length is not None and content_length > max_upload_size:
-        raise DocumentFormatError(
-            f"文件过大: {content_length / 1024 / 1024:.1f}MB > 50MB 上限"
-        )
+        raise DocumentFormatError(f"文件过大: {content_length / 1024 / 1024:.1f}MB > 50MB 上限")
 
     # 3. 读取文件内容
     content_bytes = await file.read()
     file_size = len(content_bytes)
     if file_size > max_upload_size:
-        raise DocumentFormatError(
-            f"文件过大: {file_size / 1024 / 1024:.1f}MB > 50MB 上限"
-        )
+        raise DocumentFormatError(f"文件过大: {file_size / 1024 / 1024:.1f}MB > 50MB 上限")
     content_hash = hashlib.sha256(content_bytes).hexdigest()
 
     # 3. 上传到 MinIO

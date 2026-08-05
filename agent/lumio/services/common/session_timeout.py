@@ -100,9 +100,7 @@ class SessionTimeoutManager:
 
         # 2. 写入 Redis ZSET (member 编码 sub_phase)
         try:
-            await self._redis.zadd(
-                _TIMEOUT_ZSET_KEY, {f"{session_id}:{sub_phase.value}": expire_ts}
-            )
+            await self._redis.zadd(_TIMEOUT_ZSET_KEY, {f"{session_id}:{sub_phase.value}": expire_ts})
         except Exception as exc:
             logger.warning("超时守卫写入失败: session=%s err=%s", session_id, exc)
 
@@ -236,11 +234,14 @@ class SessionTimeoutManager:
             logger.exception("超时状态转换失败: session=%s", session_id)
 
     def _get_timeout(self, sub_phase: SessionSubPhase) -> int | None:
-        """根据子阶段获取超时秒数"""
+        """根据子阶段获取超时秒数
+
+        FIX-8: AG_ASSIGNED (振铃) 由外部 chat-svc 驱动, lumio 本地不设守卫 —
+        避免本地 30s 超时误杀外部驱动的振铃会话.
+        """
         mapping: dict[SessionSubPhase, int] = {
             SessionSubPhase.BOT_ACTIVE: self._bot_idle_timeout,
             SessionSubPhase.AG_QUEUED: self._queue_timeout,
-            SessionSubPhase.AG_ASSIGNED: self._ringing_timeout,
             SessionSubPhase.AG_ACTIVE: self._session_timeout,
             SessionSubPhase.AG_ON_HOLD: self._session_timeout,
             SessionSubPhase.AG_REVIEWING: self._review_timeout,
