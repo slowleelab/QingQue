@@ -92,10 +92,7 @@ async def test_start_guard_writes_to_redis() -> None:
     timeout_mgr = SessionTimeoutManager(mock_mgr, redis=mock_redis)
     timeout_mgr._bot_idle_timeout = 60
 
-    timeout_mgr.start_guard("sess-004", SessionSubPhase.BOT_ACTIVE)
-
-    # 等待 asyncio.create_task 完成
-    await asyncio.sleep(0.05)
+    await timeout_mgr.start_guard("sess-004", SessionSubPhase.BOT_ACTIVE)
 
     mock_redis.zadd.assert_called_once()
     assert timeout_mgr.active_guards == 1
@@ -109,10 +106,8 @@ async def test_cancel_guard_removes_from_redis() -> None:
     timeout_mgr = SessionTimeoutManager(mock_mgr, redis=mock_redis)
     timeout_mgr._bot_idle_timeout = 60
 
-    timeout_mgr.start_guard("sess-005", SessionSubPhase.BOT_ACTIVE)
-    await asyncio.sleep(0.05)
-    timeout_mgr.cancel_guard("sess-005")
-    await asyncio.sleep(0.05)
+    await timeout_mgr.start_guard("sess-005", SessionSubPhase.BOT_ACTIVE)
+    await timeout_mgr.cancel_guard("sess-005")
 
     # zrem 至少被调用一次（start_guard 内部也会调 cancel_guard 清理旧守卫）
     assert mock_redis.zrem.call_count >= 1
@@ -126,10 +121,8 @@ async def test_start_guard_cancels_previous() -> None:
     mock_redis = _make_mock_redis()
     timeout_mgr = SessionTimeoutManager(mock_mgr, redis=mock_redis)
 
-    timeout_mgr.start_guard("sess-006", SessionSubPhase.AG_QUEUED)
-    await asyncio.sleep(0.05)
-    timeout_mgr.start_guard("sess-006", SessionSubPhase.AG_ASSIGNED)
-    await asyncio.sleep(0.05)
+    await timeout_mgr.start_guard("sess-006", SessionSubPhase.AG_QUEUED)
+    await timeout_mgr.start_guard("sess-006", SessionSubPhase.AG_ASSIGNED)
 
     # zrem 应被调用一次（取消旧守卫）
     assert mock_redis.zrem.call_count >= 1

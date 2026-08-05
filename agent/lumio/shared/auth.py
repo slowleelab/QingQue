@@ -151,6 +151,10 @@ def get_current_user(request: Request) -> AuthUser:
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
     elif "token" in request.query_params:
+        # P2-5 第五轮修复: query param token 仅限开发环境 —
+        # 旧实现所有环境接受, token 进 URL 会落入访问日志/Referer/代理缓存
+        if settings.environment != "development":
+            raise AuthenticationError("query param token 仅限开发环境")
         # WebSocket / 测试场景：query param 传 token
         token = request.query_params["token"]
 

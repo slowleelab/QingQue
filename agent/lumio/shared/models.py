@@ -246,6 +246,11 @@ class SessionState(BaseModel):
     vip_level: str = "普通"
     card_types: list[str] = Field(default_factory=list)
     risk_tolerance: str = "R2"
+    # D0 衰减: 每个画像字段的最近更新时间戳 (Unix seconds)
+    # 缺失时 fallback 0.0 → 触发 999 天 → 强制降级 (D0 设计)
+    vip_level_updated_at: float = 0.0
+    risk_tolerance_updated_at: float = 0.0
+    card_types_updated_at: float = 0.0
 
     # 对话历史
     turns: list[DialogueTurn] = Field(default_factory=list)

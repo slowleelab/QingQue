@@ -75,15 +75,30 @@ _CONFIRM_KEYWORDS = (
 def detect_confirmation(text: str) -> ConfirmDecision:
     """纯关键词判定用户对待确认操作的意图
 
+    P2 第三轮修复: 要求"整句"为纯确认/取消 — 旧实现子串匹配,
+    "好的，另外帮我查下账单" 命中 "好的" → 误触发挂失/调额等敏感工具, 新问题被吞.
+    判定规则: 去噪(标点/空白/语气词)后, 整句与关键词集合匹配才判定; 含附加内容 → unclear.
+
     优先判定取消（否定优先），再判定确认，否则 unclear。
     """
     if not text:
         return "unclear"
     normalized = text.strip().lower()
-    if any(kw in normalized for kw in _CANCEL_KEYWORDS):
-        return "cancel"
-    if any(kw in normalized for kw in _CONFIRM_KEYWORDS):
-        return "confirm"
+    # 去噪: 仅去除标点/空白/语气词 — 注意不能移除关键词内含的字 (如"好的"的"的",
+    # "不用了"的"了"), 否则关键词被破坏无法匹配
+    import re as _re
+
+    core = _re.sub(r"[\s，。！？,.!?、～~嗯哦啊呀呢吧]", "", normalized)
+
+    # 取消优先 (否定表述优先判定, 规避"不确认"被误判为确认)
+    for kw in _CANCEL_KEYWORDS:
+        # 整句核心内容就是取消词(或取消词 + 语气词), 无附加内容
+        if core == kw or (core.startswith(kw) and len(core) <= len(kw) + 2):
+            return "cancel"
+
+    for kw in _CONFIRM_KEYWORDS:
+        if core == kw or (core.startswith(kw) and len(core) <= len(kw) + 2):
+            return "confirm"
     return "unclear"
 
 
@@ -244,6 +259,25 @@ class ToolCallingExecutor:
             messages.append(result.raw_message)
 
             for tool_call in result.tool_calls:
+                # P1-4 第三轮修复: 执行侧白名单校验 — 渐进式暴露只过滤"给 LLM 看"的一侧,
+                # 执行侧此前对幻觉工具名直接透传后端 (未知工具 is_sensitive 还返回 False → 免确认).
+                # 现强制: 工具名必须存在于注册缓存, 否则拒绝执行并回喂错误.
+                if self._mcp.get_tool(tool_call.name) is None:
+                    logger.warning(
+                        "拒绝未注册工具调用 (幻觉): name=%s session=%s",
+                        tool_call.name,
+                        session_id,
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": f"工具 {tool_call.name!r} 不存在, 请勿调用",
+                        }
+                    )
+                    executed.append(tool_call.name)
+                    continue
+
                 # 护栏（授权 + 额度）→ 拒绝则短路，不执行、不进入确认
                 guard_decision = await self._enforce_guard(
                     tool_call, session_id=session_id, actor_id=actor_id, actor_role=actor_role
@@ -289,10 +323,39 @@ class ToolCallingExecutor:
     ) -> dict:
         """执行工具 → 出参脱敏 → 写审计 → 返回 tool message"""
         masked_args = mask_pii(json.dumps(tool_call.arguments, ensure_ascii=False))
+        # P2-7 第五轮修复: 配额检查接线 — tool_robustness.ToolQuotaGuard 此前生产零调用,
+        # TOOL_QUOTA_EXCEEDED 指标永不产生; 超配额直接拒绝, 不进 MCP
         try:
-            raw = await self._mcp.call_tool(tool_call.name, tool_call.arguments)
+            from lumio.services.common.tool_robustness import get_quota_guard
+
+            allowed, _count = await get_quota_guard().check_and_increment(
+                actor_id, tool_call.name
+            )
+            if not allowed:
+                TOOL_CALLS.labels(tool=tool_call.name, status="quota_exceeded").inc()
+                return {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": "该操作今日调用次数已达上限, 请稍后再试或转人工办理。",
+                }
+        except Exception:
+            pass  # 配额组件故障不阻断主流程
+        try:
+            # P2-7 第五轮修复: 网络类错误重试接线 (async_retry 此前生产零调用)
+            from lumio.services.common.tool_robustness import async_retry
+
+            @async_retry(max_attempts=3, tool_name=tool_call.name)
+            async def _call_with_retry() -> dict:
+                return await self._mcp.call_tool(tool_call.name, tool_call.arguments)
+
+            raw = await _call_with_retry()
             is_error = bool(raw.get("is_error"))
             masked_content = mask_pii(str(raw.get("content", "")))
+            # P1-2 上下文工程修复: 工具结果 4096 字节截断 — 旧代码原样回喂,
+            # 5 轮工具循环累积可突破上下文预算 (prompt flooding); 截断提示 LLM 内容已截断
+            max_size = getattr(self._settings, "tool_result_max_size_bytes", 4096) or 4096
+            if len(masked_content.encode("utf-8")) > max_size:
+                masked_content = masked_content[:max_size] + "\n...[工具结果已截断]"
             status = "error" if is_error else "success"
         except Exception as exc:
             TOOL_CALLS.labels(tool=tool_call.name, status="error").inc()

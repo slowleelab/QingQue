@@ -56,5 +56,6 @@ Self-hostable banking-grade intelligent customer service — RAG chatbot + real-
 
 - 投 awesome 列表前**先读该列表的 CONTRIBUTING.md**，多数要求：star 数门槛、描述以动词/名词开头、结尾句号、按字母序插入。
 - 部分列表要求项目"存在 ≥ 30 天"或"近期有维护"，投稿前确认。
-- 强调灵智（Lumio）亮点时可突出：**22 个 Java MCP 工具 + Higress AI 网关 + 4 级熔断 + 6 个 Sprint 728 条测试**。
+- 强调灵智（Lumio）亮点时可突出：**22 个 Java MCP 工具 + Higress AI 网关 + 4 级熔断 + 716 条 pytest 通过**。
+- 深度内容引用 `introducing-lumio.md`（工程化设计说明：上下文分层/消息幂等/安全合规/可观测性）。
 - Product Hunt 发布需另备：logo、3+ 张截图、60 字 tagline、首条 maker comment。

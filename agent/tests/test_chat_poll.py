@@ -26,7 +26,15 @@ async def bot_client():
     """测试客户端，使用独立 FastAPI 应用（绕过完整 lifespan）"""
     app = _make_app()
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    # P0-1 第三轮修复: chat 端点强制认证, 测试客户端带 Bearer token
+    from lumio.shared.auth import create_access_token
+
+    token = create_access_token("test-user", "customer")
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as client:
         yield client
 
 

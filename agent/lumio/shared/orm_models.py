@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Any
 
 import uuid_utils
 from sqlalchemy import (
@@ -19,6 +20,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Date,
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -1057,4 +1059,49 @@ class DialogueLog(Base):
         Index("ix_dialogue_log_session_ts", "session_id", "timestamp"),
         Index("ix_dialogue_log_customer", "customer_id"),
         Index("ix_dialogue_log_speaker", "speaker"),
+    )
+
+
+class DecisionLog(Base):
+    """决策日志表 (E2 可解释性)
+
+    记录每个 agent 决策点 (action + reasoning + evidence + latency),
+    用于:
+    1. 客户查询"AI 怎么回答的" (会话内决策回放)
+    2. 监管审计批量导出 (按 action + 时间范围)
+    3. D2 GDPR 全链路删除 (customer_id 级批量删)
+
+    与 DecisionRecord (内存 dataclass) 不同, 本表是 PG 持久化层.
+    """
+
+    __tablename__ = "decision_log"
+
+    id: Mapped[uuid_utils.UUID] = mapped_column(
+        Uuid(native_uuid=False),
+        primary_key=True,
+        default=_uuid_v7,
+    )
+    decision_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    turn_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    agent_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.now,
+        server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        # GDPR 删除: 客户级 + 时间范围扫描
+        Index("ix_decision_log_customer_created", "customer_id", "created_at"),
+        # 会话回放
+        Index("ix_decision_log_session", "session_id"),
+        # 监管审计: 按 action 类型 + 时间范围
+        Index("ix_decision_log_action_created", "action", "created_at"),
     )

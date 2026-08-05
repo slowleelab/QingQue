@@ -169,12 +169,26 @@ def assist_server():
 @pytest_asyncio.fixture
 async def bot_client(bot_server: str) -> AsyncGenerator[httpx.AsyncClient, None]:
     """机器人服务 HTTP 测试客户端"""
-    async with httpx.AsyncClient(base_url=bot_server, timeout=30.0) as client:
+    # P0-1 第三轮修复: chat/session 端点强制认证, 测试客户端带默认 Bearer token
+    token = _test_access_token()
+    async with httpx.AsyncClient(
+        base_url=bot_server, timeout=30.0, headers={"Authorization": f"Bearer {token}"}
+    ) as client:
         yield client
 
 
 @pytest_asyncio.fixture
 async def assist_client(assist_server: str) -> AsyncGenerator[httpx.AsyncClient, None]:
     """坐席辅助服务 HTTP 测试客户端"""
-    async with httpx.AsyncClient(base_url=assist_server, timeout=30.0) as client:
+    token = _test_access_token()
+    async with httpx.AsyncClient(
+        base_url=assist_server, timeout=30.0, headers={"Authorization": f"Bearer {token}"}
+    ) as client:
         yield client
+
+
+def _test_access_token() -> str:
+    """生成测试用 JWT (customer 角色, 不带 session_id 声明 → 归属校验放行)."""
+    from lumio.shared.auth import create_access_token
+
+    return create_access_token("test-user", "customer")

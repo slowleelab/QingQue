@@ -84,3 +84,6 @@ mcp-server/*.log
 
 # gRPC 生成代码
 generated/
+
+# ZCode 会话内部文件
+.zcode/

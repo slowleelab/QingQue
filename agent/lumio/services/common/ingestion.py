@@ -457,6 +457,9 @@ async def write_to_milvus(
             [int(c.get("expiry_date", 0)) if c.get("expiry_date", 0) else 0 for c in chunks],
             [c.get("chunk_type", "child") for c in chunks],
             [c.get("parent_chunk_id", "") for c in chunks],
+            # S4 第五轮修复: Milvus 合规过滤字段 (此前仅写 ES, 向量检索无合规保障)
+            [c.get("approval_status", "PUBLISHED") for c in chunks],
+            ["true" if c.get("is_current_version", True) else "false" for c in chunks],
         ]
         await asyncio.to_thread(collection.insert, data)
         return len(chunks)

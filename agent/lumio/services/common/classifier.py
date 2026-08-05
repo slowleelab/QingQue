@@ -245,9 +245,13 @@ class LLMClassifier:
             (IntentResult, 实体列表, 情感标签)
         """
         try:
+            # P1-3 第三轮修复: 显式传 classify_timeout (此前配置从未生效, 走默认 60s)
+            from lumio.shared.config import get_settings
+
             result = await self._llm.classify(
                 system_prompt=_CLASSIFY_SYSTEM_PROMPT,
                 user_input=text,
+                timeout=get_settings().llm.classify_timeout,
             )
         except Exception:
             logger.warning("LLM 分类调用失败，返回兜底结果")

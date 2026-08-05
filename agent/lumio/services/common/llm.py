@@ -18,6 +18,12 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+# P1-3: openai.APITimeoutError 不继承内置 TimeoutError, 统一引用避免死分支
+try:
+    from openai import APITimeoutError as _APITimeoutError
+except ImportError:  # 旧版 SDK
+    _APITimeoutError = TimeoutError  # type: ignore[misc]
+
 from lumio.shared.config import LLMSettings, get_settings
 from lumio.shared.exceptions import LLMInferenceError, LLMTimeoutError
 from lumio.shared.metrics import LLM_CALL_DURATION
@@ -178,8 +184,11 @@ class LLMClient:
                     int(elapsed * 1000),
                     response.usage.total_tokens if response.usage else 0,
                 )
+                self._record_usage(kwargs["model"], response, method="chat")  # P0-6
                 return content
-            except TimeoutError as exc:
+            except (TimeoutError, _APITimeoutError) as exc:
+                # P1-3 第三轮修复: openai.APITimeoutError 的 MRO 不继承内置 TimeoutError,
+                # 旧 except TimeoutError 是死分支 (SDK 超时落入泛化 except, 超时统计永远不触发)
                 last_error = exc
                 logger.warning("LLM 调用超时 (attempt %d/%d)", attempt + 1, max_retries)
             except Exception as exc:
@@ -255,8 +264,9 @@ class LLMClient:
                     int(elapsed * 1000),
                     len(result.tool_calls),
                 )
+                self._record_usage(kwargs["model"], response, method="chat_with_tools")  # P0-6
                 return result
-            except TimeoutError as exc:
+            except (TimeoutError, _APITimeoutError) as exc:
                 last_error = exc
                 logger.warning("LLM tool-calling 超时 (attempt %d/%d)", attempt + 1, max_retries)
             except Exception as exc:
@@ -377,6 +387,7 @@ class LLMClient:
         *,
         history: list[dict[str, str]] | None = None,
         model: str | None = None,
+        timeout: float | None = None,
     ) -> str:
         """RAG 生成专用接口
 
@@ -388,6 +399,7 @@ class LLMClient:
             context: RAG 检索上下文
             history: 对话历史 [{"role":"user","content":"..."}, {"role":"assistant","content":"..."}]
             model: 模型名称
+            timeout: 单次调用超时（秒）, None 时用客户端默认 60s
 
         Returns:
             生成的回复文本
@@ -396,7 +408,11 @@ class LLMClient:
             {"role": "system", "content": system_prompt},
         ]
         if history:
-            messages.extend(history[-6:])  # 最近 3 对对话
+            # P1-5 第三轮修复: 移除 history[-6:] 二次截断 — 上游 _load_history 已按 token
+            # 预算 + 重要性标记(投诉/承诺/转人工永不裁剪)精确保留, 这里再截 6 条会把
+            # 5 轮前的关键轮次静默丢弃, 两处口径冲突 (token 预算 vs 固定条数).
+            # 信任调用方的裁剪结果, 全量传入.
+            messages.extend(history)
         if context:
             messages.append({"role": "system", "content": f"参考知识：\n{context}"})
         messages.append({"role": "user", "content": user_input})
@@ -405,6 +421,7 @@ class LLMClient:
             messages,
             model=model or self._settings.primary_model,
             temperature=0.3,
+            timeout=timeout,
         )
 
     async def health_check(self) -> bool:
@@ -414,3 +431,24 @@ class LLMClient:
             return len(response.data) > 0
         except Exception:
             return False
+
+    @staticmethod
+    def _record_usage(model: str, response: Any, *, method: str) -> None:
+        """P0-6 第三轮修复: token 成本埋点 (此前 record_llm_usage 无生产调用,
+        LLM_TOKEN_USAGE / LLM_COST_USD / LLM_BUDGET_* 指标永不产生数据, 预算熔断形同虚设).
+        fire-and-forget, 失败不阻塞主流程.
+        """
+        try:
+            usage = getattr(response, "usage", None)
+            if usage is None:
+                return
+            from lumio.services.common.budget import record_llm_usage
+
+            record_llm_usage(
+                model=model,
+                input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+                output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+                method=method,
+            )
+        except Exception:
+            pass

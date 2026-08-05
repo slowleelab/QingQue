@@ -7,6 +7,8 @@ metadata:
     service: bot
 spec:
   replicas: 2
+  # 第五轮修复: LLM timeout 60s > 默认 30s, 滚动更新会截断 in-flight 请求
+  terminationGracePeriodSeconds: 90
   selector:
     matchLabels:
       app: lumio
@@ -23,6 +25,8 @@ spec:
           ports:
             - containerPort: 8000
           env:
+            - name: SERVICE
+              value: "bot"
             - name: LUMIO_ENVIRONMENT
               value: "production"
             - name: REDIS_HOST
@@ -40,6 +44,38 @@ spec:
                 secretKeyRef:
                   name: lumio-secrets
                   key: jwt-secret
+            # 第五轮修复: 生产凭据校验 (config._validate_production_security) 强制要求,
+            # 缺失会 ValueError → crash loop
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: llm-api-key
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: minio-access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: minio-secret-key
+            - name: ES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: es-username
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: es-password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: redis-password
           resources:
             requests:
               cpu: "250m"
@@ -82,6 +118,8 @@ metadata:
     service: assist
 spec:
   replicas: 2
+  # 第五轮修复: LLM timeout 60s > 默认 30s, 滚动更新会截断 in-flight 请求
+  terminationGracePeriodSeconds: 90
   selector:
     matchLabels:
       app: lumio
@@ -98,6 +136,8 @@ spec:
           ports:
             - containerPort: 8001
           env:
+            - name: SERVICE
+              value: "assist"  # 第五轮修复: 此前未设 → Dockerfile 默认 bot → assist 启动错应用
             - name: LUMIO_ENVIRONMENT
               value: "production"
             - name: REDIS_HOST
@@ -115,6 +155,36 @@ spec:
                 secretKeyRef:
                   name: lumio-secrets
                   key: jwt-secret
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: llm-api-key
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: minio-access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: minio-secret-key
+            - name: ES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: es-username
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: es-password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lumio-secrets
+                  key: redis-password
           resources:
             requests:
               cpu: "250m"

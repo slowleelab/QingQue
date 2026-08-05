@@ -145,6 +145,13 @@ async def test_generic_error_production_hides_type():
 
     os.environ["LUMIO_ENVIRONMENT"] = "production"
     os.environ["LUMIO_JWT_SECRET"] = "x" * 32  # 生产环境必须设置安全密钥
+    # P0-5 第三轮修复: 生产环境还要求外部服务凭据非默认
+    os.environ["LLM_API_KEY"] = "sk-test-key"
+    os.environ["MINIO_ACCESS_KEY"] = "test-access"
+    os.environ["MINIO_SECRET_KEY"] = "test-secret"
+    os.environ["ES_USERNAME"] = "es-user"
+    os.environ["ES_PASSWORD"] = "es-pass"
+    os.environ["REDIS_PASSWORD"] = "redis-pass"
     try:
         # 清除 lru_cache 以读取新的环境变量
         from lumio.shared.config import get_settings
@@ -160,6 +167,8 @@ async def test_generic_error_production_hides_type():
     finally:
         os.environ.pop("LUMIO_ENVIRONMENT", None)
         os.environ.pop("LUMIO_JWT_SECRET", None)
+        for _k in ("LLM_API_KEY", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "ES_USERNAME", "ES_PASSWORD", "REDIS_PASSWORD"):
+            os.environ.pop(_k, None)
         # 恢复 lru_cache
         from lumio.shared.config import get_settings
 

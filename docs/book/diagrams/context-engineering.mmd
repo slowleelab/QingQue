@@ -1,0 +1,78 @@
+%% Lumio Bot 上下文工程 3 层流程图
+%% 来源: agent/lumio/services/bot/bot_agent.py:583-779
+%% 详细文档: docs/book/chapters/15-context-engineering.md
+
+flowchart TB
+    Start([用户问 <br/>user_input]) --> Build[bot_agent._handle_*<br/>拼装 3 层上下文]
+
+    %% Layer 1: 结构化记忆 (永不裁剪)
+    subgraph L1["Layer 1: 结构化会话记忆 (注入 system_prompt 顶部)"]
+        direction TB
+        L1a[SessionManager.get_session] --> L1b{state 有效?}
+        L1b -- 是 --> L1c[5 段拼接]
+        L1c --> L1c1[对话摘要<br/>conversation_summary]
+        L1c1 --> L1c2[客户画像<br/>vip_level/card_types/risk_tolerance]
+        L1c2 --> L1c3[已知实体<br/>last_entities]
+        L1c3 --> L1c4[意图历史<br/>intent_stack]
+        L1c4 --> L1c5[当前意图<br/>last_intent]
+        L1c5 --> L1d[format 系统 prompt 头部]
+        L1b -- 否/异常 --> L1Empty[返回 空字符串]
+    end
+
+    %% Layer 2: 近期对话历史 (token 预算裁剪)
+    subgraph L2["Layer 2: 近期对话历史 (按 token 预算裁剪)"]
+        direction TB
+        L2a[get_history limit=20] --> L2b[turns 非空?]
+        L2b -- 否 --> L2Empty[返回 空列表]
+        L2b -- 是 --> L2c[MaxContext - Reserved = Budget<br/>默认 4096 - 2048 = 2048]
+        L2c --> L2d[LIFO 累加, 关键轮次豁免]
+        L2d --> L2e{超预算?}
+        L2e -- 否 --> L2Keep[保留 + 累加 used]
+        L2e -- 是 + 普通轮次 --> L2Trim[标记为 trimmed_turns]
+        L2e -- 是 + 重要轮次<br/>(投诉/银保监/挂失) --> L2Keep
+        L2Keep --> L2f[转换 role=assistant/user]
+        L2Trim --> L2g{trimmed 非空?}
+        L2g -- 是 --> L2h[asyncio.create_task<br/>_ensure_summary 增量摘要]
+        L2g -- 否 --> L2Skip[跳过摘要]
+    end
+
+    %% Layer 3: RAG 检索 + KG 增强
+    subgraph L3["Layer 3: RAG 检索 + 知识图谱 (调用方传入)"]
+        direction TB
+        L3a[_retrieve<br/>4 路径降级] --> L3b{context 非空?}
+        L3b -- 否 --> L3Empty[FALLBACK → 跳过 KG, context=""]
+        L3b -- 是 --> L3c[enrich_retrieval_context<br/>5 实体匹配]
+        L3c --> L3d{命中 信用卡/账单/额度/分期/挂失?}
+        L3d -- 是 --> L3e[追加 ## 知识图谱补充信息<br/>Markdown 格式]
+        L3d -- 否 --> L3NoKG[不追加]
+    end
+
+    %% 汇总
+    Build --> L1
+    Build --> L2
+    Build --> L3
+
+    L1d --> Sum[生成最终 messages 列表]
+    L1Empty --> Sum
+    L2f --> Sum
+    L2Skip --> Sum
+    L2Empty --> Sum
+    L3e --> Sum
+    L3NoKG --> Sum
+    L3Empty --> Sum
+
+    Sum --> LLM[送入 LLM<br/>generate_with_fallback]
+
+    LLM --> Resp([Bot 答复])
+
+    %% 降级路径标红
+    style L1Empty fill:#ffe1e1
+    style L2Empty fill:#ffe1e1
+    style L3Empty fill:#ffe1e1
+    style L2Skip fill:#ffe1e1
+    style L3NoKG fill:#fff4e1
+
+    style L1d fill:#d4f4dd
+    style L2Keep fill:#d4f4dd
+    style L3e fill:#d4f4dd
+    style LLM fill:#cce5ff

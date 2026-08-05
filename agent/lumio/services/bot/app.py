@@ -13,7 +13,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from lumio.services.bot.router import router
 from lumio.shared.config import get_settings
 from lumio.shared.metrics import PrometheusMiddleware, metrics_endpoint
-from lumio.shared.rate_limit import create_limiter
+from lumio.shared.rate_limit import get_limiter
 from lumio.shared.tracing import instrument_app
 
 
@@ -35,8 +35,9 @@ def create_bot_app(lifespan: Callable | None = None) -> FastAPI:
         redoc_url="/redoc",
     )
 
-    # 限流
-    limiter = create_limiter()
+    # 限流 (P2-3: 模块级单例, 供 @limiter.limit/exempt 装饰器引用)
+
+    limiter = get_limiter()
     app.state.limiter = limiter
     app.add_exception_handler(
         RateLimitExceeded,
@@ -61,6 +62,12 @@ def create_bot_app(lifespan: Callable | None = None) -> FastAPI:
     app.add_middleware(SlowAPIMiddleware)
 
     app.include_router(router, prefix="/api")
+
+    # S8 第五轮修复: 挂载 WS 流式通道 (此前 ws_router 从未 include, 整模块死代码;
+    # 已补 JWT 鉴权 + 并发取消 + 错误脱敏后上线)
+    from lumio.services.bot.ws_router import router as ws_router
+
+    app.include_router(ws_router)
 
     # 认证与管理路由
     from lumio.services.common.auth_router import router as auth_router

@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -28,6 +28,7 @@ from lumio.shared.auth import (
     CurrentUser,
     Role,
     create_access_token,
+    require_role,
 )
 from lumio.shared.exceptions import LumioError
 from lumio.shared.orm_models import UserAccount, UserStatus
@@ -311,7 +312,11 @@ class SensitiveWordsUpdate(BaseModel):
     words: list[str]
 
 
-@router.get("/admin/sensitive-words", response_model=SensitiveWordsResponse)
+@router.get(
+    "/admin/sensitive-words",
+    response_model=SensitiveWordsResponse,
+    dependencies=[Depends(require_role("admin"))],  # S1: 内容安全总开关仅 admin
+)
 async def get_sensitive_words(user: CurrentUser):
     """获取当前敏感词列表"""
     return SensitiveWordsResponse(
@@ -320,9 +325,13 @@ async def get_sensitive_words(user: CurrentUser):
     )
 
 
-@router.put("/admin/sensitive-words", response_model=SensitiveWordsResponse)
+@router.put(
+    "/admin/sensitive-words",
+    response_model=SensitiveWordsResponse,
+    dependencies=[Depends(require_role("admin"))],  # S1: 第五轮修复 — 任意登录用户可清空词库
+)
 async def update_sensitive_words(body: SensitiveWordsUpdate, request: Request, user: CurrentUser):
-    """更新敏感词列表并通知所有实例热加载"""
+    """更新敏感词列表并通知所有实例热加载 (仅 admin)."""
     safety_filter.load_from_set(set(body.words))
 
     # 发布热更新通知
@@ -343,9 +352,12 @@ async def update_sensitive_words(body: SensitiveWordsUpdate, request: Request, u
 # ── 规则热加载 ──
 
 
-@router.post("/admin/rules/reload")
+@router.post(
+    "/admin/rules/reload",
+    dependencies=[Depends(require_role("admin"))],  # P1-9: 仅 admin
+)
 async def reload_rules(request: Request):
-    """触发意图规则热加载"""
+    """触发意图规则热加载 (P1-9 第三轮修复: 仅 admin)."""
     redis = getattr(request.app.state, "redis_client", None)
     if redis:
         await redis.publish("lumio:rules:reload", json.dumps({"action": "reload"}))
@@ -355,19 +367,25 @@ async def reload_rules(request: Request):
 # ── 业务统计 ──
 
 
-@router.get("/admin/stats")
+@router.get(
+    "/admin/stats",
+    dependencies=[Depends(require_role("admin"))],  # P1-9: 仅 admin
+)
 async def get_stats(request: Request):
-    """获取业务统计概览"""
+    """获取业务统计概览 (P1-9 第三轮修复: 仅 admin, KEYS → scan_iter 防阻塞)."""
     redis = getattr(request.app.state, "redis_client", None)
     stats: dict = {"sessions": {}, "messages": {}, "performance": {}}
 
     if redis:
         # 会话统计
         # P3-5 整改: 用 session_meta_scan_pattern() 公共 helper 代替硬编码
+        # P1-9: keys() O(N) 全库扫描阻塞 Redis 其他命令 → scan_iter 非阻塞
         from lumio.services.common.session import session_meta_scan_pattern
 
-        session_keys = await redis.keys(session_meta_scan_pattern())
-        stats["sessions"]["total_active"] = len(session_keys)
+        session_count = 0
+        async for _ in redis.scan_iter(match=session_meta_scan_pattern(), count=100):
+            session_count += 1
+        stats["sessions"]["total_active"] = session_count
 
         # 消息队列统计
         stream_len = await redis.xlen("lumio:chat:stream")
@@ -393,9 +411,12 @@ async def get_stats(request: Request):
 # ── 死信队列 ──
 
 
-@router.get("/admin/dead-letter")
+@router.get(
+    "/admin/dead-letter",
+    dependencies=[Depends(require_role("admin"))],  # S2: 第五轮修复 — 死信含原始客户消息 (PII), 此前匿名可读
+)
 async def get_dead_letters(request: Request, count: int = 20):
-    """查看死信队列中的失败消息"""
+    """查看死信队列中的失败消息 (仅 admin)."""
     redis = getattr(request.app.state, "redis_client", None)
     if not redis:
         return {"messages": [], "total": 0}
@@ -442,19 +463,28 @@ async def submit_for_review(doc_id: str, body: ApprovalActionRequest, request: R
     return await _transition_approval(doc_id, "IN_REVIEW", body.comment, request, user)
 
 
-@router.post("/kb/documents/{doc_id}/approve")
+@router.post(
+    "/kb/documents/{doc_id}/approve",
+    dependencies=[Depends(require_role("admin"))],  # P2-2: 第五轮修复 — 审核需 admin
+)
 async def approve_document(doc_id: str, body: ApprovalActionRequest, request: Request, user: CurrentUser):
     """审核通过 (IN_REVIEW → APPROVED)"""
     return await _transition_approval(doc_id, "APPROVED", body.comment, request, user)
 
 
-@router.post("/kb/documents/{doc_id}/reject")
+@router.post(
+    "/kb/documents/{doc_id}/reject",
+    dependencies=[Depends(require_role("admin"))],  # P2-2
+)
 async def reject_document(doc_id: str, body: ApprovalActionRequest, request: Request, user: CurrentUser):
     """审核驳回 (IN_REVIEW → REJECTED)"""
     return await _transition_approval(doc_id, "REJECTED", body.comment, request, user)
 
 
-@router.post("/kb/documents/{doc_id}/publish")
+@router.post(
+    "/kb/documents/{doc_id}/publish",
+    dependencies=[Depends(require_role("admin"))],  # P2-2: 发布后即可被检索, 合规总开关
+)
 async def publish_document(doc_id: str, body: ApprovalActionRequest, request: Request, user: CurrentUser):
     """发布文档 (APPROVED → PUBLISHED)
 
@@ -464,7 +494,10 @@ async def publish_document(doc_id: str, body: ApprovalActionRequest, request: Re
     return await _transition_approval(doc_id, "PUBLISHED", body.comment, request, user)
 
 
-@router.post("/kb/documents/{doc_id}/archive")
+@router.post(
+    "/kb/documents/{doc_id}/archive",
+    dependencies=[Depends(require_role("admin"))],  # P2-2
+)
 async def archive_document(doc_id: str, body: ApprovalActionRequest, request: Request, user: CurrentUser):
     """归档文档 (→ ARCHIVED)"""
     return await _transition_approval(doc_id, "ARCHIVED", body.comment, request, user)

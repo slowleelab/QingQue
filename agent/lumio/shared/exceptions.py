@@ -14,11 +14,13 @@ class LumioError(Exception):
     code: int = 5000
     message: str = "系统内部错误"
 
-    def __init__(self, message: str | None = None, code: int | None = None):
+    def __init__(self, message: str | None = None, code: int | None = None, status_code: int | None = None):
         if message is not None:
             self.message = message
         if code is not None:
             self.code = code
+        if status_code is not None:
+            self.status_code = status_code
         super().__init__(self.message)
 
 

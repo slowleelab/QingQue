@@ -9,7 +9,7 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from lumio.shared.models import DegradationLevel, IntentLabel
 
@@ -101,20 +101,27 @@ class HealthMonitor:
         """指数退避更新探测间隔"""
         n = self._consecutive_failures
         if n == 0:
-            self._current_interval = self._probe_interval
+            # P2 第三轮修复: 健康时探测间隔至少 10s — 旧代码恒 1s/次,
+            # 每天 ~86400 次真实 LLM 调用 (计费成本) 且 5-token ping 污染业务 P99 指标
+            self._current_interval = max(self._probe_interval, 10.0)
         else:
             self._current_interval = min(2.0**n, self._max_interval)
 
     def _recompute_level(self) -> None:
-        """根据连续成功/失败次数重新计算降级级别"""
-        if self._consecutive_failures >= self._fail_threshold:
+        """根据连续成功/失败次数重新计算降级级别
+
+        P2-4 第五轮修复: FALLBACK 可达 — 旧实现只在 NORMAL/DEGRADED 间切换,
+        FALLBACK (跳过检索 + 模板) 是死路径. 连续失败超 fail_threshold×3 升级 FALLBACK.
+        """
+        if self._consecutive_failures >= self._fail_threshold * 3:
+            self._level = DegradationLevel.FALLBACK
+        elif self._consecutive_failures >= self._fail_threshold:
             self._level = DegradationLevel.DEGRADED
         elif self._consecutive_successes >= self._success_threshold:
             self._level = DegradationLevel.NORMAL
         # 6b: 同步写到 Prometheus (dashboard lumio-dashboard.json panel
         # 'lumio_degradation_level' 引用). DegradationLevel 是 enum,
-        # 映射: NORMAL=0, DEGRADED=1, FALLBACK=2. FALLBACK 由 DegradationManager
-        # 显式触发, 见 ContentDegrader fallback 路径
+        # 映射: NORMAL=0, DEGRADED=1, FALLBACK=2
         from lumio.shared.metrics import DEGRADATION_LEVEL
 
         DEGRADATION_LEVEL.set({"NORMAL": 0, "DEGRADED": 1, "FALLBACK": 2}.get(self._level.name, 0))
@@ -186,24 +193,38 @@ class DegradationManager:
         context: str = "",
         intent_label: IntentLabel | None = None,
         history: list[dict[str, str]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
     ) -> GenerateResult:
         """根据降级级别决定生成策略
 
         NORMAL:   LLM generate → 失败→检索摘要 → context空→模板
         DEGRADED: 跳过LLM → 检索摘要 → 模板
         FALLBACK: 跳过LLM → 模板
+
+        messages (上下文工程 P0-1): 传入时优先直接调用 LLM chat(messages),
+        保留分层消息结构 (L1 静态 + L2 半稳态 + L3 动态 + RAG 物理隔离),
+        最大化前缀缓存命中; 失败仍走既有降级链.
         """
         level = self._health_monitor.level
 
         # NORMAL: try LLM
         if level == DegradationLevel.NORMAL and self._llm.breaker.is_available:
             try:
-                resp = await self._llm.generate(
-                    system_prompt=system_prompt,
-                    user_input=user_input,
-                    context=context,
-                    history=history,
-                )
+                # P1-3 第三轮修复: 显式传 generate_timeout (此前配置从未生效, 走默认 60s)
+                from lumio.shared.config import get_settings
+
+                timeout = get_settings().llm.generate_timeout
+                if messages is not None:
+                    # P0-1: 直传完整分层消息 (含 RAG user-role 物理隔离), 不再扁平化拼接
+                    resp = await self._llm.chat(messages, timeout=timeout)
+                else:
+                    resp = await self._llm.generate(
+                        system_prompt=system_prompt,
+                        user_input=user_input,
+                        context=context,
+                        history=history,
+                        timeout=timeout,
+                    )
                 return GenerateResult(content=resp, source="llm")
             except Exception:
                 logger.warning("LLM generate 失败，进入内容降级")

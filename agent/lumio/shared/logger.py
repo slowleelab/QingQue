@@ -66,10 +66,15 @@ class JSONFormatter(logging.Formatter):
             log_entry["trace_id"] = trace_id
             log_entry["span_id"] = getattr(record, "span_id", "")
         if record.exc_info and record.exc_info[0] is not None:
-            log_entry["exception"] = self.formatException(record.exc_info)
+            # P2 第三轮修复: traceback 脱敏 — 旧代码只 mask msg/args,
+            # logger.exception() 的 traceback (异常消息含卡号/手机号) 明文进日志
+            exc_text = self.formatException(record.exc_info)
+            log_entry["exception"] = mask_pii(exc_text)
         # 合并 extra 字段（如 logger.info("msg", extra={"request_id": "..."})）
         if hasattr(record, "extra") and isinstance(record.extra, dict):
-            log_entry.update(record.extra)
+            log_entry.update(
+                {k: mask_pii(v) if isinstance(v, str) else v for k, v in record.extra.items()}
+            )
         return json.dumps(log_entry, ensure_ascii=False)
 
 
@@ -107,3 +112,11 @@ def setup_logger(name: str, level: str = "INFO", *, json_format: bool = False) -
         )
     logger.addHandler(handler)
     return logger
+
+
+def get_logger(name: str, level: str = "INFO", *, json_format: bool = False) -> logging.Logger:
+    """setup_logger 的别名, 兼容旧代码.
+
+    推荐新代码直接使用 setup_logger.
+    """
+    return setup_logger(name, level=level, json_format=json_format)

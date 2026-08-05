@@ -1,0 +1,60 @@
+graph TB
+    subgraph Client["客户端"]
+        Web["Vue 3 Web App"]
+        Customer["手机银行 App"]
+    end
+
+    subgraph Edge["边缘层 (反向代理)"]
+        Nginx["Nginx :80/443<br/>WebSocket Upgrade 3600s"]
+    end
+
+    subgraph Orch["编排层 (Orchestration) - Python 3.11 + FastAPI"]
+        Bot["Bot Service :8000<br/>POST /api/chat/send<br/>GET /api/chat/poll<br/>GET /api/kb/*"]
+        Assist["Assist Service :8001<br/>WS /api/ws/agent/{id}<br/>POST /api/analyze<br/>POST /api/hold<br/>POST /api/review/*"]
+    end
+
+    subgraph Capability["AI 能力层 (gRPC 规划中)"]
+        Note1["ClassificationService :50051<br/>RetrievalService :50052<br/>SafetyFilterService :50053<br/>(P3-2 已清理)"]
+    end
+
+    subgraph Data["数据层 (6 大中间件)"]
+        PG["PostgreSQL 16<br/>19 张表<br/>5-7 年审计留存"]
+        Redis["Redis 7.2<br/>15+ key prefix<br/>Stream + Pub-Sub + ZSET"]
+        ES["Elasticsearch 8.19 + IK<br/>BM25 全文检索"]
+        Milvus["Milvus 2.4<br/>IVF_FLAT 1024 维<br/>向量检索"]
+        MinIO["MinIO<br/>lumio-docs bucket<br/>KB 文件存储"]
+        Kafka["Kafka 3.7 (KRaft)<br/>3 topic 预留<br/>异步事件流"]
+    end
+
+    subgraph Observability["可观测性"]
+        Prom["Prometheus :9090<br/>9 scrape jobs"]
+        Grafana["Grafana :3001<br/>3 dashboard"]
+        Jaeger["Jaeger :16686<br/>OTLP :4318"]
+    end
+
+    subgraph Java["Java 生态 (chat-svc + MCP Server)"]
+        ChatSvc["chat-svc :8080/:8081<br/>Spring Boot 3.1.5 + Netty + ZK"]
+        MCPServer["mcp-server :8090<br/>Spring Boot 3.4.5 + Spring AI<br/>22 信用卡工具"]
+    end
+
+    Web --> Nginx
+    Customer --> Nginx
+    Nginx --> Bot
+    Nginx --> Assist
+    Bot --> PG
+    Bot --> Redis
+    Bot --> ES
+    Bot --> Milvus
+    Bot --> MinIO
+    Bot --> MCPServer
+    Assist --> PG
+    Assist --> Redis
+    Assist --> MCPServer
+    Assist --> ChatSvc
+    Bot -.span.-> Jaeger
+    Assist -.span.-> Jaeger
+    MCPServer -.span.-> Jaeger
+    Bot -.metric.-> Prom
+    Assist -.metric.-> Prom
+    MCPServer -.metric.-> Prom
+    Prom --> Grafana

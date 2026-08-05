@@ -1,0 +1,47 @@
+sequenceDiagram
+    participant Client as 客户 App
+    participant Bot as Bot Service :8000
+    participant Redis as Redis 7.2
+    participant Worker as per-session Worker
+    participant Agent as LumioAgent
+    participant LLM as LLM (Ollama/OpenAI)
+    participant RAG as RAG 检索
+    participant MCP as MCP 工具
+
+    Client->>Bot: POST /api/chat/send<br/>{message, session_id}
+    Bot->>Redis: XADD lumio:chat:stream<br/>MAXLEN 10000
+    Bot-->>Client: 202 Accepted<br/>{request_id, accepted: true}
+
+    Redis->>Worker: XREADGROUP bot-group<br/>(15s 阻塞)
+    Worker->>Worker: _dispatch_message<br/>路由到 per-session Queue
+
+    Worker->>Agent: agent.run(message)
+    Agent->>Agent: pending_action 拦截?
+    alt 有 pending_action
+        Agent->>Client: 处理确认/取消
+    else 无 pending
+        Agent->>LLM: classify (3s 超时)
+        LLM-->>Agent: IntentResult
+        Agent->>Agent: 路由 (knowledge/business/tool/fallback)
+        alt 知识类
+            Agent->>RAG: retrieve(query)
+            RAG-->>Agent: chunks + rerank
+            Agent->>LLM: generate with context
+            LLM-->>Agent: 回答
+        else 业务类
+            Agent->>MCP: tool_call (敏感工具)
+            MCP-->>Agent: 工具结果
+        else 工具类
+            Agent->>MCP: call_tool
+            MCP-->>Agent: result
+        end
+    end
+
+    Worker->>Redis: SETEX lumio:response:{sid}<br/>TTL 120s
+    Worker->>Redis: PUBLISH lumio:notify:{sid}<br/>"ready"
+
+    Client->>Bot: GET /api/chat/poll<br/>(长轮询 30s)
+    Bot->>Redis: SUBSCRIBE lumio:notify:{sid}
+    Redis-->>Bot: 收到 "ready"
+    Bot->>Redis: GET lumio:response:{sid}
+    Bot-->>Client: {answer, ...}

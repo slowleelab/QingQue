@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Literal
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from lumio.services.common.audit import update_chat_message, write_chat_message
 from lumio.services.common.deps import (
@@ -56,6 +56,7 @@ from lumio.shared.models import (
     SessionSubPhase,
 )
 from lumio.shared.orm_models import ChatMessageStatus, KbDocStatus, KbDocument, KbSourceType
+from lumio.shared.rate_limit import get_limiter
 
 if TYPE_CHECKING:
     pass
@@ -124,6 +125,20 @@ _EXT_TO_SOURCE: dict[str, str] = {
 _ALLOWED_EXTENSIONS = set(_EXT_TO_SOURCE.keys())
 
 
+def _ensure_session_owned(user: CurrentUser, session_id: str) -> None:
+    """P0-1 第三轮修复: JWT 声明 session_id 存在时校验与请求一致 (越权防护).
+
+    银行客服场景: 客户端首次 chat/send 时服务端生成 session_id 返回,
+    客户端随后用该 session_id poll/end/transfer/feedback。
+    若 JWT 中带 session_id (坐席/管理端场景), 必须与请求一致, 否则 403。
+    普通客户 token 不带 session_id 声明时放行 (session_id 本身是随机会话 ID)。
+    """
+    from lumio.shared.auth import AuthorizationError
+
+    if user.session_id and user.session_id != session_id:
+        raise AuthorizationError("无权访问该会话")
+
+
 # ── Helpers ─────────────────────────────────────────────────────
 
 
@@ -183,6 +198,26 @@ async def _finish_message(
 
     await redis_client.setex(response_key, RESPONSE_TTL, json.dumps(payload, ensure_ascii=False))
     await redis_client.publish(notify_channel, "ready")
+
+
+# ── P1-2 第三轮修复: message 级幂等标记 ──
+# 旧实现按 session 级 response_key 判断幂等: 消息 A 处理中用户连发 B,
+# A 写完 response key 后 B 被误判"已处理"而 XACK 丢弃 (消息永久丢失, at-least-once 被破坏).
+# 现改为 message_id 维度: 每条消息处理完成后标记, XAUTOCLAIM 重投递时跳过已处理的.
+_PROCESSED_PREFIX = "lumio:processed"
+_PROCESSED_TTL = 300  # 5 分钟, 覆盖 XAUTOCLAIM 60s 重投窗口
+
+
+async def _mark_processed(redis_client, client_message_id: str) -> None:
+    """标记消息已处理 (幂等键, 防 at-least-once 重投递重复执行)."""
+    if not client_message_id:
+        return
+    try:
+        await redis_client.setex(
+            f"{_PROCESSED_PREFIX}:{client_message_id}", _PROCESSED_TTL, "1"
+        )
+    except Exception:
+        pass
 
 
 # ── Consumer group 初始化 ───────────────────────────────────────
@@ -374,14 +409,22 @@ async def _session_worker(
                             source="timeout",
                             processing_duration_ms=int((now - enqueue_time) * 1000),
                         )
+                    await _mark_processed(redis_client, client_message_id)  # P1-2
                     continue
 
-                # 2. 幂等检查
-                response_key = f"{RESPONSE_KEY_PREFIX}:{session_id}"
-                if await redis_client.exists(response_key):
-                    logger.debug("幂等跳过: session=%s", session_id)
-                    await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
-                    return
+                # 2. 幂等检查 (P1-2: message 级维度, 防 XAUTOCLAIM 重投递重复执行)
+                # 旧实现按 session 级 response_key 判断: 用户连发消息时新消息被误杀,
+                # 且 return 直接杀死整个 per-session worker (队列残留消息滞留 60s).
+                if client_message_id:
+                    processed_key = f"{_PROCESSED_PREFIX}:{client_message_id}"
+                    if await redis_client.get(processed_key):
+                        logger.debug(
+                            "消息幂等跳过(已处理): session=%s msg=%s",
+                            session_id,
+                            client_message_id,
+                        )
+                        await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
+                        continue
 
                 # 3. Semaphore 满荷 → 快速兜底
                 if _agent_semaphore and _agent_semaphore.locked():
@@ -402,10 +445,15 @@ async def _session_worker(
                             processing_duration_ms=duration,
                         )
                     logger.info("快速兜底: session=%s intent=%s", session_id, intent_hint)
+                    await _mark_processed(redis_client, client_message_id)  # P1-2
                     return
 
                 # 4. 标准 Agent 处理路径
                 # 4a. 调用前队列检查: peek 队列并 drain 排队消息, 合并后一次 LLM 调用
+                # P2 第三轮修复: 合并上限 (≤5 条 / ≤4000 字符) — 旧代码无界合并,
+                # 攻击者短时灌入大量消息 → 数千字符进 LLM prompt
+                max_merge_count = 5
+                max_merge_chars = 4000
                 merged_message_ids: list[str] = []
                 merged_contents: list[str] = []
 
@@ -414,6 +462,14 @@ async def _session_worker(
                         try:
                             pending_msg_id, pending_fields = q.get_nowait()
                         except asyncio.QueueEmpty:
+                            break
+
+                        # 超限: 该条放回队列, 留给下一轮处理 (不丢失)
+                        if len(merged_message_ids) >= max_merge_count or (
+                            sum(len(m) for m in merged_contents) + len(pending_fields.get("message", ""))
+                            > max_merge_chars
+                        ):
+                            q.put_nowait((pending_msg_id, pending_fields))
                             break
 
                         pending_msg = pending_fields.get("message", "")
@@ -476,6 +532,7 @@ async def _session_worker(
                             merged_message,
                             msg_id,
                             fields.get("message_id", ""),
+                            customer_id=customer_id,
                             merged_message_ids=merged_message_ids,
                         )
                     except Exception:
@@ -534,6 +591,7 @@ async def _run_agent(
     message: str,
     msg_id: str,
     orig_message_id: str,
+    customer_id: str = "",  # P1-6 第三轮修复: 透传 customer_id (画像学习依赖)
     merged_message_ids: list[str] | None = None,
 ) -> None:
     """标准 Agent 处理路径 (Semaphore 内)
@@ -548,12 +606,34 @@ async def _run_agent(
 
     # 如果已进入 AGENT 阶段，跳过 bot 处理
     if state.current_phase.value == "agent":
+        # P2 第三轮修复: 不再静默 XACK 丢弃 — 客户排队期间的消息需要可见反馈
         logger.info("会话已进入 AGENT 阶段, 跳过 bot: session=%s", session_id)
+        await _finish_message(
+            redis_client,
+            session_id,
+            "您已转接人工客服, 排队期间的消息已为您记录, 客服将尽快回复。",
+            source="transfer_queued",
+        )
         await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
         return
 
-    # Agent 编排
-    result = await agent.run(session_id, message)
+    # Agent 编排 (P1-3 第三轮修复: 端到端 deadline, 防止 5 轮工具循环 × 60s 撑爆 semaphore)
+    try:
+        result = await asyncio.wait_for(
+            agent.run(session_id, message, customer_id=customer_id or None),
+            timeout=get_settings().orchestration.global_timeout_ms / 1000,
+        )
+    except TimeoutError:
+        logger.warning("Agent 编排超时: session=%s (>%dms)", session_id, get_settings().orchestration.global_timeout_ms)
+        await _finish_message(
+            redis_client,
+            session_id,
+            "当前咨询量较大，回复超时，请重新发送或输入'转人工'。",
+            source="timeout",
+        )
+        await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
+        await _mark_processed(redis_client, orig_message_id)  # P1-2
+        return
 
     intent = result.get("intent")
     primary_intent = intent.primary_intent if intent and hasattr(intent, "primary_intent") else None
@@ -613,9 +693,12 @@ async def _run_agent(
                 conversation_summary = state.conversation_summary if state else ""
                 transfer_summary = f"{conversation_summary}\n\n[最近回复] {reply}" if conversation_summary else reply
 
-                # 已知实体随转接传递
+                # 已知实体随转接传递 (P2 第三轮修复: 旧代码计算后未赋值, 实体列表被丢弃)
+                known_entities: list[dict[str, str]] = []
                 if state and state.last_entities:
-                    [{"type": e.entity_type, "value": e.value} for e in state.last_entities]
+                    known_entities = [
+                        {"type": e.entity_type, "value": e.value} for e in state.last_entities
+                    ]
 
                 transfer_req = chat_client.build_transfer_request(
                     session_id=session_id,
@@ -624,6 +707,7 @@ async def _run_agent(
                     history=history,
                     intent=str(primary_intent.value) if primary_intent and hasattr(primary_intent, "value") else "",
                     sentiment=str(result.get("sentiment", "neutral")),
+                    entities=known_entities,  # P2: 实体列表真正传入转接
                 )
                 transfer_resp = await chat_client.create_session(transfer_req)
 
@@ -682,6 +766,7 @@ async def _run_agent(
             data["transfer_reason"] = transfer_reason
             await redis_client.setex(response_key, RESPONSE_TTL, json.dumps(data, ensure_ascii=False))
         await redis_client.xack(CHAT_STREAM_KEY, CONSUMER_GROUP, msg_id)
+        await _mark_processed(redis_client, orig_message_id)  # P1-2
         return
 
     # 非转人工: 写 response + 通知
@@ -716,6 +801,7 @@ async def _run_agent(
     # 清理重试计数（如果消息曾被 XAUTOCLAIM 认领过）
     with contextlib.suppress(Exception):
         await redis_client.hdel("lumio:chat:retry_count", str(msg_id))
+    await _mark_processed(redis_client, orig_message_id)  # P1-2 幂等标记
 
     logger.info(
         "消息处理完成: session=%s intent=%s source=%s merged=%d",
@@ -848,10 +934,18 @@ async def start_bot_worker(app) -> None:
     if _db_session_factory:
         await _rule_loader.start_hot_reload(redis_client, _db_session_factory)
 
-    # 加载安全过滤敏感词
+    # 加载安全过滤敏感词 (S6 第五轮修复: 用代码定位代替相对路径 — 旧实现依赖 CWD,
+    # 进程 CWD 不同时文件找不到 → 过滤被静默禁用 (check_input 恒安全))
+    from pathlib import Path as _Path
+
     from lumio.shared.safety import safety_filter
 
-    safety_filter.load_from_file("config/sensitive_words.txt")
+    _words_path = _Path(__file__).resolve().parents[3] / "config" / "sensitive_words.txt"
+    if not _words_path.exists():
+        _words_path = _Path(__file__).resolve().parents[2] / "config" / "sensitive_words.txt"
+    loaded = safety_filter.load_from_file(str(_words_path))
+    if loaded == 0:
+        logger.warning("敏感词加载为 0 个: %s (内容安全过滤可能未生效)", _words_path)
 
     # 确保 Stream 和 consumer group 存在
     await _init_stream_group(redis_client)
@@ -928,12 +1022,14 @@ async def health_check(req: Request):
 
 
 @router.get("/health/live")
+@get_limiter().exempt  # P2-3: 健康探针豁免限流 (流量高峰误 429 → 误判实例不可用)
 async def health_live():
     """Liveness 探针：进程存活即 200"""
     return {"status": "alive"}
 
 
 @router.get("/health/ready")
+@get_limiter().exempt  # P2-3
 async def health_ready(req: Request):
     """Readiness 探针：检查核心依赖连通性"""
     from fastapi.responses import JSONResponse
@@ -949,13 +1045,18 @@ async def health_ready(req: Request):
 
 
 @router.post("/chat/send", response_model=ChatSendResponse)
-async def chat_send(body: ChatSendRequest, req: Request):
+# P2-3 第五轮修复: 差异化限流 (rate_limit_chat=30/min, 此前死配置) —
+# 用户级 key 防 NAT 共享配额; 登录接口类的高频滥用通道单独收紧
+@get_limiter().limit("30/minute")
+async def chat_send(body: ChatSendRequest, request: Request, user: CurrentUser):
     """客户端发送消息接口
 
     消息写入 Redis Stream 持久化, 由后台 consumer 异步处理。
     客户端通过 GET /api/chat/poll 订阅通知获取结果。
     """
-    redis_client = getattr(req.app.state, "redis_client", None)
+    # P0-1 第三轮修复: chat/session 端点强制认证 + JWT 声明 session_id 归属校验
+    _ensure_session_owned(user, body.session_id)
+    redis_client = getattr(request.app.state, "redis_client", None)
     if redis_client is None:
         # P3-4 整改: 走统一错误体 (ServiceOverloadedError → 503)
         from lumio.shared.exceptions import ServiceOverloadedError
@@ -971,6 +1072,19 @@ async def chat_send(body: ChatSendRequest, req: Request):
         from lumio.shared.exceptions import IntentUnrecognizedError
 
         raise IntentUnrecognizedError("消息内容不能为空")
+
+    # P0-6 第三轮修复: A3 注入防护接入生产入口 (此前 check_user_input 仅测试引用)
+    # 命中已知注入模式 (忽略指令/角色混淆) → 拒绝请求, 不进 agent 链路
+    from lumio.shared.injection_guard import InjectionAction, get_guard
+
+    injection_verdict = get_guard().check_user_input(msg)
+    if injection_verdict.action in (InjectionAction.REJECT, InjectionAction.QUARANTINE):
+        logger.warning(
+            "注入拦截 (入口): session=%s pattern=%s",
+            body.session_id or "-",
+            injection_verdict.pattern,
+        )
+        raise IntentUnrecognizedError("消息内容不符合规范, 请重新描述您的需求")
 
     # 安全过滤：检测客户输入中的敏感词
     from lumio.shared.safety import safety_filter
@@ -1019,6 +1133,7 @@ async def chat_send(body: ChatSendRequest, req: Request):
 @router.get("/chat/poll")
 async def chat_poll(
     req: Request,
+    user: CurrentUser,
     session_id: str = Query(...),
     timeout: int = Query(default=25, ge=1, le=60),
 ):
@@ -1027,6 +1142,8 @@ async def chat_poll(
     通过 Redis Pub/Sub 监听完成通知, worker 完成即刻唤醒。
     返回不同状态: queued → processing → done / timeout
     """
+    # P0-1 第三轮修复: 强制认证 + session 归属校验
+    _ensure_session_owned(user, session_id)
     redis_client = getattr(req.app.state, "redis_client", None)
     if redis_client is None:
         return JSONResponse(content=_build_poll_json(status="timeout", suggestion="请稍后重试"))
@@ -1142,6 +1259,12 @@ async def _wait_for_response(
 
     finally:
         await pubsub.unsubscribe(notify_channel)
+        # P2 第三轮修复: pubsub 连接必须 aclose 释放回池 —
+        # 旧代码只 unsubscribe 不 aclose, 60/min/IP 轮询压力下耗尽 20 连接池
+        try:
+            await pubsub.aclose()
+        except Exception:
+            pass
 
 
 @router.post("/kb/retrieve", response_model=RetrieveResponse)
@@ -1336,8 +1459,10 @@ class ChatEndRequest(BaseModel):
 
 
 @router.post("/chat/end")
-async def chat_end(body: ChatEndRequest, req: Request):
+async def chat_end(body: ChatEndRequest, req: Request, user: CurrentUser):
     """客户主动结束会话"""
+    # P0-1 第三轮修复: 强制认证 + session 归属校验
+    _ensure_session_owned(user, body.session_id)
     session_manager = getattr(req.app.state, "session_manager", None)
     if session_manager:
         try:
@@ -1357,8 +1482,10 @@ class ChatTransferRequest(BaseModel):
 
 
 @router.post("/chat/transfer")
-async def chat_transfer(body: ChatTransferRequest, req: Request):
+async def chat_transfer(body: ChatTransferRequest, req: Request, user: CurrentUser):
     """客户主动请求转人工"""
+    # P0-1 第三轮修复: 强制认证 + session 归属校验 (防转人工轰炸)
+    _ensure_session_owned(user, body.session_id)
     session_manager = getattr(req.app.state, "session_manager", None)
     if session_manager:
         with contextlib.suppress(Exception):
@@ -1392,9 +1519,17 @@ class ChatFeedbackRequest(BaseModel):
     comment: str = ""
 
 
+class GDPRDeleteRequest(BaseModel):
+    """P0-4: GDPR 删除请求 (管理端/客户本人发起)."""
+
+    customer_id: str = Field(min_length=1, max_length=64)
+
+
 @router.post("/chat/feedback")
-async def chat_feedback(body: ChatFeedbackRequest, req: Request):
+async def chat_feedback(body: ChatFeedbackRequest, req: Request, user: CurrentUser):
     """客户对 Bot 回复的反馈（点赞/踩/评论）"""
+    # P0-1 第三轮修复: 强制认证 + session 归属校验
+    _ensure_session_owned(user, body.session_id)
     redis_client = getattr(req.app.state, "redis_client", None)
     if redis_client:
         feedback_key = f"lumio:feedback:customer:{body.message_id}"
@@ -1416,53 +1551,103 @@ async def chat_feedback(body: ChatFeedbackRequest, req: Request):
     return {"status": "ok"}
 
 
+@router.post("/gdpr/delete")
+async def gdpr_delete(body: GDPRDeleteRequest, req: Request, user: CurrentUser):
+    """P0-4 第三轮修复: GDPR 删除请求 (客户删除自己的数据).
+
+    认证 + 归属校验: 仅本人 (JWT sub == customer_id) 或 admin/agent 可发起.
+    流程: 软删除 (30 天观察) + 立即清理活跃 session, 后台 worker 30 天后硬删除.
+    """
+    from lumio.shared.auth import AuthorizationError
+
+    # 客户只能删自己; admin/agent 可代删
+    if user.role == "customer" and user.user_id != body.customer_id:
+        raise AuthorizationError("只能删除本人的数据")
+
+    from lumio.services.common.gdpr import get_gdpr_service
+
+    service = get_gdpr_service()
+    req_result = await service.request_deletion(body.customer_id)
+    return {"status": "ok", **req_result.to_dict()}
+
+
 # ── 会话历史 ──
 
 
 @router.get("/sessions")
 async def list_sessions(
     req: Request,
+    user: CurrentUser,
     limit: int = 20,
     offset: int = 0,
 ):
-    """列出会话（从 Redis 扫描活跃会话）"""
+    """列出会话（从 Redis 扫描活跃会话）
+
+    S3 第五轮修复: 按用户过滤 — customer 只返回自己的会话 (meta.customer_id == user_id),
+    admin/agent 可全量枚举 (坐席工作台场景). 此前任何登录用户可枚举全系统会话.
+    """
     redis_client = getattr(req.app.state, "redis_client", None)
     if not redis_client:
         return {"sessions": [], "total": 0}
+
+    is_admin = user.role in ("admin", "agent")
 
     # 使用 SCAN 迭代（非阻塞），避免 KEYS 阻塞 Redis
     # P3-5 整改: 用 session_meta_scan_pattern() 公共 helper 代替硬编码
     from lumio.services.common.session import session_meta_scan_pattern
 
-    session_keys: list[str] = []
-    async for key in redis_client.scan_iter(match=session_meta_scan_pattern(), count=100):
-        session_keys.append(key if isinstance(key, str) else key.decode())
-    total = len(session_keys)
     sessions = []
-    for key in session_keys[offset : offset + limit]:
+    async for key in redis_client.scan_iter(match=session_meta_scan_pattern(), count=100):
         raw = await redis_client.get(key)
-        if raw:
-            try:
-                meta = json.loads(raw)
-                sessions.append(
-                    {
-                        "session_id": meta.get("session_id"),
-                        "current_phase": meta.get("current_phase"),
-                        "sub_phase": meta.get("sub_phase"),
-                        "turn_count": meta.get("turn_count", 0),
-                        "last_active_at": meta.get("last_active_at"),
-                        "agent_id": meta.get("agent_id"),
-                    }
-                )
-            except Exception:
-                continue
-    return {"sessions": sessions, "total": total}
+        if not raw:
+            continue
+        try:
+            meta = json.loads(raw)
+        except Exception:
+            continue
+        # customer 仅见自己的会话 (owner 校验)
+        if not is_admin and meta.get("customer_id") not in (None, "", user.user_id):
+            continue
+        sessions.append(
+            {
+                "session_id": meta.get("session_id"),
+                "current_phase": meta.get("current_phase"),
+                "sub_phase": meta.get("sub_phase"),
+                "turn_count": meta.get("turn_count", 0),
+                "last_active_at": meta.get("last_active_at"),
+                "agent_id": meta.get("agent_id"),
+                "customer_id": meta.get("customer_id") if is_admin else None,  # 脱敏: 客户不可见他人 ID
+            }
+        )
+        if len(sessions) >= offset + limit:
+            break
+    paged = sessions[offset : offset + limit]
+    return {"sessions": paged, "total": len(sessions)}
 
 
 @router.get("/sessions/{session_id}/messages")
-async def get_session_messages(session_id: str, req: Request, limit: int = 50):
+async def get_session_messages(session_id: str, req: Request, user: CurrentUser, limit: int = 50):
     """获取会话消息历史"""
+    # P0-1 第三轮修复: 强制认证 + session 归属校验 (横向越权读取防护)
+    _ensure_session_owned(user, session_id)
+    # S3 第五轮修复: customer 读取他人会话时按 meta owner 二次校验 —
+    # JWT 无 session_id 声明的 customer token 此前直接放行, 配合枚举可越权
     redis_client = getattr(req.app.state, "redis_client", None)
+    if redis_client and user.role == "customer":
+        from lumio.services.common.session import session_meta_key
+
+        raw_meta = await redis_client.get(session_meta_key(session_id))
+        if raw_meta:
+            from lumio.shared.auth import AuthorizationError
+
+            try:
+                meta_owner = json.loads(raw_meta).get("customer_id")
+                if meta_owner and meta_owner != user.user_id:
+                    raise AuthorizationError("无权访问该会话")
+            except AuthorizationError:
+                raise
+            except Exception:
+                pass
     if not redis_client:
         # P3-9 整改: 不再静默返回空列表 (会误导客户端 polling loop 空转)
         # 显式 503 走统一错误体, 客户端能识别"系统故障"vs"无消息"

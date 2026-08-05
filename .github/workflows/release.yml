@@ -39,12 +39,11 @@ jobs:
       - name: Install dependencies
         working-directory: agent
         run: poetry install --no-interaction
-      - name: Generate gRPC stubs
-        working-directory: agent
-        run: poetry run python scripts/generate_grpc.py
       - name: Run tests
+        # 第五轮修复: 删 gRPC 死步骤 (脚本已随 gRPC 移除, CI 必红);
+        # test_integration.py (纯 mock) 纳入运行
         working-directory: agent
-        run: poetry run pytest --ignore=tests/test_bot_api.py --ignore=tests/test_assist_api.py --ignore=tests/test_session_lifecycle_e2e.py --ignore=tests/test_integration.py -v --tb=short
+        run: poetry run pytest --ignore=tests/test_bot_api.py --ignore=tests/test_assist_api.py --ignore=tests/test_session_lifecycle_e2e.py -v --tb=short
 
   docker:
     name: Build & Push Docker Image

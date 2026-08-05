@@ -112,6 +112,134 @@ class LLMSettings(BaseSettings):
     classify_timeout: float = 1.5  # 分类独立超时
     generate_timeout: float = 2.0  # 生成独立超时
 
+    # ── A0: KV Cache 优化配置 ──
+    # 三层 cache 控制
+    kv_cache_enabled: bool = True
+    static_prefix_anchor: bool = True  # L1: 静态前缀锚定
+    layered_injection: bool = True  # L2: 状态分层注入
+    # 推理引擎: ollama (0% prefix cache) / vllm (PagedAttention) / tgi
+    inference_engine: str = "ollama"
+    # 长上下文窗口配置 (A7)
+    max_context_tokens: int = 8192
+    reserved_tokens: int = 1024  # 留给 LLM 输出
+    # 分层 token 预算 (A2)
+    budget_static: int = 800  # 稳态层
+    budget_customer: int = 400  # 半稳态层 (客户画像)
+    budget_rag: int = 1200  # 动态层 (RAG 检索)
+    budget_history: int = 1500  # 动态层 (历史)
+    budget_current: int = 200  # 动态层 (当前轮)
+
+
+class CompressionSettings(BaseSettings):
+    """A1: 上下文压缩配置"""
+
+    model_config = SettingsConfigDict(env_prefix="COMPRESS_")
+
+    # 算法: llmlingua / selective / semantic
+    algorithm: str = "selective"
+    # 目标压缩比 (original/compressed), e.g. 5.0 表示压到 1/5
+    target_ratio: float = 4.0
+    # 质量下限 (1-5, 低于此值回退到原文)
+    min_quality_score: float = 3.5
+    # 启用开关 (灰度用)
+    enabled: bool = True
+    # Selective Context: 保留多少信息量
+    preserve_ratio: float = 0.35
+    # 触发压缩的历史长度阈值 (轮数)
+    min_history_turns: int = 8
+
+
+class BudgetSettings(BaseSettings):
+    """E0: LLM Token 成本预算配置"""
+
+    model_config = SettingsConfigDict(env_prefix="BUDGET_")
+
+    # 全局月度预算（美元）
+    monthly_budget_usd: float = 5000.0
+    # 单租户日预算（美元）
+    per_tenant_daily_limit_usd: float = 100.0
+    # 模型单价 (USD per 1M tokens)
+    cost_per_1m_input_tokens: dict[str, float] = Field(
+        default_factory=lambda: {
+            "qwen2.5:7b": 0.18,
+            "qwen2.5:72b": 1.80,
+            "deepseek-v3": 0.27,
+            "gpt-4o": 5.00,
+        }
+    )
+    cost_per_1m_output_tokens: dict[str, float] = Field(
+        default_factory=lambda: {
+            "qwen2.5:7b": 0.18,
+            "qwen2.5:72b": 1.80,
+            "deepseek-v3": 1.10,
+            "gpt-4o": 15.00,
+        }
+    )
+
+
+class GuardrailSettings(BaseSettings):
+    """A3-A5: 提示词注入防御配置"""
+
+    model_config = SettingsConfigDict(env_prefix="GUARD_")
+
+    # User Input 层 (A3)
+    user_input_enabled: bool = True
+    user_input_layer1_regex: bool = True
+    user_input_layer2_role_confusion: bool = True
+    user_input_layer3_guard_llm: bool = False  # 默认关, 灰度开
+    # RAG 检索内容层 (A4)
+    rag_content_sanitizer_enabled: bool = True
+    rag_suspicious_threshold: float = 0.6
+    # Tool 返回结果层 (A5)
+    tool_result_sanitizer_enabled: bool = True
+    tool_result_max_size_bytes: int = 4096
+    # 实体池白名单 (A6) - 仅这些 entity_type 可跨会话带入
+    # P2-1: 双源一致性 - 同步 lumio.shared.entity_sandbox.DEFAULT_ENTITY_ALLOWLIST
+    # 之前 entity_sandbox 有 7 个默认白名单, config 仅有 5 个, 不同步会导致环境变量未覆盖时
+    # config 实际生效白名单仅 5 个, 但 entity_sandbox 代码侧按 7 个处理, 行为不一致.
+    entity_pool_allowlist: list[str] = Field(
+        default_factory=lambda: [
+            "card_type",  # 卡种 (VISA/银联)
+            "vip_level",  # VIP 等级
+            "risk_tolerance",  # 风险偏好 R1-R4
+            "city",  # 城市
+            "occupation",  # 职业
+            "age_range",  # 年龄段
+            "product_interest",  # 产品兴趣
+        ]
+    )
+
+
+class PromptSettings(BaseSettings):
+    """B0: 提示词注册中心配置"""
+
+    model_config = SettingsConfigDict(env_prefix="PROMPT_")
+
+    # Nacos 配置中心地址
+    nacos_server_addr: str = "localhost:8848"
+    nacos_namespace: str = "lumio"
+    # Redis 缓存 TTL
+    cache_ttl_seconds: int = 60
+    # 本地兜底: 离线时使用 prompts.py 硬编码常量
+    fallback_to_local: bool = True
+    # 启动时打印当前生效版本
+    log_active_version: bool = True
+
+
+class ExperimentSettings(BaseSettings):
+    """B5: A/B 实验框架配置"""
+
+    model_config = SettingsConfigDict(env_prefix="EXPERIMENT_")
+
+    # 粘性分桶开关
+    enabled: bool = True
+    # Redis 持久化 key TTL (秒)
+    bucket_ttl_seconds: int = 86400 * 30  # 30 天
+    # 最小样本量 (统计显著性检验)
+    min_sample_size: int = 1000
+    # 显著性水平 (p-value 阈值)
+    p_value_threshold: float = 0.05
+
 
 class ClassificationSettings(BaseSettings):
     """分类模型配置"""
@@ -501,6 +629,20 @@ class Settings(BaseSettings):
         # 长度检查仅在生产强制
         if self.environment == "production" and self.jwt_secret and len(self.jwt_secret) < 32:
             raise ValueError("生产环境 JWT 密钥长度必须 >= 32 字符")
+        # P0-5 第三轮修复: 生产环境外部服务凭据默认值强制校验
+        # 此前仅校验 JWT, LLM API key 默认 "ollama" / MinIO minioadmin 漏配直接可用.
+        if self.environment == "production":
+            if self.llm.api_key in ("", "ollama"):
+                raise ValueError(
+                    "生产环境必须设置 LLM_API_KEY (默认占位 'ollama' 禁止在生产使用, "
+                    "漏配会用假凭证直连外部模型服务)"
+                )
+            if self.minio.access_key in ("", "minioadmin") or self.minio.secret_key in ("", "minioadmin"):
+                raise ValueError("生产环境必须设置 MINIO_ACCESS_KEY / MINIO_SECRET_KEY (禁止默认 minioadmin)")
+            if not self.elasticsearch.username or not self.elasticsearch.password:
+                raise ValueError("生产环境必须设置 ES_USERNAME / ES_PASSWORD (禁止匿名连接)")
+            if not self.redis.password:
+                raise ValueError("生产环境必须设置 REDIS_PASSWORD (禁止无密码 Redis)")
         return self
 
     # 限流
@@ -525,6 +667,12 @@ class Settings(BaseSettings):
     circuit_breaker: CircuitBreakerConfigSettings = Field(default_factory=CircuitBreakerConfigSettings)
     mcp: MCPSettings = Field(default_factory=MCPSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    # Sprint A+ P0 增强配置
+    compression: CompressionSettings = Field(default_factory=CompressionSettings)
+    budget: BudgetSettings = Field(default_factory=BudgetSettings)
+    guard: GuardrailSettings = Field(default_factory=GuardrailSettings)
+    prompt: PromptSettings = Field(default_factory=PromptSettings)
+    experiment: ExperimentSettings = Field(default_factory=ExperimentSettings)
 
 
 @lru_cache

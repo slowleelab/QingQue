@@ -1,0 +1,23 @@
+flowchart LR
+    Query[用户查询] --> Cache{Redis 缓存<br/>TTL 300s}
+    Cache -->|命中| Return[直接返回]
+    Cache -->|未命中| Compliance[合规字段注入]
+
+    Compliance --> Hybrid{search_type}
+    Hybrid -->|hybrid| BM25[search_bm25<br/>ES + IK]
+    Hybrid -->|bm25| BM25
+    Hybrid -->|vector| Vector[search_vector<br/>Milvus]
+
+    BM25 --> Embed[embed_query<br/>1024 维]
+    Vector --> Embed
+    Embed --> RRF[RRF 融合<br/>k=60]
+    RRF --> Rerank[Reranker 精排<br/>top_k*2 → top_k]
+    Rerank --> Filter[Milvus 后过滤<br/>approval_status + is_current_version]
+    Filter --> Cache2[Redis 缓存写回<br/>TTL 300s]
+    Cache2 --> Return
+
+    style Cache fill:#f9e,stroke:#333
+    style Compliance fill:#ffe,stroke:#333
+    style Hybrid fill:#efe,stroke:#333
+    style RRF fill:#fee,stroke:#333
+    style Rerank fill:#eef,stroke:#333

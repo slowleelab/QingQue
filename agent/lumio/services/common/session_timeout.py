@@ -76,12 +76,20 @@ class SessionTimeoutManager:
         # 后台轮询任务
         self._poller_task: asyncio.Task | None = None
 
-    def start_guard(self, session_id: str, sub_phase: SessionSubPhase) -> None:
+    async def start_guard(self, session_id: str, sub_phase: SessionSubPhase) -> None:
         """为会话启动超时守卫
 
-        取消旧守卫，再根据子阶段启动新任务（写入 Redis ZSET）。
+        S7 第五轮修复:
+        1. 竞态 — 旧实现 cancel_guard 的 ZREM 与 zadd 均为独立 fire-and-forget task,
+           执行顺序无保证: ZREM 在 ZADD 之后执行会把新守卫删除 → 会话永不超时.
+           现改为 await 顺序执行 (先清旧守卫, 再写新守卫).
+        2. 多实例语义 — ZSET member 编码 sub_phase (member = session_id:sub_phase),
+           poller 从 member 恢复真实超时语义, 不再 fallback AG_ACTIVE (排队超时会话
+           曾被错误 ENDED 而非回退 BOT).
         """
-        self.cancel_guard(session_id)
+        # 1. 清理旧守卫 (await, 保证先删后写)
+        with contextlib.suppress(Exception):
+            await self._redis.zrem(_TIMEOUT_ZSET_KEY, session_id)
 
         timeout = self._get_timeout(sub_phase)
         if timeout is None:
@@ -90,8 +98,13 @@ class SessionTimeoutManager:
         expire_ts = time.time() + timeout
         self._guards[session_id] = (sub_phase, expire_ts)
 
-        # 异步写入 Redis ZSET（不阻塞调用方）
-        asyncio.create_task(self._redis.zadd(_TIMEOUT_ZSET_KEY, {session_id: expire_ts}))
+        # 2. 写入 Redis ZSET (member 编码 sub_phase)
+        try:
+            await self._redis.zadd(
+                _TIMEOUT_ZSET_KEY, {f"{session_id}:{sub_phase.value}": expire_ts}
+            )
+        except Exception as exc:
+            logger.warning("超时守卫写入失败: session=%s err=%s", session_id, exc)
 
         logger.debug(
             "超时守卫已启动: session=%s sub=%s timeout=%ds expire=%s",
@@ -101,10 +114,11 @@ class SessionTimeoutManager:
             expire_ts,
         )
 
-    def cancel_guard(self, session_id: str) -> None:
+    async def cancel_guard(self, session_id: str) -> None:
         """取消会话的超时守卫"""
         self._guards.pop(session_id, None)
-        asyncio.create_task(self._redis.zrem(_TIMEOUT_ZSET_KEY, session_id))
+        with contextlib.suppress(Exception):
+            await self._redis.zrem(_TIMEOUT_ZSET_KEY, session_id)
 
     async def start_poller(self) -> None:
         """启动后台轮询任务"""
@@ -128,37 +142,45 @@ class SessionTimeoutManager:
 
         每 _POLL_INTERVAL 秒扫描 Redis ZSET 中到期的会话，
         通过 ZREM 原子移除保证多实例下只有一个实例处理。
+
+        S7 第五轮修复: member 编码 session_id:sub_phase, poller 恢复真实超时语义;
+        分页取完所有到期项 (旧实现每轮仅取 100 条, 批量到期时延迟).
         """
         while True:
             try:
                 await asyncio.sleep(_POLL_INTERVAL)
 
                 now = time.time()
-                # 获取所有到期会话
-                expired = await self._redis.zrangebyscore(
-                    _TIMEOUT_ZSET_KEY,
-                    0,
-                    now,
-                    start=0,
-                    num=100,
-                )
+                # 分页取完所有到期项
+                while True:
+                    expired = await self._redis.zrangebyscore(
+                        _TIMEOUT_ZSET_KEY,
+                        0,
+                        now,
+                        start=0,
+                        num=100,
+                    )
+                    if not expired:
+                        break
 
-                for raw_session_id in expired:
-                    session_id = raw_session_id if isinstance(raw_session_id, str) else raw_session_id.decode()
+                    for raw_member in expired:
+                        member = raw_member if isinstance(raw_member, str) else raw_member.decode()
+                        # member 格式: session_id:sub_phase (旧格式无冒号 → 保守 ENDED)
+                        if ":" in member:
+                            session_id, sub_phase_str = member.rsplit(":", 1)
+                        else:
+                            session_id, sub_phase_str = member, ""
+                        try:
+                            sub_phase = SessionSubPhase(sub_phase_str)
+                        except ValueError:
+                            sub_phase = SessionSubPhase.AG_ACTIVE  # 旧数据/未知: 保守
 
-                    # ZREM 原子移除：多实例竞争下只有一个成功
-                    removed = await self._redis.zrem(_TIMEOUT_ZSET_KEY, session_id)
-                    if not removed:
-                        continue  # 已被其他实例处理
+                        # ZREM 原子移除：多实例竞争下只有一个成功
+                        removed = await self._redis.zrem(_TIMEOUT_ZSET_KEY, member)
+                        if not removed:
+                            continue  # 已被其他实例处理
 
-                    # 从内存缓存获取子阶段（fallback: 未知则按 ENDED 处理）
-                    guard_info = self._guards.pop(session_id, None)
-                    if guard_info:
-                        sub_phase = guard_info[0]
-                    else:
-                        sub_phase = SessionSubPhase.AG_ACTIVE  # 保守处理
-
-                    await self._handle_timeout(session_id, sub_phase)
+                        await self._handle_timeout(session_id, sub_phase)
 
             except asyncio.CancelledError:
                 logger.info("会话超时轮询器收到取消信号")

@@ -40,7 +40,16 @@ _ES_KEYWORD_FIELDS = {
     "is_current_version",
 }
 # Milvus 标量索引字段（在 build_milvus_expr 中 == 比较）
-_MILVUS_SCALAR_FIELDS = {"category", "doc_type", "card_type", "customer_tier", "security_level", "chunk_type"}
+_MILVUS_SCALAR_FIELDS = {
+    "category",
+    "doc_type",
+    "card_type",
+    "customer_tier",
+    "security_level",
+    "chunk_type",
+    "approval_status",  # S4: 合规过滤
+    "is_current_version",  # S4: 版本过滤
+}
 # ES date 过滤字段
 _ES_DATE_FIELDS = {"effective_date", "expiry_date"}
 
@@ -118,12 +127,23 @@ def build_milvus_expr(filters: dict) -> str:
     return " and ".join(conditions)
 
 
-def _build_cache_key(query: str, filters: dict, search_type: str) -> str:
-    """生成检索缓存 key: lumio:rag:cache:{search_type}:{query_hash}:{filters_hash}"""
+def _build_cache_key(
+    query: str,
+    filters: dict,
+    search_type: str,
+    include_expired: bool = False,  # S5: 第五轮修复 — 过期文档结果不得与默认请求共享缓存
+    rerank: bool = False,  # S5: 精排结果与未精排结果不得互用缓存
+) -> str:
+    """生成检索缓存 key: lumio:rag:cache:{search_type}:{query_hash}:{filters_hash}[:exp|rerank]"""
     query_hash = hashlib.md5(query.encode()).hexdigest()[:12]
     filters_str = json.dumps(filters, sort_keys=True, ensure_ascii=False) if filters else "{}"
     filters_hash = hashlib.md5(filters_str.encode()).hexdigest()[:8]
-    return f"lumio:rag:cache:{search_type}:{query_hash}:{filters_hash}"
+    key = f"lumio:rag:cache:{search_type}:{query_hash}:{filters_hash}"
+    if include_expired:
+        key += ":exp"
+    if rerank:
+        key += ":rerank"
+    return key
 
 
 def _date_to_epoch(date_str: str) -> int | None:
@@ -264,6 +284,8 @@ async def search_vector(
         "security_level",
         "chunk_type",
         "parent_chunk_id",
+        "approval_status",  # S4: 合规过滤
+        "is_current_version",  # S4: 版本过滤
     ]
 
     try:
@@ -428,8 +450,14 @@ async def retrieve(
     rrf_k = request.rrf_k if request.rrf_k is not None else settings.rag.rrf_k
     confidence_threshold = settings.rag.confidence_threshold
 
-    # 0. Redis 缓存检查
-    cache_key = _build_cache_key(request.query, request.filters or {}, request.search_type)
+    # 0. Redis 缓存检查 (S5: key 含 include_expired/rerank 维度, 防过期文档/未精排结果泄露)
+    cache_key = _build_cache_key(
+        request.query,
+        request.filters or {},
+        request.search_type,
+        include_expired=request.include_expired,
+        rerank=request.rerank,
+    )
     if redis_client and request.search_type != "vector_only":
         try:
             cached_raw = await redis_client.get(cache_key)
@@ -558,19 +586,17 @@ async def retrieve(
         if not fused:
             logger.warning("置信度过滤后无结果: threshold=%.3f", threshold)
 
-    # ── Milvus 合规后过滤 ──
-    # Milvus schema 不含 approval_status/is_current_version 字段，
-    # ES 侧已通过 term 过滤，这里对 Milvus 返回的结果做 Python 侧后过滤。
-    # 通过 metadata 中的字段判断（write_to_es 已写入这些字段；
-    # Milvus 结果的 metadata 中不含这些字段，需通过 doc_id 查 PG 过滤）。
-    # 简化方案：ES 结果已有合规过滤，Milvus 结果通过 metadata 过滤。
+    # ── Milvus 合规后过滤 (S4 第五轮修复) ──
+    # 旧实现: Milvus schema 无 approval_status/is_current_version, metadata 取默认值
+    # "PUBLISHED"/True → 过滤形同虚设, 未审批/非当前版本文档经向量检索泄露.
+    # 现: ingestion 已写两字段, 此处严格判定 (缺失字段视为不合规, 不再默认放行).
     if fused:
         pre_count = len(fused)
         fused = [
             c
             for c in fused
-            if c.metadata.get("approval_status", "PUBLISHED") == "PUBLISHED"
-            and c.metadata.get("is_current_version", True) is True
+            if c.metadata.get("approval_status") == "PUBLISHED"
+            and str(c.metadata.get("is_current_version", "")).lower() == "true"
         ]
         if len(fused) < pre_count:
             logger.debug("合规后过滤: %d → %d", pre_count, len(fused))

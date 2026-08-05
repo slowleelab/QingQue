@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import unicodedata
 from pathlib import Path
@@ -238,9 +239,14 @@ class SafetyFilter:
                         logger.warning("敏感词热更新失败: %s", e)
         except asyncio.CancelledError:
             await pubsub.unsubscribe(_RELOAD_CHANNEL)
+            # P2-5 第五轮修复: pubsub 连接 aclose 释放回池 (此前长期监听泄漏连接)
+            with contextlib.suppress(Exception):
+                await pubsub.aclose()
             raise
         except Exception as e:
             logger.warning("敏感词热更新监听异常: %s", e)
+            with contextlib.suppress(Exception):
+                await pubsub.aclose()
 
     async def stop_hot_reload(self) -> None:
         """停止热更新监听"""

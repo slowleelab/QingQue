@@ -101,7 +101,7 @@ curl -X POST http://localhost:8000/api/chat/send \
 ## 一些数字
 
 - **6 个 Sprint 完成**（数据准备 / 编排 / 降级 / 集成 / 坐席升级 / 超级图）
-- **728 条 pytest 用例**（其中 688 通过、40 跳过）+ **50 条 Java mcp-server 用例**
+- **716 条 pytest 用例通过**（+5 跳过）+ **50 条 Java mcp-server 用例**
 - **22 个 Java MCP 信用卡工具**（账单 / 卡服务 / 额度 / 分期 / 还款 / 积分 / 交易）
 - **16 个 Prometheus 指标**（`lumio_*` 命名空间，4 个告警组）
 - **15 个 Pydantic-settings 子配置类**，全部走 `LUMIO_*` / `POSTGRES_*` / `REDIS_*` 等环境变量

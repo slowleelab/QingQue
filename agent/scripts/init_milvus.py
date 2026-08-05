@@ -66,6 +66,12 @@ def init_milvus():
                     description="分块结构类型: parent/child"),
         FieldSchema(name="parent_chunk_id", dtype=DataType.VARCHAR, max_length=64,
                     description="父块 ID"),
+        # S4 第五轮修复: 合规过滤字段 (检索侧 term 过滤依赖, 此前 Milvus 无此字段 →
+        # 未审批/非当前版本文档经向量检索泄露)
+        FieldSchema(name="approval_status", dtype=DataType.VARCHAR, max_length=16,
+                    description="审批状态: PUBLISHED/DRAFT/REJECTED"),
+        FieldSchema(name="is_current_version", dtype=DataType.VARCHAR, max_length=8,
+                    description="是否当前版本: true/false"),
     ]
 
     schema = CollectionSchema(fields=fields, description="智能客服知识库向量索引 v2.1")

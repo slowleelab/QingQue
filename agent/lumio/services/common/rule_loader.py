@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from typing import TYPE_CHECKING
@@ -119,6 +120,9 @@ class RuleLoader:
                             logger.warning("L1 规则热加载失败: %s", e)
             except asyncio.CancelledError:
                 await pubsub.unsubscribe(_RULES_RELOAD_CHANNEL)
+                # P2-5 第五轮修复: pubsub aclose 释放回池
+                with contextlib.suppress(Exception):
+                    await pubsub.aclose()
                 raise
 
         asyncio.create_task(_listen())

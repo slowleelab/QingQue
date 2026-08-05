@@ -35,9 +35,16 @@ class TestJWTValidator:
             Settings()
 
     def test_prod_valid_secret_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """prod + 32+ 字符密钥 → 启动成功"""
+        """prod + 32+ 字符密钥 + 全部外部凭据 → 启动成功"""
         monkeypatch.setenv("LUMIO_ENVIRONMENT", "production")
         monkeypatch.setenv("LUMIO_JWT_SECRET", "a" * 32)
+        # P0-5 第三轮修复: 生产环境还要求 LLM/MinIO/ES/Redis 凭据非默认
+        monkeypatch.setenv("LLM_API_KEY", "sk-test-key")
+        monkeypatch.setenv("MINIO_ACCESS_KEY", "test-access")
+        monkeypatch.setenv("MINIO_SECRET_KEY", "test-secret")
+        monkeypatch.setenv("ES_USERNAME", "es-user")
+        monkeypatch.setenv("ES_PASSWORD", "es-pass")
+        monkeypatch.setenv("REDIS_PASSWORD", "redis-pass")
         cfg = Settings()
         assert cfg.environment == "production"
         assert cfg.jwt_secret == "a" * 32

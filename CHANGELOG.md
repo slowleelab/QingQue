@@ -42,6 +42,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/
 ### Fixed
 - 删除 save_push_tracker 孤儿函数（OE 改名遗留 + Redis key 前缀不一致）
 
+## [Unreleased] - 2026-08-04
+
+第二轮架构师审核修复（19 项：3 P0 + 9 P1 + 7 P2）。
+
+### Fixed (P0 — 必修)
+- **P0-1** `SessionState` 缺 `*_updated_at` 字段 → `customer_memory.AttributeError`。`shared/models.py` 加 `vip_level_updated_at` / `risk_tolerance_updated_at` / `card_types_updated_at`（默认 0.0 → 触发 999 天 → 强制降级）
+- **P0-2** `ws_router.cancel_event` 重赋值 `Event()` 引发 race（旧 event 仍被 `stream_chat` 闭包持有）。改用 `event.set()` + `event.clear()` 保持同一对象引用
+- **P0-3** `streaming.py` 在 `CancelledError` 仍 yield fake 事件（浪费 token + flush 假消息）。移除假 yield，直接 `raise`，让 FastAPI 终止 generator
+
+### Fixed (P1 — 高优)
+- **P1-1** 4 处 `asyncio.create_task` 无引用（`bot_agent` / `decision_log` / `budget` / `tool_robustness`）。加 `_pending_tasks: set[asyncio.Task]` + `add_done_callback(discard)`，防 GC
+- **P1-2** 模板缓存无锁 + I/O 阻塞。`prompts/renderer.py` 加 `asyncio.Lock` + `warmup()` 启动预热
+- **P1-3** `prompt_registry` 单例 race。改用 `@functools.cache`
+- **P1-4** `injection_guard.logger.warning` 记原始 `text[:100]` 泄露 PII（卡号/身份证）。改用 `mask_pii(text[:100])`
+- **P1-5** `injection_guard` sanitize 替换文本含 pattern 名（信息泄露）。3 处统一改为 `"[已净化]"`
+- **P1-6** `tool_robustness.ToolQuotaGuard` 配额 `incr` + 条件 `expire` 非原子（崩溃导致 key 永不过期）。改用 Lua 脚本 `INCR + EXPIRE` 原子执行
+- **P1-7** 缺 `DecisionLog` 表 + alembic 迁移。新增 `c7d8e9f0a1b2_add_decision_log_table.py` + `shared/orm_models.DecisionLog` + `decision_log._write_pg()` 落库 + GDPR 删除路径覆盖
+- **P1-8** `bot_agent._estimate_tokens` 与 `token_utils.estimate_tokens` 重复实现且系数不一致（0.55/0.3/0.8 vs 0.5/0.3/0.75）。删除本地实现，统一委托 `token_utils`（保留 `base_overhead=4` 的 +4 消息格式开销）
+- **P1-9** `gdpr` Redis scan pattern 缺 `lumio:` 前缀。2 处 pattern 修正为 `lumio:session:*customer:{id}*`
+
+### Fixed (P2 — 中优)
+- **P2-1** `entity_sandbox.DEFAULT_ENTITY_ALLOWLIST`（7 项）与 `config.entity_pool_allowlist`（5 项）双源不一致。config 同步到 7 项
+- **P2-2** `alerting.build_alert_rules` 启动时 `asyncio.create_task(_loop())` 无引用。加 `_alert_loop_tasks: set[asyncio.Task]` 防 GC
+- **P2-3** `ws_router` 异常时 `str(exc)[:200]` 直接发给客户端（泄露 SQL/文件路径/库版本）。改返回 `trace_id` + 通用文案 "服务暂时不可用, 请稍后重试"
+- **P2-4** `few_shot.get_cot_trigger` 接受凭空捏造的字符串（`"BILL_INSTALLMENT"` 等，与 `IntentLabel` 不匹配）。新增 `CoTIntent` enum + 别名兼容层
+- **P2-5** `customer_memory` 90 天 SQL 聚合不限长（并入 P0-1 + 加 `LIMIT 1000` 防内存爆炸）
+- **P2-6** `test_reflector` 缺失 + 仅 mock 假路径。新增 `tests/test_reflector.py` 8 个真实失败路径用例（client 不可用 / HTTP 异常 / JSON 解析失败 / 非法 enum / 3 次升级 ESCALATE / reset / LRU 淘汰 / singleton）
+
+### Added
+- `agent/alembic/versions/c7d8e9f0a1b2_add_decision_log_table.py` — `decision_log` 表（`session_id` / `turn_id` / `customer_id` / `agent_name` / `action` / `reasoning` / `evidence_json` / `latency_ms` / `created_at`，含 3 个复合索引支持 GDPR 删除 + 监管审计）
+- `agent/lumio/shared/orm_models.py` — 新增 `DecisionLog` 模型
+- `agent/lumio/services/common/decision_log.py` — 新增 `_write_pg()` 后台落库 task（持有引用防 GC，失败软处理降级 Redis-only）
+- `agent/lumio/services/common/database.py` — 新增 `init_global_session_factory()` / `get_async_session_factory()` / `close_global_session_factory()`（供非 FastAPI 上下文的后台任务使用）
+- `agent/lumio/main.py` — `_safe_init_global_factory()` 启动时挂入 `_COMMON_INIT_STEPS`，PG 不可用时降级不抛
+- `agent/lumio/services/bot/prompts/few_shot.py` — 新增 `CoTIntent` 枚举 + `_COT_ALIASES` 别名映射
+- `agent/tests/test_reflector.py` — 8 个真实失败路径单元测试
+
+### Changed
+- `bot_agent._estimate_tokens` 现为薄包装 `token_utils.estimate_tokens(text, base_overhead=4)`，保留 +4 消息格式开销语义
+- `gdpr.GDPRService` 硬删除路径覆盖 `decision_log` 表（与 `dialogue_log` 一起在 `DELETE /api/customer/{id}/data` 中一并清理）
+
+### Tests
+- 单元测试：**713 passed / 0 failed / 5 skipped**（`test_reflector` 新增 8 个用例；`test_bot_memory` 因 token_utils 统一后 +4 行为差异已修复）
+- 集成测试（18 个）需 Docker 中间件启动，CI 中跑；本地跳过（与本 PR 无关）
+
 ## [0.1.0] - 2026-07-28
 
 首次公开发布。

@@ -1,0 +1,62 @@
+flowchart TB
+    subgraph Input["入口"]
+        WS["WebSocket :8001<br/>/api/ws/agent/{id}"]
+        HTTP["POST /api/analyze<br/>(chat-svc 回调)"]
+    end
+
+    subgraph Phase1["Phase 1: 评估 (Decision)"]
+        Classify["classify (3s 超时)<br/>IntentResult"]
+        D1["evaluate_d1_service<br/>服务期判断"]
+        D2["evaluate_d2_marketing<br/>营销期判断"]
+        D3["evaluate_d3_risk<br/>风控判断 (永不下线)"]
+        Scene["detect_scene<br/>URGENT/INQUIRY/SALES/GENERAL"]
+    end
+
+    subgraph Phase2["Phase 2: 执行 (Execution)"]
+        E1["run_e1_ai<br/>话术 + RAG + 合规"]
+        E2["run_e2_marketing<br/>500ms 延迟"]
+        E3["run_e3_risk<br/>alert_engine 6 规则"]
+    end
+
+    subgraph Phase3["Phase 3: 决策 (Should Show)"]
+        Push["PushTracker<br/>last_push + min_interval"]
+        Should["should_show<br/>5 规则决策"]
+    end
+
+    subgraph Phase4["Phase 4: 仲裁 (Arbitrate)"]
+        Arb["GlobalArbitrator<br/>3 融合策略<br/>BLOCK/WARN/PASS"]
+        PII["PII 脱敏"]
+        Compliance["合规短语过滤"]
+    end
+
+    subgraph Phase5["Phase 5: 推送 (Push)"]
+        Dedup["Redis 去重<br/>lumio:ae:dedup:{trace_id}"]
+        WSPush["WebSocket 推送<br/>{type: assist_push, payload}"]
+        Track["PushTracker.record_push"]
+    end
+
+    HTTP --> Classify
+    WS --> Classify
+    Classify --> D1
+    Classify --> D2
+    Classify --> D3
+    Classify --> Scene
+    D1 --> Should
+    D2 --> Should
+    D3 --> Should
+    Scene --> Should
+
+    D1 --> E1
+    D2 -.delay 500ms.-> E2
+    D3 --> E3
+
+    E1 --> Arb
+    E3 --> Arb
+    E2 -.delayed.-> Arb
+
+    Arb --> PII
+    Arb --> Compliance
+    Should --> WSPush
+    Arb --> Dedup
+    Dedup --> WSPush
+    WSPush --> Track

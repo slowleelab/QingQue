@@ -1,0 +1,23 @@
+stateDiagram-v2
+    [*] --> BOT_ACTIVE: 客户进入 Bot
+
+    BOT_ACTIVE --> AG_QUEUED: 客户请求转人工
+    BOT_ACTIVE --> ENDED: 客户说再见
+
+    AG_QUEUED --> AG_ASSIGNED: 坐席接单
+    AG_QUEUED --> ENDED: 客户放弃排队 (超时)
+    AG_QUEUED --> BOT_ACTIVE: 客户撤销转人工
+
+    AG_ASSIGNED --> AG_ACTIVE: 坐席首次响应
+    AG_ASSIGNED --> ENDED: 坐席未响应 (超时)
+    AG_ASSIGNED --> AG_QUEUED: 客户取消转接
+
+    AG_ACTIVE --> AG_ON_HOLD: 坐席保持 (hold)
+    AG_ON_HOLD --> AG_ACTIVE: 坐席恢复 (resume)
+    AG_ON_HOLD --> ENDED: 保持超时 (60s)
+
+    AG_ACTIVE --> AG_REVIEWING: 通话结束
+    AG_REVIEWING --> ENDED: 话后小结完成 + PG 落库
+    AG_REVIEWING --> AG_ACTIVE: 复核发现问题, 重新激活
+
+    ENDED --> [*]

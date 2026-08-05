@@ -1,0 +1,80 @@
+graph LR
+    subgraph Core["核心服务 7"]
+        postgres["PostgreSQL 16 :5432<br/>19 张表"]
+        redis["Redis 7.2 :6379<br/>15+ key"]
+        es["Elasticsearch 8.19 :9200<br/>BM25 + IK"]
+        milvus["Milvus 2.4 :19530<br/>向量 1024 维"]
+        minio["MinIO :9000/:9001<br/>lumio-docs"]
+        kafka["Kafka 3.7 KRaft :9092<br/>3 topic 预留"]
+        etcd["etcd :2379 (内部)<br/>Milvus 元数据"]
+    end
+
+    subgraph Obs["可观测性 4"]
+        jaeger["Jaeger 1.57 :16686<br/>OTLP :4318"]
+        prom["Prometheus 2.50 :9090<br/>9 scrape jobs"]
+        grafana["Grafana 10.4 :3001<br/>3 dashboard"]
+    end
+
+    subgraph Exporter["Exporter 3"]
+        redis_exp["redis-exporter :9121"]
+        pg_exp["postgres-exporter :9187"]
+        kafka_exp["kafka-exporter :9308"]
+    end
+
+    subgraph App["应用层 5"]
+        bot["Bot Service :8000<br/>uvicorn + FastAPI"]
+        assist["Assist Service :8001<br/>uvicorn + FastAPI"]
+        mcp["mcp-server :8090<br/>Java Spring Boot 3.4.5"]
+        chat_cust["chat-svc :8080<br/>customer-server"]
+        chat_agt["chat-svc :8081<br/>agent-server"]
+    end
+
+    subgraph Edge["边缘 + opt-in"]
+        nginx["Nginx :80/:443<br/>WebSocket 3600s"]
+        zk["ZooKeeper :2182<br/>chat-svc 注册中心"]
+    end
+
+    subgraph Gateway["Gateway opt-in"]
+        nacos["Nacos :8848<br/>MCP Registry"]
+        higress["Higress :10000<br/>AI Gateway"]
+    end
+
+    bot --> postgres
+    bot --> redis
+    bot --> es
+    bot --> milvus
+    bot --> minio
+    bot --> mcp
+    assist --> postgres
+    assist --> redis
+    assist --> mcp
+    assist --> chat_cust
+    assist --> chat_agt
+
+    milvus --> etcd
+    milvus --> minio
+
+    chat_cust --> zk
+    chat_agt --> zk
+
+    nginx --> bot
+    nginx --> assist
+
+    mcp -.注册.-> nacos
+    higress -.发现.-> nacos
+    bot --> higress
+
+    jaeger -.span.-> bot
+    jaeger -.span.-> assist
+    jaeger -.span.-> mcp
+
+    prom -.scrape.-> bot
+    prom -.scrape.-> assist
+    prom -.scrape.-> mcp
+    prom -.scrape.-> redis_exp
+    prom -.scrape.-> pg_exp
+    prom -.scrape.-> kafka_exp
+    prom -.scrape.-> es
+    prom -.scrape.-> milvus
+    prom -.scrape.-> prom
+    prom --> grafana

@@ -61,3 +61,52 @@ async def get_db(app: FastAPI) -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+# 独立于 app.state 的全局 session factory (供非 FastAPI 上下文使用, 如决策日志后台落库)
+_global_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def init_global_session_factory() -> async_sessionmaker[AsyncSession]:
+    """初始化全局 session factory (供后台任务/独立 service 使用).
+
+    与 app.state.db_session_factory 共享同一连接池设计, 但不依赖 FastAPI app 生命周期.
+    """
+    global _global_session_factory
+    if _global_session_factory is not None:
+        return _global_session_factory
+    settings = get_settings()
+    engine = create_async_engine(
+        settings.database.dsn,
+        echo=settings.debug,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        pool_reset_on_return="rollback",
+    )
+    _global_session_factory = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    return _global_session_factory
+
+
+def get_async_session_factory() -> async_sessionmaker[AsyncSession]:
+    """获取全局 session factory (如未初始化则懒加载)."""
+    if _global_session_factory is None:
+        return init_global_session_factory()
+    return _global_session_factory
+
+
+async def close_global_session_factory() -> None:
+    """关闭全局 session factory (测试 teardown 用)."""
+    global _global_session_factory
+    if _global_session_factory is not None:
+        # engine 嵌入在 factory 中, 这里直接 dispose 全部
+        try:
+            await _global_session_factory.kw["bind"].dispose()  # type: ignore[union-attr]
+        except Exception:
+            pass
+        _global_session_factory = None

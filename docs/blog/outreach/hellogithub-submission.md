@@ -49,7 +49,7 @@ curl -X POST http://localhost:8000/api/chat/send \
 
 **推荐理由**：
 
-> 市面上要么是绑死公有云的客服 SaaS，要么是玩具级 RAG Demo。灵智（Lumio）是少见的、把"私有化 + 合规 + 高可用降级 + MCP 工具"真正做完整并开源的银行级参考实现，6 个 Sprint 728 条测试用例、22 个 Java MCP 工具，适合金融/政企落地和学习 RAG + Agent 工程化。
+> 市面上要么是绑死公有云的客服 SaaS，要么是玩具级 RAG Demo。灵智（Lumio）是少见的、把"私有化 + 合规 + 高可用降级 + MCP 工具"真正做完整并开源的银行级参考实现，716 条 pytest 通过、22 个 Java MCP 工具，适合金融/政企落地和学习 RAG + Agent 工程化。
 
 ---
 

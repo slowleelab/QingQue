@@ -100,6 +100,18 @@ async def _check_embedding(app: Any) -> dict[str, Any]:
     return {"status": "up" if breaker.is_available else "down"}
 
 
+async def _check_milvus(app: Any) -> dict[str, Any]:
+    """P2-4 第五轮修复: 检查 Milvus 连通性 (此前缺失, Milvus 宕机时 /health 仍报 healthy)"""
+    collection = getattr(app.state, "milvus_collection", None)
+    if collection is None:
+        return {"status": "skip", "reason": "not_initialized"}
+    try:
+        await asyncio.wait_for(asyncio.to_thread(collection.num_entities), timeout=3.0)
+        return {"status": "up"}
+    except Exception as e:
+        return _error_response("milvus", e)
+
+
 async def check_all_dependencies(app: Any) -> dict[str, dict[str, Any]]:
     """并行检查所有依赖组件"""
     results = await asyncio.gather(
@@ -108,6 +120,7 @@ async def check_all_dependencies(app: Any) -> dict[str, dict[str, Any]]:
         _check_es(app),
         _check_llm(app),
         _check_embedding(app),
+        _check_milvus(app),
     )
     return {
         "redis": results[0],
@@ -115,6 +128,7 @@ async def check_all_dependencies(app: Any) -> dict[str, dict[str, Any]]:
         "elasticsearch": results[2],
         "llm": results[3],
         "embedding": results[4],
+        "milvus": results[5],
     }
 
 

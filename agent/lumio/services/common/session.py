@@ -118,7 +118,14 @@ class SessionManager:
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
         settings = get_settings()
-        self._ttl = settings.session.ttl_seconds
+        # P1-7 第三轮修复: TTL 必须 > 超时管理器最长时间 — 旧默认 ttl=1800 与
+        # session_timeout=1800 相等, 空闲会话 meta 先过期 → get_session 返回 None →
+        # 超时轮询器吞错 → 会话永不走 ENDED → persist_dialogue 不触发 (审计落库缺口).
+        # 取 max(配置 ttl, session_timeout × 2 + 缓冲) 保证超时转移先于过期发生.
+        self._ttl = max(
+            settings.session.ttl_seconds,
+            settings.session.session_timeout * 2 + 300,
+        )
         self._max_turns = settings.session.max_turns
         self._timeout_manager: Any = None  # SessionTimeoutManager, set via set_timeout_manager
         self._script_sha: str | None = None  # CAS Lua 脚本 SHA 缓存
@@ -361,6 +368,9 @@ class SessionManager:
 
         old_phase = state.current_phase
         old_sub = state.sub_phase
+        # P2 第三轮修复: 先保存旧 last_active_at 快照, 再更新 — 旧代码先更新字段
+        # 再用同一字段算 elapsed (恒 ~0), SESSION_PHASE_DURATION 指标完全失真.
+        old_active = state.last_active_at
         state.current_phase = new_phase
         state.sub_phase = new_sub_phase
         state.last_active_at = datetime.now()
@@ -408,15 +418,15 @@ class SessionManager:
             reason=reason,
         ).inc()
         if old_sub is not None:
-            elapsed = (datetime.now() - state.last_active_at).total_seconds()
+            elapsed = (datetime.now() - old_active).total_seconds()  # P2: 用旧快照
             SESSION_PHASE_DURATION.labels(sub_phase=old_sub.value).observe(max(elapsed, 0))
 
-        # 启动/取消超时守卫
+        # 启动/取消超时守卫 (S7: async 顺序执行, 防 zrem/zadd 竞态丢守卫)
         if self._timeout_manager:
             if new_phase == SessionPhase.ENDED:
-                self._timeout_manager.cancel_guard(session_id)
+                await self._timeout_manager.cancel_guard(session_id)
             elif new_sub_phase:
-                self._timeout_manager.start_guard(session_id, new_sub_phase)
+                await self._timeout_manager.start_guard(session_id, new_sub_phase)
 
         # 会话结束时异步持久化对话记录到 PostgreSQL（合规审计）
         if new_phase == SessionPhase.ENDED and self._db_session_factory:
@@ -601,10 +611,14 @@ class SessionManager:
             # CAS 失败: 并发修改，重新加载并合并
             logger.debug("_save_meta CAS 冲突: session=%s attempt=%d", state.session_id, attempt)
             if attempt == 0:
-                # 重新读取当前状态，合并变更
+                # P1-8 第三轮修复: 以 current (最新 JSON) 为底合并本地变更.
+                # 旧实现只重读 version 号, 仍用过期 state 快照全量覆写 → 冲突窗口内
+                # 其他写者 (assist patch_state / _ensure_summary) 的字段被整体擦除 (lost update).
                 raw = await self._redis.get(key)
                 if raw:
                     current = json.loads(raw)
+                    current.update(meta)  # 保留并发写者新增字段, 本地快照覆盖同名键
+                    meta = current
                     state.version = current.get("version", 1)
                     expected_version = state.version
                     state.version = expected_version + 1
@@ -741,6 +755,10 @@ class SessionManager:
                         if str(item) not in existing_set:
                             current_list.append(item)
                             existing_set.add(str(item))
+                    # P1-3 上下文工程修复: intent_stack 上限 10 — 旧代码无界增长,
+                    # 每轮注入 system prompt 持续膨胀, 挤压预算并永久破坏前缀缓存
+                    if len(current_list) > 10:
+                        current_list = current_list[-10:]
                 adjusted[field] = current_list
 
             elif field == "entity_pool":

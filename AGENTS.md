@@ -59,9 +59,13 @@ make gateway-down     # Stop Higress + Nacos
 - **Dependency injection**: DB engines, Redis pools, gRPC channels stored on `app.state`; injected via `Annotated[..., Depends(...)]` in `deps.py`
 - **Configuration**: Pydantic-settings with 12 sub-settings classes, each with its own `env_prefix`; cached with `@lru_cache`
 - **Error handling**: Hierarchical error codes (2xxx input, 3xxx business, 4xxx external, 5xxx system); global middleware maps to HTTP status codes and returns uniform `{"error": {"code", "message", "type"}}` JSON
-- **Session state**: Full conversation state in Redis (SessionState model) supporting bot -> handoff -> assist -> ended lifecycle
+- **Session state**: Full conversation state in Redis (SessionState model) supporting bot -> handoff -> assist -> ended lifecycle; 每个画像字段含 `*_updated_at` 时间戳 (D0 衰减 fallback 0.0 → 999 天 → 强制降级)
 - **RAG retrieval**: Hybrid BM25 + vector + RRF fusion with graceful degradation (BM25-only or vector-only fallback paths)
 - **gRPC boundary**: AI services defined as proto contracts; orchestration layer uses generated stubs; latency tracking on every response
+- **Decision log (E2)**: 每条决策双写 Redis（最近 100 条实时查询）+ PG `decision_log` 表（alembic `c7d8e9f0a1b2`，3 复合索引支持客户查询/监管审计/GDPR 删除），后台 task 持有引用防 GC
+- **Token estimate**: 统一通过 `shared/token_utils.estimate_tokens(text, base_overhead=N)` 入口（CJK/拉丁字符类感知系数），`bot_agent` 默认 `base_overhead=4`（消息格式开销），禁止各模块自行实现
+- **后台 task 规范**: 所有 `asyncio.create_task` 必须持有引用（`_pending_tasks: set` + `add_done_callback(discard)`），防 asyncio GC 在 `await` 期间回收 task；Redis 配额用 Lua 原子 INCR+EXPIRE 避免 key 永不过期
+- **WS 错误处理**: `WebSocketDisconnect`/`Exception` 时返回 `{type: error, code, trace_id, message}` 通用文案，绝不把 `str(exc)` 透传给客户端（防信息泄露）
 
 ## Project Structure
 
@@ -112,6 +116,7 @@ agent/tests/              # pytest with httpx AsyncClient fixtures
 - Sprint 3 (completed): Agent orchestration + bot MVP (asyncio agent + rule routing, chat queue, long-poll, session lifecycle)
 - Sprint 4 (completed): LLM integration + degradation strategy (circuit breaker, health monitor, content degrader, assist engine)
 - Sprint 5 (completed): Assist engine with parallel D/E execution (asyncio.gather + PydanticAI; Temporal removed)
+- Sprint 6 (completed): 架构师深度审核 + 19 项修复 (3 P0 + 9 P1 + 7 P2). 详见 `CHANGELOG.md` 与 `docs/P0_delivery_checklist.md` v1.6.1 章节. 关键修复: DecisionLog PG 落库 (E2 持久化) + token_utils 统一 + GC-safe 后台 task + WS 错误信息脱敏 + 实体白名单双源一致 + 配额 Lua 原子化. 单元测试 713 passed / 0 failed.
 
 ## Environment Variables
 

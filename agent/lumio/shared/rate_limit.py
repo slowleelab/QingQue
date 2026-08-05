@@ -61,6 +61,19 @@ def create_limiter() -> Limiter:
     )
 
 
+# P2-3 第五轮修复: 模块级单例 — 旧实现 limiter 在 app 工厂内创建,
+# @limiter.limit / @limiter.exempt 装饰器 (import 时求值) 无法引用 → rate_limit_chat 死配置
+_limiter: Limiter | None = None
+
+
+def get_limiter() -> Limiter:
+    """获取全局 Limiter 单例 (lazy)."""
+    global _limiter
+    if _limiter is None:
+        _limiter = create_limiter()
+    return _limiter
+
+
 def is_rate_limit_exempt(path: str) -> bool:
     """判断请求路径是否豁免限流"""
     return any(path.startswith(prefix) for prefix in _EXEMPT_PATHS)

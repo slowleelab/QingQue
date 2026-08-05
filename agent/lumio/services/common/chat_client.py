@@ -25,6 +25,7 @@ class ChatSvcClient:
         history: list[dict[str, str]] | None = None,
         intent: str = "",
         sentiment: str = "",
+        entities: list[dict[str, str]] | None = None,  # P2: 已知实体随转接传递
     ) -> dict[str, Any]:
         return {
             "session_id": session_id,
@@ -34,6 +35,7 @@ class ChatSvcClient:
             "history": history or [],
             "intent": intent,
             "sentiment": sentiment,
+            "entities": entities or [],
         }
 
     async def create_session(self, data: dict[str, Any]) -> dict[str, Any]:

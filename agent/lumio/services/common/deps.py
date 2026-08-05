@@ -506,7 +506,17 @@ async def init_agent(app: FastAPI) -> None:
         milvus_collection=milvus_collection,
         embedding_breaker=embedding_breaker,
         tool_executor=tool_executor,
+        # P0-3 上下文工程: 注入精排器 (此前 RAG 检索 reranker=None, 精排从未生效)
+        reranker=getattr(app.state, "reranker_provider", None),
     )
+    # P1-6 第三轮修复: 注入全局 DB session factory — 此前 _db_session_factory 从未赋值,
+    # apply_learned_profile (客户画像学习) 整条链路是死代码, D0 衰减恒触发.
+    try:
+        from lumio.services.common.database import get_async_session_factory
+
+        agent._db_session_factory = get_async_session_factory()
+    except Exception as exc:
+        _logger.warning("Agent DB session factory 注入失败 (画像学习降级): %s", exc)
     app.state.agent = agent
     _logger.info("对话 Agent 初始化完成")
 
