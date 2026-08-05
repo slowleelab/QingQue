@@ -217,4 +217,4 @@ Java 侧 `mcp-server` 暴露 **22 个信用卡工具**（账单/卡服务/额度
 - [API 参考](./api-reference.md) — REST / WebSocket 接口
 - [部署指南](./deployment.md) — 中间件与服务启动
 - [配置参考](./configuration.md) — `LUMIO_*` 环境变量全览
-- 设计文档：[`docs/superpowers/specs/`](./superpowers/specs/)
+- 技术深度剖析：[`book/README.md`](./book/README.md) — 21 章电子书

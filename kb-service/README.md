@@ -89,9 +89,9 @@ python -m kb.eval.ragas_eval
 7. **model_version 治理**：影子索引灰度切换
 8. **RAGAS 评估**：检索质量回归门禁
 
-## 从 SmartCS 迁移的变更
+## 命名对照
 
-| SmartCS | kb-service |
+| 旧名 | kb-service |
 |---------|------------|
 | ES + Milvus 双写 | ES 单写（PG 真相源） |
 | Python 手写 RRF | ES 原生 RRF retriever |

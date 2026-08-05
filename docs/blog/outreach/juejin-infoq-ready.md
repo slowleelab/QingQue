@@ -18,18 +18,6 @@
 
 没有现成方案同时满足这几点，于是我把整套系统搭了出来并开源。
 
-## 从 SmartCS 到灵智（Lumio）
-
-项目最初叫 SmartCS，6 个 Sprint 迭代后正式更名为 **灵智（Lumio）**。仓库名 `slowleelab/lumio` 不变 —— 青雀是承载它的社区/组织。
-
-重命名分 3 个 commit 完成，确保任何中间状态都可运行：
-
-| Commit | 范围 |
-|--------|------|
-| `4be1d67` | Python 包 `smartcs` → `lumio`，异常基类 `SmartCSError` → `LumioError`（24 子类同改） |
-| `0908f82` | 资源 / 容器 / 镜像 / Java mcp-server / chat-svc / proto / web 前端；Java groupId `com.smartcs` → `com.lumio` |
-| 本 commit | 文档 / 历史 / UAT / 博客 |
-
 ## 三层架构
 
 ```

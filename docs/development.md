@@ -92,7 +92,7 @@ poetry run pytest -q      # 全部（CI 模式）
 ## 项目结构
 
 ```
-agent/lumio/              # 主包（原 smartcs，重命名后）
+agent/lumio/              # 主包
   main.py                 # App 工厂 + lifespan（bot_app / assist_app）
   shared/                 # 横切模块（config/exceptions/logger/middleware/models/orm/metrics）
   services/

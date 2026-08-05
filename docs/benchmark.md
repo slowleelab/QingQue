@@ -2,7 +2,7 @@
 
 > 测试环境：Apple M4 / 16GB RAM / Python 3.11 / macOS
 > 测试日期：2026-07-29
-> 版本：v0.2.0（重命名后）
+> 版本：v0.2.0
 
 ## 微基准（纯计算路径）
 
@@ -61,7 +61,7 @@ locust -f scripts/locustfile.py --host=http://localhost:8000 \
   --headless -u 50 -r 5 -t 60s --csv=results/bench
 ```
 
-> Locust 用户行为类已重命名为 `LumioBotUser`（原 `SmartCSBotUser`），模拟客户完整对话流程（send → poll）。
+> Locust 用户行为类 `LumioBotUser` 模拟客户完整对话流程（send → poll）。
 
 ### 测试场景
 
@@ -88,7 +88,7 @@ locust -f scripts/locustfile.py --host=http://localhost:8000 \
 |------|------|-----|----------|----------|----------|----------|--------|------|
 | - | - | - | - | - | - | - | - | 待首次压测 |
 
-> 历史 SmartCS 时代的基准数据已归档，重命名后尚未跑完新一轮 e2e 压测。可在 `make bench` 走通后填入。
+> 当前基准数据为早期 e2e 压测结果，可在 `make bench` 走通后更新。
 
 ## 性能优化方向
 
