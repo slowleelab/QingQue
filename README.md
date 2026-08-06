@@ -57,11 +57,11 @@ graph TB
         B2d & B2e & B2f --> B2g
     end
 
-    subgraph AI["AI Capability Layer · gRPC"]
+    subgraph AI["AI Capability · HTTP 直连模型服务"]
         direction LR
-        C1["Classification<br/>:50051"]
-        C2["Retrieval :50052<br/>BM25+Vector+RRF"]
-        C3["SafetyFilter<br/>:50053"]
+        C1["Ollama :11434<br/>LLM 生成"]
+        C2["TEI :8080<br/>Embedding/Rerank"]
+        C3["Higress 网关<br/>治理"]
     end
 
     subgraph DATA["Data Layer 数据层"]
@@ -113,7 +113,6 @@ graph TB
 | 向量数据库 | Milvus | 2.4 |
 | 对象存储 | MinIO | 2024+ |
 | 消息队列 | Kafka (KRaft) | 3.7 |
-| gRPC | grpcio | 1.60+ |
 | 监控 | Prometheus + Grafana | — |
 | 代码质量 | Ruff + mypy + pre-commit | — |
 | 数据库迁移 | Alembic | — |
@@ -251,10 +250,9 @@ lumio/
 │       └── services/       # 编排服务
 │           ├── bot/        # 机器人服务
 │           ├── assist/     # 坐席辅助服务
-│           └── common/     # 服务共享（DB/Redis/gRPC 客户端/DI）
+│           └── common/     # 服务共享（DB/Redis/模型客户端/DI）
 ├── tests/                  # 测试
 ├── alembic/                # 数据库迁移
-├── proto/                  # gRPC Proto 定义
 ├── scripts/                # 辅助脚本
 ├── config/                 # 配置文件（非 Python 包）
 ├── deploy/                 # 部署配置
@@ -281,7 +279,6 @@ make lint         # 代码检查
 make format       # 代码格式化
 make type-check   # 类型检查
 make pre-commit   # 安装并运行 pre-commit
-make proto        # 编译 gRPC Proto
 make migrate      # 运行数据库迁移
 make up           # 启动中间件
 make down         # 停止中间件

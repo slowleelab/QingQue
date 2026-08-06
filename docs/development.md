@@ -46,7 +46,6 @@ make pre-commit
 | `make up` / `make down` | 启停中间件 |
 | `make init` | 初始化 Milvus / ES / Kafka |
 | `make verify` | 校验中间件连通性 |
-| `make proto` | 编译 gRPC proto（package `lumio`） |
 | `make migrate` | 数据库迁移 |
 | `make migrate-create msg="..."` | 新建迁移 |
 | `make mcp-ref` | 启动参考 MCP Server（`lumio.services.tools.reference_server`） |

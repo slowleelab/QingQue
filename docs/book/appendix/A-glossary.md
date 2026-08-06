@@ -323,7 +323,6 @@ tags: ["glossary", "术语"]
 | **DegradationManager** | 4 级降级 NORMAL / DEGRADED / FALLBACK |
 | **slug** | 文档友好 URL 段, 例如 `credit-card-policy-v2` |
 | **CRUD** | Create / Read / Update / Delete |
-| **RPC** | Remote Procedure Call, gRPC 实现 |
 | **LRU (Least Recently Used)** | 最近最少使用, `@lru_cache` 单例 |
 | **ContextVar** | 上下文变量, asyncio 任务间传递 (trace_id / request_id) |
 

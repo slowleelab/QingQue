@@ -246,9 +246,6 @@ class ClassificationSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="CLS_")
 
-    # gRPC 服务地址
-    grpc_host: str = "localhost"
-    grpc_port: int = 50051
     # 意图分类置信度阈值
     intent_threshold: float = 0.6
     # 实体抽取
@@ -260,9 +257,6 @@ class RAGSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="RAG_")
 
-    # gRPC 服务地址
-    grpc_host: str = "localhost"
-    grpc_port: int = 50052
     # 检索参数
     top_k: int = 5
     rerank: bool = True
@@ -296,8 +290,6 @@ class SafetySettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="SAFETY_")
 
-    grpc_host: str = "localhost"
-    grpc_port: int = 50053
     # 敏感词文件路径
     sensitive_words_path: str = "config/sensitive_words.txt"
     # 脱敏规则

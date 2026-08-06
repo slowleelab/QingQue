@@ -108,14 +108,6 @@
 | `LLM_FALLBACK_MODEL` | `qwen2.5:0.5b` | 降级模型 |
 | `LLM_TIMEOUT_SECONDS` | `8` | 单次 LLM 调用超时（秒） |
 
-## gRPC 服务（`CLS_` / `RAG_` / `SAFETY_`）
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `CLS_GRPC_HOST` / `CLS_GRPC_PORT` | `localhost:50051` | 分类服务 |
-| `RAG_GRPC_HOST` / `RAG_GRPC_PORT` | `localhost:50052` | 检索服务 |
-| `SAFETY_GRPC_HOST` / `SAFETY_GRPC_PORT` | `localhost:50053` | 安全过滤服务 |
-
 ## MCP / Java 工具（`MCP_`）
 
 | 变量 | 默认值 | 说明 |

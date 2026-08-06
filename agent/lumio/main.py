@@ -136,8 +136,8 @@ def _safe_build_alert_rules() -> None:
 
 
 # ── 公共初始化/关闭步骤（两个服务共享的基础设施）──
-# P3-2 整改: 删 grpc_servers.py / grpc_clients.py / generated/proto/ (P1-2A 已删 runtime 调用)
-# 当前编排层只用本地 asyncio + PydanticAI 实现, 不依赖 gRPC.
+# AI 能力 (LLM/Embedding/Reranker) 由编排层 HTTP 直连外部模型服务 (Ollama/TEI),
+# 经 Higress AI 网关统一治理; 不设独立 gRPC 能力层 (曾规划, 已移除 — 规模未到, 网关已覆盖治理).
 _COMMON_INIT_STEPS = [
     init_db,
     init_redis,

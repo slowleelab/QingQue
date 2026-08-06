@@ -22,7 +22,7 @@
 | **Bot 自助服务** | 自动化对话机器人，基于 RAG + 意图分类 + Agent 编排处理客户咨询 | Bot Service `:8000` |
 | **AI 坐席辅助** | 通话中向人工坐席实时推送话术 / 知识 / 合规告警 / 商品推荐 | Assist Service `:8001`（WebSocket） |
 
-系统采用**编排层与 AI 能力层分离**的设计：FastAPI 应用只负责会话编排与业务流转，重型 AI 能力（分类、检索、安全过滤）以 gRPC 契约定义，可独立部署与伸缩。
+系统采用**编排层与 AI 能力分离**的设计：FastAPI 应用负责会话编排与业务流转，AI 能力（LLM 生成、Embedding、Reranker、分类）由编排层 **HTTP 直连外部模型服务**（Ollama / TEI），统一治理经 Higress AI 网关（鉴权/限流/脱敏/审计）。当前规模下不设独立 gRPC 能力层——两层架构已足够，避免额外部署与序列化开销。
 
 ## 三层架构
 
@@ -50,13 +50,13 @@
                         │  services/common/· session · retrieval · ingestion · auth   │
                         │  shared/        · config · exceptions · metrics · tracing  │
                         └──────────────────────┬──────────────────────────────────────┘
-                                               │  gRPC
+                                               │  HTTP (OpenAI 兼容)
                         ┌──────────────────────▼──────────────────────────────────────┐
-                        │      AI CAPABILITY · AI 能力层 (proto package: lumio)       │
+                        │         AI 能力 · 外部模型服务 + 网关治理                     │
                         │                                                             │
-                        │   classification :50051   (意图/情绪/领域)                  │
-                        │   retrieval      :50052   (BM25 + 向量 + RRF)               │
-                        │   safety         :50053   (敏感词 / PII)                    │
+                        │  Ollama :11434   LLM 生成 (OpenAI 兼容 API)                 │
+                        │  TEI    :8080    Embedding / Reranker                      │
+                        │  Higress AI 网关  鉴权 / 限流 / 脱敏 / 审计                 │
                         │                                                             │
                         │  Java MCP Server com.lumio.mcp  :8090  (22 tools, mock)    │
                         └──────────────────────┬──────────────────────────────────────┘
@@ -80,21 +80,21 @@
 ### 编排层（`agent/lumio/services/`）
 
 - **每个服务是独立的 FastAPI app 工厂**：`bot_app` / `assist_app`，由 `agent/lumio/main.py` 暴露，各有独立 lifespan。
-- **依赖注入**：DB engine、Redis 连接池、gRPC channel 存于 `app.state`，经 `Annotated[..., Depends(...)]` 注入（见 `services/common/deps.py`）。
+- **依赖注入**：DB engine、Redis 连接池、外部模型服务客户端存于 `app.state`，经 `Annotated[..., Depends(...)]` 注入（见 `services/common/deps.py`）。
 - **共享基础设施**集中在 `services/common/`：检索、embedding、reranker、会话、降级、熔断、审计、PII、auth_router 等 25 个模块。
-- **Java 坐席集成**：`chat-svc/customer-server:8080` 与 `agent-server:8081` 通过 `LumioClient`（Java 端）和 `LumioSessionListener` 与 Lumio 双向通信；子阶段方法 `toLumioSubPhase()` 取代历史 `toSmartcsSubPhase()`。
+- **Java 坐席集成**：`chat-svc/customer-server:8080` 与 `agent-server:8081` 通过 `LumioClient`（Java 端）和 `LumioSessionListener` 与 Lumio 双向通信。
 
-### AI 能力层
+### AI 能力（HTTP 直连，无独立服务层）
 
-以 Protobuf 定义三个服务契约（`proto package lumio`），编排层通过生成的 stub 调用，并对每次调用做延迟追踪：
+AI 能力不由独立服务承载，而是编排层 **HTTP 直连外部模型服务**，统一治理走 Higress AI 网关：
 
-- `classification.proto` — 意图 / 情绪 / 领域分类
-- `retrieval.proto` — 混合检索（BM25 + 向量 + RRF）
-- `safety.proto` — 敏感词 / 合规过滤
+- **LLM 生成**：`LLMClient`（`services/common/llm.py`）OpenAI 兼容 API 直连 Ollama `:11434`，带熔断、重试、token 计量、超时（生成 2s / 分类 1.5s）
+- **Embedding / Reranker**：TEI `:8080`（`tei_base_url`），经 `EmbeddingCircuitBreaker` 保护
+- **意图分类**：规则 Fast Path + LLM Slow Path 双通道（`services/common/classifier.py`），无独立分类服务
+- **敏感词/PII**：进程内 AC 自动机 + 正则（`shared/safety.py` / `shared/pii.py`），Redis Pub/Sub 热更新
+- **检索**：Python 直连 ES/Milvus SDK，4 路径降级矩阵（BM25 / Vector / Hybrid+RRF / 空）
 
-Java 侧 `mcp-server` 暴露 **22 个信用卡工具**（账单/卡服务/额度/分期/还款/积分/交易），全部返回 mock 数据，对接 Spring AI MCP Server，端口 8090（SSE），`prod` profile 注册到 Nacos。Python 端通过 `LumioToolClient` 走 streamable-http，Higress 桥接 SSE ↔ streamable-http。
-
-> 该 gRPC 层当前为契约定义，编排层内置了等价的本地实现作为兜底（降级策略见下文）。
+> 治理（鉴权/限流/脱敏/审计）由 Higress AI 网关承担；若未来模型平台化（多团队共享/vLLM 多实例/跨集群）再引入独立能力服务。
 
 ### 数据层（`deploy/docker-compose.yml`）
 
@@ -134,7 +134,7 @@ Java 侧 `mcp-server` 暴露 **22 个信用卡工具**（账单/卡服务/额度
   → POST /api/chat/send
   → L1 规则快速意图匹配（RuleLoader，<5ms）
   → Bot Agent 编排（asyncio 并行 + 规则路由）
-       ├─ 意图分类（CLS gRPC）
+       ├─ 意图分类（规则 Fast Path + LLM Slow Path）
        ├─ 混合检索（BM25 ⊕ 向量，RRF 融合 → Reranker）
        ├─ LLM 生成（Qwen2.5，含降级）
        └─ 安全过滤（敏感词 + PII 脱敏）

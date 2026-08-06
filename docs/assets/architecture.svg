@@ -51,10 +51,10 @@
 
   <!-- Layer 3: AI Capability -->
   <rect x="160" y="224" width="760" height="62" rx="8" fill="url(#gAi)" stroke="#10b981" stroke-width="1"/>
-  <text x="540" y="244" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="bold" letter-spacing="0.5">🧬 AI 能力层 — gRPC Services</text>
-  <rect x="172" y="252" width="240" height="26" rx="6" fill="rgba(16,185,129,0.12)" stroke="#10b981" stroke-width="0.8"/><text x="292" y="269" text-anchor="middle" fill="#6ee7b7" font-size="10" font-weight="600">🏷️ ClassificationService :50051</text>
-  <rect x="422" y="252" width="232" height="26" rx="6" fill="rgba(16,185,129,0.12)" stroke="#10b981" stroke-width="0.8"/><text x="538" y="269" text-anchor="middle" fill="#6ee7b7" font-size="10" font-weight="600">🔍 RetrievalService :50052</text>
-  <rect x="664" y="252" width="244" height="26" rx="6" fill="rgba(16,185,129,0.12)" stroke="#10b981" stroke-width="0.8"/><text x="786" y="269" text-anchor="middle" fill="#6ee7b7" font-size="10" font-weight="600">🛡️ SafetyFilterService :50053</text>
+  <text x="540" y="244" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="bold" letter-spacing="0.5">🧬 AI 能力 — HTTP 直连模型服务</text>
+  <rect x="172" y="252" width="240" height="26" rx="6" fill="rgba(16,185,129,0.12)" stroke="#10b981" stroke-width="0.8"/><text x="292" y="269" text-anchor="middle" fill="#6ee7b7" font-size="10" font-weight="600">🏷️ Ollama :11434 LLM</text>
+  <rect x="422" y="252" width="232" height="26" rx="6" fill="rgba(16,185,129,0.12)" stroke="#10b981" stroke-width="0.8"/><text x="538" y="269" text-anchor="middle" fill="#6ee7b7" font-size="10" font-weight="600">🔍 TEI :8080 Embedding/Rerank</text>
+  <rect x="664" y="252" width="244" height="26" rx="6" fill="rgba(16,185,129,0.12)" stroke="#10b981" stroke-width="0.8"/><text x="786" y="269" text-anchor="middle" fill="#6ee7b7" font-size="10" font-weight="600">🛡️ Higress 网关治理</text>
 
   <!-- Layer 4: Data -->
   <rect x="160" y="294" width="760" height="68" rx="8" fill="url(#gDt)" stroke="#ec4899" stroke-width="1"/>

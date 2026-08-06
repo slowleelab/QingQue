@@ -13,8 +13,8 @@ graph TB
         Assist["Assist Service :8001<br/>WS /api/ws/agent/{id}<br/>POST /api/analyze<br/>POST /api/hold<br/>POST /api/review/*"]
     end
 
-    subgraph Capability["AI 能力层 (gRPC 规划中)"]
-        Note1["ClassificationService :50051<br/>RetrievalService :50052<br/>SafetyFilterService :50053<br/>(P3-2 已清理)"]
+    subgraph Capability["AI 能力 (HTTP 直连模型服务)"]
+        Note1["Ollama :11434 LLM<br/>TEI :8080 Embedding/Rerank<br/>Higress 网关治理"]
     end
 
     subgraph Data["数据层 (6 大中间件)"]

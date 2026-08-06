@@ -38,8 +38,10 @@ graph TB
         Assist["Assist Service :8001<br/>WS /api/ws/agent/{id}<br/>POST /api/analyze<br/>POST /api/hold<br/>POST /api/review/*"]
     end
 
-    subgraph Capability["AI 能力层 (gRPC 规划中)"]
-        Note1["ClassificationService :50051<br/>RetrievalService :50052<br/>SafetyFilterService :50053<br/>(规划中)"]
+    subgraph Capability["AI 能力 (HTTP 直连外部模型服务)"]
+        Ollama["Ollama :11434<br/>LLM 生成 (OpenAI 兼容)"]
+        TEI["TEI :8080<br/>Embedding / Reranker"]
+        Gateway["Higress AI 网关<br/>鉴权 / 限流 / 脱敏 / 审计"]
     end
 
     subgraph Data["数据层 (6 大中间件)"]
@@ -76,6 +78,10 @@ graph TB
     Assist --> Redis
     Assist --> MCPServer
     Assist --> ChatSvc
+    Bot --> Gateway
+    Assist --> Gateway
+    Gateway --> Ollama
+    Gateway --> TEI
     Bot -.span.-> Jaeger
     Assist -.span.-> Jaeger
     MCPServer -.span.-> Jaeger
@@ -90,10 +96,13 @@ graph TB
 | 层 | 责任 | 失败模式 |
 |---|---|---|
 | **编排层** | API 路由 / 业务编排 / 状态机 / 会话管理 | 5xx → 503 兜底 |
-| **AI 能力层** | (规划) LLM / 嵌入 / 重排序 / 分类的 gRPC 抽象 | **当前未实现, 由编排层直接调用 HTTP** |
+| **AI 能力** | LLM / 嵌入 / 重排序 (HTTP 直连外部模型服务, 经 Higress 网关治理) | 熔断 + 4 级降级链 |
 | **数据层** | 持久化 / 缓存 / 检索 / 事件 | 各组件独立降级 |
 
-**关键事实**: AI 能力层目前是**规划态** — `agent/proto/` 目录是空壳, gRPC stub 未实现. 当前所有 AI 能力都通过 HTTP 调用外部服务 (Ollama / TEI / Higress MCP).
+**关键事实**: 不设独立 gRPC 能力层 — AI 能力 (LLM/Embedding/Reranker/分类) 由编排层
+**HTTP 直连外部模型服务** (Ollama :11434 / TEI :8080), 统一治理由 Higress AI 网关承担
+(鉴权/限流/脱敏/审计)。当前规模下两层编排已足够, gRPC 抽象仅增加部署与序列化开销;
+若未来模型平台化 (多团队共享/vLLM 多实例/跨集群调用) 再引入.
 
 ## 1.2 两个 FastAPI 实例的边界
 
@@ -349,7 +358,7 @@ graph LR
 
 Lumio 的整体架构可以概括为:
 
-- **三层分层**: 编排 (FastAPI) / AI 能力 (gRPC 规划中) / 数据 (6 大中间件)
+- **两层编排 + AI 能力**: 编排 (FastAPI) / AI 能力 (HTTP 直连 Ollama/TEI, Higress 网关治理) / 数据 (6 大中间件)
 - **两个服务**: Bot :8000 (高频低延迟) + Assist :8001 (低频高复杂度), 共享底层
 - **5 个关键决策**: asyncio.gather 替代 Temporal / Redis Stream 替代 Kafka / 手写 Agent 替代 LangChain / PBKDF2 替代 argon2 / 父-子分块
 

@@ -31,10 +31,10 @@ tags: ["config", "pydantic-settings", "env_prefix", "别名兼容"]
 | 4 | `MilvusSettings` | `MILVUS_` | host/port/vector_dim | localhost:19530/1024 |
 | 5 | `MinIOSettings` | `MINIO_` | endpoint/access_key/secret_key/bucket | localhost:9000/lumio-docs |
 | 6 | `LLMSettings` | `LLM_` | base_url/api_key/primary_model/fallback_model | OpenAI 兼容 |
-| 7 | `ClassificationSettings` | `CLS_` | (规划) gRPC :50051 | - |
+| 7 | `ClassificationSettings` | `CLS_` | intent_threshold/min_entity_confidence | 0.6/0.7 |
 | 8 | `RAGSettings` | `RAG_` | index_prefix/rrf_k/chunk_size | lumio/60/1500 |
 | 9 | `SafetySettings` | `SAFETY_` | wordlist_path/max_scan_length | config/sensitive_words.txt |
-| 10 | `SessionSettings` | `SESSION_` | 5 类超时 (idle/queue/ringing/session/review) | 1800s/60s/30s/1800s/300s |
+| 10 | `SessionSettings` | `SESSION_` | 5 类超时 (idle/queue/ringing/session/review) | 180s/60s/无/1800s/120s |
 | 11 | `BotSettings` | `BOT_` | max_concurrent_agents/message_ttl/fast_reply_cooldown | 10/8/5 |
 | 12 | `AssistSettings` | `ASSIST_` | 4 类分支超时 (script/knowledge/alert/product) | 500/600/300/400 ms |
 | 13 | `OrchestrationSettings` | `ORCH_` | d1_d2_d3_cooldown/e1_e2_e3_sla | 300s/3s |

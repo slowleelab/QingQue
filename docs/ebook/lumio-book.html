@@ -431,8 +431,10 @@ async def _session_worker(self, session_id: str) -&gt; None:
         Assist[&quot;Assist Service :8001&lt;br/&gt;WS /api/ws/agent/{id}&lt;br/&gt;POST /api/analyze&lt;br/&gt;POST /api/hold&lt;br/&gt;POST /api/review/*&quot;]
     end
 
-    subgraph Capability[&quot;AI 能力层 (gRPC 规划中)&quot;]
-        Note1[&quot;ClassificationService :50051&lt;br/&gt;RetrievalService :50052&lt;br/&gt;SafetyFilterService :50053&lt;br/&gt;(规划中)&quot;]
+    subgraph Capability[&quot;AI 能力 (HTTP 直连外部模型服务)&quot;]
+        Ollama[&quot;Ollama :11434&lt;br/&gt;LLM 生成 (OpenAI 兼容)&quot;]
+        TEI[&quot;TEI :8080&lt;br/&gt;Embedding / Reranker&quot;]
+        Gateway[&quot;Higress AI 网关&lt;br/&gt;鉴权 / 限流 / 脱敏 / 审计&quot;]
     end
 
     subgraph Data[&quot;数据层 (6 大中间件)&quot;]
@@ -469,6 +471,10 @@ async def _session_worker(self, session_id: str) -&gt; None:
     Assist --&gt; Redis
     Assist --&gt; MCPServer
     Assist --&gt; ChatSvc
+    Bot --&gt; Gateway
+    Assist --&gt; Gateway
+    Gateway --&gt; Ollama
+    Gateway --&gt; TEI
     Bot -.span.-&gt; Jaeger
     Assist -.span.-&gt; Jaeger
     MCPServer -.span.-&gt; Jaeger
@@ -493,9 +499,9 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <td>5xx → 503 兜底</td>
 </tr>
 <tr>
-<td><strong>AI 能力层</strong></td>
-<td>(规划) LLM / 嵌入 / 重排序 / 分类的 gRPC 抽象</td>
-<td><strong>当前未实现, 由编排层直接调用 HTTP</strong></td>
+<td><strong>AI 能力</strong></td>
+<td>LLM / 嵌入 / 重排序 (HTTP 直连外部模型服务, 经 Higress 网关治理)</td>
+<td>熔断 + 4 级降级链</td>
 </tr>
 <tr>
 <td><strong>数据层</strong></td>
@@ -504,7 +510,10 @@ async def _session_worker(self, session_id: str) -&gt; None:
 </tr>
 </tbody>
 </table>
-<p><strong>关键事实</strong>: AI 能力层目前是<strong>规划态</strong> — <code>agent/proto/</code> 目录是空壳, gRPC stub 未实现. 当前所有 AI 能力都通过 HTTP 调用外部服务 (Ollama / TEI / Higress MCP).</p>
+<p><strong>关键事实</strong>: 不设独立 gRPC 能力层 — AI 能力 (LLM/Embedding/Reranker/分类) 由编排层
+<strong>HTTP 直连外部模型服务</strong> (Ollama :11434 / TEI :8080), 统一治理由 Higress AI 网关承担
+(鉴权/限流/脱敏/审计)。当前规模下两层编排已足够, gRPC 抽象仅增加部署与序列化开销;
+若未来模型平台化 (多团队共享/vLLM 多实例/跨集群调用) 再引入.</p>
 <h2 id="1.2-两个-FastAPI-实例的边界">1.2 两个 FastAPI 实例的边界</h2>
 <p>主入口 <code>agent/lumio/main.py:241-242</code> 创建两个独立 FastAPI 实例:</p>
 <pre><code class="language-python">bot_app: FastAPI = create_bot_app(lifespan=bot_lifespan)
@@ -814,7 +823,7 @@ for parent in [c for c in chunks if c.is_parent]:
 <h2 id="1.7-本章小结">1.7 本章小结</h2>
 <p>Lumio 的整体架构可以概括为:</p>
 <ul>
-<li><strong>三层分层</strong>: 编排 (FastAPI) / AI 能力 (gRPC 规划中) / 数据 (6 大中间件)</li>
+<li><strong>两层编排 + AI 能力</strong>: 编排 (FastAPI) / AI 能力 (HTTP 直连 Ollama/TEI, Higress 网关治理) / 数据 (6 大中间件)</li>
 <li><strong>两个服务</strong>: Bot :8000 (高频低延迟) + Assist :8001 (低频高复杂度), 共享底层</li>
 <li><strong>5 个关键决策</strong>: asyncio.gather 替代 Temporal / Redis Stream 替代 Kafka / 手写 Agent 替代 LangChain / PBKDF2 替代 argon2 / 父-子分块</li>
 </ul>
@@ -892,8 +901,8 @@ for parent in [c for c in chunks if c.is_parent]:
 <td>7</td>
 <td><code>ClassificationSettings</code></td>
 <td><code>CLS_</code></td>
-<td>(规划) gRPC :50051</td>
-<td>-</td>
+<td>intent_threshold/min_entity_confidence</td>
+<td>0.6/0.7</td>
 </tr>
 <tr>
 <td>8</td>
@@ -914,7 +923,7 @@ for parent in [c for c in chunks if c.is_parent]:
 <td><code>SessionSettings</code></td>
 <td><code>SESSION_</code></td>
 <td>5 类超时 (idle/queue/ringing/session/review)</td>
-<td>1800s/60s/30s/1800s/300s</td>
+<td>180s/60s/无/1800s/120s</td>
 </tr>
 <tr>
 <td>11</td>
@@ -9597,10 +9606,6 @@ TOOL_GUARD_DENIALS = Counter(
 <tr>
 <td><strong>CRUD</strong></td>
 <td>Create / Read / Update / Delete</td>
-</tr>
-<tr>
-<td><strong>RPC</strong></td>
-<td>Remote Procedure Call, gRPC 实现</td>
 </tr>
 <tr>
 <td><strong>LRU (Least Recently Used)</strong></td>
