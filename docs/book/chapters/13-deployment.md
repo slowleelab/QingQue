@@ -58,6 +58,8 @@ Lumio 的部署设计遵循一个朴素的工程直觉: **让本地开发与生�
 
 ## 13.2 部署拓扑与启动顺序
 
+**怎么读这张图 — "谁先起来谁后起来"**: 箭头表示"依赖" — 没有 etcd 和 MinIO, Milvus 起不来; 没有 Milvus/ES/Redis/PG, Bot 和 Assist 起不来. 这就像盖楼: 地基 (数据层) 必须先于楼层 (应用层), 楼层必须先于装修 (监控). 顺序错了, 应用启动时连不上数据库, 直接崩溃.
+
 24 个服务不是同时拉起的, 它们之间有严格的依赖关系。Milvus 必须等 etcd + minio 健康; 应用服务必须等 Milvus / ES / Redis / Postgres 全部就绪; Bot 与 Assist 还必须等一次性 `demo-init` 跑完迁移+种子:
 
 ```mermaid

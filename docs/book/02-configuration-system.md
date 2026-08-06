@@ -17,6 +17,8 @@ tags: ["config", "pydantic-settings", "env_prefix", "别名兼容"]
 
 > 本章深入剖析 Lumio 的 16 个 SubSettings 配置体系, 这是理解项目如何"零硬编码"运行 24 个 Docker 服务 + 16+ 端口的关键.
 
+**先讲个业务场景**: 一套 Lumio 要部署在三种环境 — 开发者的 Mac (localhost 连中间件)、测试服务器 (内网 IP)、生产集群 (K8s 里的服务名). 同一个代码, 怎么做到"换环境只改配置不碰代码"? 答案是**配置外置 + 前缀隔离**: 每个中间件有自己的环境变量前缀 (`POSTGRES_HOST` / `REDIS_HOST` / `LLM_BASE_URL`), 部署时按环境填不同的 `.env`, 代码永远只读配置对象, 不读环境变量本身. 这就是本章要讲的"零硬编码" — **代码里找不到一个写死的 IP 或端口**.
+
 ## 2.1 配置体系总览
 
 `agent/lumio/shared/config.py` 共 533 行, 定义 **16 个 Pydantic Settings 子类**, 加上 1 个根 `Settings` 容器.

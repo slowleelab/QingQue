@@ -64,6 +64,8 @@ graph TB
     PG -.audit_log.-> K
 ```
 
+**怎么读这张图 — "一条消息落在哪"**: 客户发"查账单" → 会话状态进 Redis (毫秒级读写); 账单数据从 PG 查 (秒级); 如果客户还问了"免年费规则" → 知识库从 ES/Milvus 检索 (双路召回); 通话录音/文档原文件进 MinIO; 审计流水最终可推 Kafka. **每种数据找自己最合适的家**: 状态要快 → Redis; 业务要准 → PG; 文本要搜 → ES; 语义要似 → Milvus; 文件要大 → MinIO; 事件要缓冲 → Kafka.
+
 设计上有三条**硬性原则**贯穿所有模块:
 
 1. **PG 是唯一的真相之源**。Redis 只是 PG 的"投影 + 加速", 一旦 Redis 丢失, 必须能从 PG 重建(`session.py:67-95` 的 CAS Lua 失败回退到 PG 重读)。这也是为什么我们不把"会话历史"完全放在 Redis, 而是 PG `chat_message` + Redis `lumio:session:{id}:history` 双写 + 兜底。

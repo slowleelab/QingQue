@@ -156,6 +156,8 @@ graph TD
     L --> S4[OrchestrationTimeoutError<br/>5004]
 ```
 
+**怎么读这张树**: 所有错误都是 `LumioError` 的孩子, 每个孩子带着自己的错误码和默认 HTTP 状态. 业务代码**只抛具体的子类** (比如 `raise SessionNotFoundError(...)`), 中间件捕获后按错误码映射成统一 JSON — 这就是"异常类层次 + 错误码 + 统一响应体"三层结构的落点: **代码里抛的是语义 (SessionNotFound), 网络上传的是契约 (3004), 前端处理的是分支 (回登录/重试/降级)**.
+
 层次设计有两条原则:第一,**5 大子类在语义上对应 5 段错误码**,通过单根继承让中间件 `isinstance(exc, LumioError)` 一行就能拦截所有业务异常;第二,**个别异常允许自定义 `__init__` 接收上下文参数**,如 `SessionNotFoundError(session_id)`、`InvalidTransitionError(detail)`、`CircuitBreakerOpenError(executor_name)`(`exceptions.py:93`、`104`、`178`),这样错误消息能带上具体定位信息,运维不用翻 trace。`StateConflictError`(`exceptions.py:200-204`)更进一步,在 message 里把 CAS 期望版本和当前版本都打出来,这种"自描述"异常在并发场景下能省掉一次 grep。
 
 值得指出,**我们刻意没有为每条错误码都建一个类**——比如 4001 / 4002 都是 LLM 相关,但运行时常常分不清"是 timeout 还是 inference error",硬要分类反而会引入边界判断开销。当业务侧确实需要细分时,再从 `LLMError` 基类派生;当前保持 35 错误码对应的扁平结构,演进成本最低。

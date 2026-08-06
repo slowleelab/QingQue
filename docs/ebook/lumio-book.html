@@ -414,7 +414,9 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <blockquote>
 <p>本章用一张架构图 + 5 个设计决策, 让你 18 分钟内理解 Lumio 的宏观布局.</p>
 </blockquote>
+<p><strong>先讲个业务场景</strong>: 客户在手机银行里发起对话, 消息经过的路是 — 网页/App 前端 → 反向代理 → 两个业务服务 (Bot 自助问答 / 坐席辅助) → 大模型和知识库. 同时, 银行还有<strong>坐席人员</strong>在看同一场对话: 客户没问完, 坐席就收到了 AI 的实时话术建议和合规提醒. 这就是本章要讲清的全景: <strong>一套系统, 同时服务客户和坐席两条线</strong> — 它们共享底层数据, 但入口、协议、性能要求完全不同.</p>
 <h2 id="1.1-三层架构总览">1.1 三层架构总览</h2>
+<p><strong>怎么读这张图</strong>: 从下往上看 — 数据层是"地基" (什么信息都存在哪), 中间是"店面" (两个服务接待什么人), 上面是"门面" (客户和坐席从哪里进来), 旁边还有"监控室" (运维怎么看系统是否健康). 每个框里都标了端口号和关键职责, 看懂了这张图, 全书的章节地图就有了.</p>
 <p>Lumio 整体走三层架构, 借鉴"洋葱模型":</p>
 <pre><code class="language-mermaid">graph TB
     subgraph Client[&quot;客户端&quot;]
@@ -483,6 +485,88 @@ async def _session_worker(self, session_id: str) -&gt; None:
     MCPServer -.metric.-&gt; Prom
     Prom --&gt; Grafana
 </code></pre>
+<h3 id="1.1.0-逐块解读-(对应&quot;店面&quot;比喻)">1.1.0 逐块解读 (对应"店面"比喻)</h3>
+<table>
+<thead>
+<tr>
+<th>区块</th>
+<th>是什么</th>
+<th>接待谁</th>
+<th>关键职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>客户端 + 边缘</strong></td>
+<td>网页/App + Nginx</td>
+<td>客户、坐席</td>
+<td>所有流量先进 Nginx, 按路径分发给两个服务; WebSocket 长连接 1 小时不超时</td>
+</tr>
+<tr>
+<td><strong>编排层 (两个服务)</strong></td>
+<td>Bot :8000 + Assist :8001</td>
+<td><strong>客户</strong>走 Bot, <strong>坐席</strong>走 Assist</td>
+<td>Bot 是高频低延迟 (客户问一句答一句); Assist 是低频高复杂度 (坐席通话中实时分析)</td>
+</tr>
+<tr>
+<td><strong>AI 能力</strong></td>
+<td>Ollama/TEI/Higress</td>
+<td>两个服务共用</td>
+<td>大模型生成、向量嵌入、重排序 — 统一走网关, 加鉴权限流脱敏</td>
+</tr>
+<tr>
+<td><strong>数据层 (6 中间件)</strong></td>
+<td>PG/Redis/ES/Milvus/MinIO/Kafka</td>
+<td>两个服务共用</td>
+<td>各自管一类数据: PG=业务真相, Redis=会话状态, ES/Milvus=检索, MinIO=文件, Kafka=预留事件</td>
+</tr>
+<tr>
+<td><strong>Java 生态</strong></td>
+<td>chat-svc + mcp-server</td>
+<td>坐席 + 客户</td>
+<td>chat-svc=坐席工作台对接, mcp-server=22 个信用卡工具 (账单/挂失/额度)</td>
+</tr>
+<tr>
+<td><strong>可观测性</strong></td>
+<td>Prometheus/Grafana/Jaeger</td>
+<td>运维</td>
+<td>指标、告警、链路追踪 — 后面第 10 章详讲</td>
+</tr>
+</tbody>
+</table>
+<p><strong>两条业务线的对比</strong> (理解两个服务为什么分开):</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Bot 自助 (客户)</th>
+<th>Assist 辅助 (坐席)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>流量特征</td>
+<td>大、突发 (账单日 10 倍)</td>
+<td>小、平稳 (坐席数量有限)</td>
+</tr>
+<tr>
+<td>延迟要求</td>
+<td>秒级 (客户在等)</td>
+<td>毫秒级推送 (通话中实时)</td>
+</tr>
+<tr>
+<td>协议</td>
+<td>HTTP 长轮询</td>
+<td>WebSocket 长连接</td>
+</tr>
+<tr>
+<td>失败后果</td>
+<td>客户体验差</td>
+<td>坐席无辅助 (可人工兜底)</td>
+</tr>
+</tbody>
+</table>
+<p>所以它们各自独立部署、独立扩缩容 — 账单日只扩 Bot, 坐席少时 Assist 可以缩到很小, 互不拖累.</p>
 <h3 id="1.1.1-三层的责任划分">1.1.1 三层的责任划分</h3>
 <table>
 <thead>
@@ -841,6 +925,7 @@ for parent in [c for c in chunks if c.is_parent]:
 <blockquote>
 <p>本章深入剖析 Lumio 的 16 个 SubSettings 配置体系, 这是理解项目如何"零硬编码"运行 24 个 Docker 服务 + 16+ 端口的关键.</p>
 </blockquote>
+<p><strong>先讲个业务场景</strong>: 一套 Lumio 要部署在三种环境 — 开发者的 Mac (localhost 连中间件)、测试服务器 (内网 IP)、生产集群 (K8s 里的服务名). 同一个代码, 怎么做到"换环境只改配置不碰代码"? 答案是<strong>配置外置 + 前缀隔离</strong>: 每个中间件有自己的环境变量前缀 (<code>POSTGRES_HOST</code> / <code>REDIS_HOST</code> / <code>LLM_BASE_URL</code>), 部署时按环境填不同的 <code>.env</code>, 代码永远只读配置对象, 不读环境变量本身. 这就是本章要讲的"零硬编码" — <strong>代码里找不到一个写死的 IP 或端口</strong>.</p>
 <h2 id="2.1-配置体系总览">2.1 配置体系总览</h2>
 <p><code>agent/lumio/shared/config.py</code> 共 533 行, 定义 <strong>16 个 Pydantic Settings 子类</strong>, 加上 1 个根 <code>Settings</code> 容器.</p>
 <h3 id="2.1.1-16-个-SubSettings-一览">2.1.1 16 个 SubSettings 一览</h3>
@@ -2036,6 +2121,13 @@ async def upload_document(file: UploadFile, request: Request):
 <p>本章深入 Lumio 坐席辅助 (Assist) 引擎. 银行坐席与客户通话时, AI 实时推送话术/知识/合规提醒 — 这是 Lumio 与普通客服系统最大的差异化能力. 看完本章你会理解: D1/D2/D3 评估器怎么决定「推不推、推什么」, E1/E2/E3 执行器怎么并行生成内容, asyncio.gather 怎么替代 Temporal 编排 5 阶段, 仲裁器怎么融合 3 路避免冲突, WebSocket 双模式怎么对接生产.</p>
 </blockquote>
 <h2 id="4.1-引擎全景图">4.1 引擎全景图</h2>
+<p><strong>先讲个业务场景</strong>: 坐席正和客户通话 — 客户在抱怨"上个月账单怎么多了 200 块利息". 坐席的屏幕上, AI 辅助在实时干活: ① 判断这是"投诉期"还是"营销期" (客户在抱怨, 就别推信用卡优惠了); ② 给出话术建议 ("先致歉, 再解释利息计算方式"); ③ 检索账单相关条文; ④ 同时后台合规检查 ("别承诺免利息, 那违规"); ⑤ 一切就绪, 推送到坐席屏幕. 整个过程要求在<strong>通话不中断的前提下 1-2 秒内完成</strong>.</p>
+<p><strong>五阶段流水线</strong> (对应下面这张图, 从下往上读):
+- <strong>Phase 1 评估</strong>: 先想清楚"现在是什么情况" — 客户意图、服务期/营销期/风控、紧急程度
+- <strong>Phase 2 执行</strong>: 三条线并行干活 — 话术生成、营销推荐 (延迟 500ms, 别抢话)、风控检查
+- <strong>Phase 3 决策</strong>: 综合判断"该不该推" — 刚推过话术? 30 秒内别重复打扰
+- <strong>Phase 4 仲裁</strong>: 三路结果有冲突时定优先级 — 风控提醒 &gt; 话术 &gt; 营销
+- <strong>Phase 5 推送</strong>: 脱敏 + 去重 + 推送到坐席屏幕</p>
 <pre><code class="language-mermaid">flowchart TB
     subgraph Input[&quot;入口&quot;]
         WS[&quot;WebSocket :8001&lt;br/&gt;/api/ws/agent/{id}&quot;]
@@ -2664,6 +2756,7 @@ async def generate_call_summary(session_id, session_manager, llm):
 <p>本章深入 Lumio RAG (检索增强生成) 全链路. 银行客服 80% 的问题靠知识库回答 — "信用卡年费多少? 怎么免年费? 积分怎么用?", RAG 链路质量直接决定客户体验. 看完本章你会理解: BM25 + 向量 + RRF 三路召回怎么互补, 父-子分块怎么同时满足检索粒度 + 生成粒度, ES + Milvus 双写 + 回滚怎么保证一致性, 银行合规字段怎么硬注入, 4 路径降级矩阵怎么在 ES/Milvus 不可用时仍服务.</p>
 </blockquote>
 <h2 id="5.1-检索全景图">5.1 检索全景图</h2>
+<p><strong>怎么读这张图</strong>: 客户问"信用卡年费多少", 系统要做四件事 — ① 先看缓存 (5 分钟内问过同样问题? 直接复用); ② 加合规过滤 (只查<strong>已发布、当前版本</strong>的条文, 草稿和旧版绝不能答给客户); ③ 双通道检索 (关键词搜索 + 语义搜索, 谁都不能全信); ④ 精排 + 回填缓存.</p>
 <pre><code class="language-mermaid">flowchart LR
     Query[用户查询] --&gt; Cache{Redis 缓存&lt;br/&gt;TTL 300s}
     Cache --&gt;|命中| Return[直接返回]
@@ -2688,6 +2781,13 @@ async def generate_call_summary(session_id, session_manager, llm):
     style RRF fill:#fee,stroke:#333
     style Rerank fill:#eef,stroke:#333
 </code></pre>
+<h3 id="5.1.1-双通道检索-—-&quot;为什么两条路都要走&quot;">5.1.1 双通道检索 — "为什么两条路都要走"</h3>
+<p>客户问"年费多少", 有两种找法:</p>
+<ul>
+<li><strong>BM25 关键词检索</strong> (ES): 像用 Ctrl+F 搜文档 — 找"年费"两个字在哪出现. 优点: 快、准、不依赖模型; 缺点: 客户说"一年收多少钱"就搜不到"年费"</li>
+<li><strong>向量语义检索</strong> (Milvus): 像让 AI 理解意思 — "一年收多少钱" 和 "年费" 在语义上相近, 能匹配上. 优点: 懂同义词、口语; 缺点: 依赖模型质量, 可能跑偏</li>
+</ul>
+<p><strong>单走一条路的后果</strong>: 只走关键词, 客户换种说法就查不到 (体验差); 只走语义, 生僻专业词可能匹配错 (风险高). 两条路都走, 再用 RRF 融合排序 — 两条路都找到的条文排最前, 只有一条路找到的靠后. 这就是<strong>三路召回 + 融合</strong>的核心价值.</p>
 <h2 id="5.2-入口:-RetrieveRequest">5.2 入口: <code>RetrieveRequest</code></h2>
 <p><code>agent/lumio/services/common/retrieval.py:400-410</code> 是 RAG 入口:</p>
 <pre><code class="language-python"># retrieval.py:400 (简化)
@@ -2707,6 +2807,12 @@ class RetrieveRequest(BaseModel):
 - <code>filters</code>: ES 过滤器 (keyword/date/keywords 三类, retrieval.py:48-80)
 - <code>rerank</code>: 是否启用重排序</p>
 <h2 id="5.3-4-路径降级矩阵">5.3 4 路径降级矩阵</h2>
+<p><strong>业务场景</strong>: 检索依赖两个系统 — ES (关键词) 和 Milvus (语义). 生产环境任何中间件都可能挂: ES 磁盘满、Milvus 的 etcd 抖动、嵌入模型超时. 客户可不管这些 — 他只知道"我问了问题, 系统得答". 所以检索的设计原则和 Bot 一致: <strong>能答多少答多少, 绝不因为一个组件挂了就整个瘫痪</strong>.</p>
+<p><strong>4 种故障场景的应对</strong> (对应下面的矩阵):
+- 都正常 → 双通道 + 融合, 质量最好
+- Milvus 挂了 → 只用关键词检索 (BM25) — 客户换个说法可能搜不到, 但常见问法没问题
+- ES 挂了 → 只用语义检索 — 生僻词可能不准, 但大部分问题能答
+- 都挂了 → 返回空, 由上层降级链兜底 (第 3 章讲过的模板话术)</p>
 <p><code>retrieval.py:419-425</code> 是核心降级矩阵:</p>
 <pre><code class="language-python"># retrieval.py:419 (简化)
 async def retrieve(request, es_client, milvus_collection, embedding_provider, reranker, redis_client):
@@ -3148,6 +3254,7 @@ if es_breaker.is_open and milvus_breaker.is_open:
 <p>本章深入 Lumio 会话状态机. 银行客服一次通话从客户拨入到结束, 涉及 4 phase × 7 sub-state 21 种状态组合 — 怎么保证多实例并发下不丢转换, 怎么 5 秒检测超时, 怎么保证 5-7 年审计留存, 是本章核心. 看完本章你会理解: 状态机怎么设计才能既灵活又安全, CAS Lua 怎么原子控制并发, ZSET 怎么替代 asyncio.Task 做分布式超时, PostgreSQL 怎么异步落库.</p>
 </blockquote>
 <h2 id="6.1-状态机全景">6.1 状态机全景</h2>
+<p><strong>先讲个业务场景</strong>: 客户打进来说"我的卡丢了" — 系统要一路护送他走完整个旅程: Bot 先接待 → 识别到挂失 → 转人工 → 排队等坐席 → 坐席接听 → 通话 → 挂断 → 话后小结 → 归档. 任何一个环节, 系统都得<strong>准确知道"客户现在到哪一步了"</strong>: 排队超时了要不要回 Bot? 坐席 30 秒没接要不要提醒? 通话中客户还能不能插话? 这就是状态机存在的意义 — <strong>给每一次对话一个"当前进度", 让系统所有组件 (Bot、坐席端、超时器、审计) 对"现在是什么状态"有一致的认识</strong>.</p>
 <pre><code class="language-mermaid">stateDiagram-v2
     [*] --&gt; BOT_ACTIVE: 客户进入 Bot
 
@@ -3172,6 +3279,17 @@ if es_breaker.is_open and milvus_breaker.is_open:
 
     ENDED --&gt; [*]
 </code></pre>
+<h3 id="6.1.0-状态图解读-—-&quot;一次挂失通话的完整旅程&quot;">6.1.0 状态图解读 — "一次挂失通话的完整旅程"</h3>
+<p>顺着图从上往下走一遍 (对应上面客户的挂失场景):</p>
+<ol>
+<li><strong>BOT_ACTIVE (Bot 接待)</strong>: 客户进来先和 Bot 聊. 这是默认状态, 一切对话的起点.</li>
+<li><strong>→ AG_QUEUED (排队中)</strong>: Bot 识别到挂失 → 转人工. 客户进入排队, 系统开始 60 秒倒计时.</li>
+<li><strong>→ AG_ASSIGNED (已分配)</strong>: 坐席接了单, 系统通知客户"客服马上来". 如果 30 秒没人接 → 回排队或结束.</li>
+<li><strong>→ AG_ACTIVE (通话中)</strong>: 坐席开口了, 正式通话. 这是<strong>双向</strong>状态 — 坐席可以随时把客户保持 (AG_ON_HOLD) 或结束通话.</li>
+<li><strong>→ AG_REVIEWING (话后小结)</strong>: 通话结束, 坐席要在 2 分钟内填完小结 (记录问题、处理结果).</li>
+<li><strong>→ ENDED (归档)</strong>: 小结提交, 对话写入 PostgreSQL 审计留存 5-7 年.</li>
+</ol>
+<p><strong>为什么状态不能乱跳</strong>: 比如客户在排队 (AG_QUEUED) 时, 系统<strong>不允许</strong>直接跳到"通话中" (AG_ACTIVE) — 必须先经过"已分配" (AG_ASSIGNED). 这张图的箭头就是<strong>合法转换白名单</strong>, 代码里是 <code>VALID_TRANSITIONS</code> 表, 任何白名单外的转换直接抛 <code>InvalidTransitionError</code> — 防止并发情况下两个组件同时改状态导致"客户明明还在排队, 系统却以为在通话"的错乱.</p>
 <p><strong>4 phase</strong> (顶层):</p>
 <table>
 <thead>
@@ -3705,6 +3823,7 @@ async def test_intent_stack_incremental_merge(redis):
 <p>本章深入 Lumio MCP (Model Context Protocol) 工具集成. 银行客户要查年费、调额度、办分期, 这些都需要真实业务系统操作 — 怎么让 LLM 安全调用银行工具, 怎么保护敏感操作等客户确认, 怎么在工具出错时不让 LLM 幻觉回答, 是本章核心. 看完本章你会理解: MCP 协议怎么替代旧 SSE 实现跨语言工具调用, 22 个 Java 工具怎么对应 7 个业务域, destructiveHint 注解怎么自动标记敏感, 工具护栏怎么双重保险, Higress 网关怎么集中治理鉴权/限流/脱敏/审计.</p>
 </blockquote>
 <h2 id="7.1-MCP-协议概览">7.1 MCP 协议概览</h2>
+<p><strong>先讲个业务场景</strong>: 客户说"帮我把额度临时提到 8 万" — 这是要动真金白银的操作. Bot 得调用银行的额度调整服务, 但<strong>两个巨大的技术障碍</strong>: ① LLM 是个语言模型, 不会直接调 Java 服务; ② 调额度是敏感操作, 不能模型说调就调. MCP 协议解决第一个问题 (给 LLM 一套标准化的"工具调用"方式), 而"敏感操作要确认"是 Lumio 在 MCP 之上加的第二道保险 (第 17 章详讲).</p>
 <p>MCP (Model Context Protocol) 是 Anthropic 2024 年提出的 <strong>AI Agent 调用工具标准协议</strong>. Lumio 采用 streamable-http 传输 (替代旧 SSE):</p>
 <pre><code class="language-mermaid">sequenceDiagram
     participant Python as Python LumioAgent
@@ -3712,13 +3831,16 @@ async def test_intent_stack_incremental_merge(redis):
     participant Java as Java MCP Server
     participant Tools as 22 信用卡工具
 
+    Note over Python,Higress: 第 1 步: 先&quot;问有什么工具可用&quot;
     Python-&gt;&gt;Higress: POST /mcp&lt;br/&gt;streamable-http
     Note over Python,Higress: initialize + list_tools
     Higress-&gt;&gt;Java: 转发 + 鉴权 + 限流
     Java--&gt;&gt;Higress: 工具列表
     Higress--&gt;&gt;Python: 22 工具 schema
 
+    Note over Python,Python: 第 2 步: LLM 根据工具清单决定调哪个
     Python-&gt;&gt;Python: LLM 决定调 tool_X
+    Note over Python,Higress: 第 3 步: 真实调用 (经网关脱敏审计)
     Python-&gt;&gt;Higress: POST /mcp&lt;br/&gt;call_tool(tool_X, args)
     Higress-&gt;&gt;Higress: 鉴权 + 脱敏
     Higress-&gt;&gt;Java: 转发
@@ -3727,8 +3849,17 @@ async def test_intent_stack_incremental_merge(redis):
     Java--&gt;&gt;Higress: result (PII 脱敏)
     Higress--&gt;&gt;Python: result
 
+    Note over Python,Python: 第 4 步: LLM 把工具结果组织成回答
     Python-&gt;&gt;Python: LLM 二次生成回答
 </code></pre>
+<h3 id="7.1.1-三步走解读-—-&quot;LLM-怎么学会用工具&quot;">7.1.1 三步走解读 — "LLM 怎么学会用工具"</h3>
+<ol>
+<li><strong>问清单</strong> (initialize + list_tools): 系统启动时, LLM 先拿到 22 个工具的"说明书" (每个工具叫什么、收什么参数、干什么用). 就像给新人一张工具台清单: 有查账单的、有挂失的、有调额的.</li>
+<li><strong>选工具</strong> (LLM 决定): 客户说"提额", LLM 在清单里挑出 <code>adjust_temp_credit_limit</code> 并填好参数 (额度 8 万、卡号). 这一步 LLM 可能<strong>选错工具或填错参数</strong> — 这就是第 17 章"工具护栏"要拦的.</li>
+<li><strong>调工具</strong> (call_tool): 真正发起调用, 经 Higress 网关 (鉴权/限流/脱敏) 转发给 Java 服务执行, 结果原路返回.</li>
+<li><strong>组织回答</strong>: LLM 拿到工具返回的 JSON, 翻译成人话告诉客户 ("您的额度已临时调整至 8 万元, 有效期至月底").</li>
+</ol>
+<p><strong>为什么中间要过 Higress 网关</strong>: Python 和 Java 是两套技术栈, 直接互连 = 每个工具都要处理鉴权、限流、脱敏 — 22 个工具 × 3 个关注点, 代码爆炸. 网关把"谁可以调、调多频繁、返回脱不脱敏、有没有审计"全部收口到一处, 工具只负责干活.</p>
 <p><strong>streamable-http vs 旧 SSE 优势</strong>:
 - <strong>双向流</strong>: HTTP POST + GET 并存, 旧 SSE 单向
 - <strong>重连友好</strong>: 连接断开自动重连, 不丢消息
@@ -4476,6 +4607,7 @@ class LumioError(Exception):
     L --&gt; S3[StateConflictError&lt;br/&gt;5003]
     L --&gt; S4[OrchestrationTimeoutError&lt;br/&gt;5004]
 </code></pre>
+<p><strong>怎么读这张树</strong>: 所有错误都是 <code>LumioError</code> 的孩子, 每个孩子带着自己的错误码和默认 HTTP 状态. 业务代码<strong>只抛具体的子类</strong> (比如 <code>raise SessionNotFoundError(...)</code>), 中间件捕获后按错误码映射成统一 JSON — 这就是"异常类层次 + 错误码 + 统一响应体"三层结构的落点: <strong>代码里抛的是语义 (SessionNotFound), 网络上传的是契约 (3004), 前端处理的是分支 (回登录/重试/降级)</strong>.</p>
 <p>层次设计有两条原则:第一,<strong>5 大子类在语义上对应 5 段错误码</strong>,通过单根继承让中间件 <code>isinstance(exc, LumioError)</code> 一行就能拦截所有业务异常;第二,<strong>个别异常允许自定义 <code>__init__</code> 接收上下文参数</strong>,如 <code>SessionNotFoundError(session_id)</code>、<code>InvalidTransitionError(detail)</code>、<code>CircuitBreakerOpenError(executor_name)</code>(<code>exceptions.py:93</code>、<code>104</code>、<code>178</code>),这样错误消息能带上具体定位信息,运维不用翻 trace。<code>StateConflictError</code>(<code>exceptions.py:200-204</code>)更进一步,在 message 里把 CAS 期望版本和当前版本都打出来,这种"自描述"异常在并发场景下能省掉一次 grep。</p>
 <p>值得指出,<strong>我们刻意没有为每条错误码都建一个类</strong>——比如 4001 / 4002 都是 LLM 相关,但运行时常常分不清"是 timeout 还是 inference error",硬要分类反而会引入边界判断开销。当业务侧确实需要细分时,再从 <code>LLMError</code> 基类派生;当前保持 35 错误码对应的扁平结构,演进成本最低。</p>
 <h2 id="PII-脱敏贯穿异常-message">PII 脱敏贯穿异常 message</h2>
@@ -4589,6 +4721,7 @@ if result.source in (&quot;template&quot;, &quot;fallback&quot;) and not should_
 <p>本章拆解 Lumio 把一份原始文档送进 ES + Milvus 的完整路径, 重点回答: 5 阶段为什么是这 5 个? 双写失败时怎么回滚? 如何做到增量版本管理?</p>
 </blockquote>
 <h2 id="9.1-5-阶段管线总览">9.1 5 阶段管线总览</h2>
+<p><strong>先讲个业务场景</strong>: 银行的法务部上传了一份《信用卡章程》PDF (200 页). 这份文档要能被客户问"年费怎么免"时检索到 — 但 200 页塞进系统可不像复制粘贴那么简单: PDF 要转文字, 页眉页脚要去掉, 长段落要切成小块, 每块要变成向量, 最后同时写进两个检索库. 任何一个环节出错 (PDF 解析失败/双写一半成功), 客户就可能问到<strong>残缺的答案</strong> — 这是合规事故.</p>
 <p>文档摄入是 RAG 系统里最容易被低估的环节. 检索端 (<code>第 5 章</code>) 拿到的是已经向量化的 chunk, 看上去只取决于 Embedding 模型; 但 chunk 的边界是否合理、元数据是否完整、版本是否可追溯, 全部由摄入管线决定. Lumio 把摄入拆成 5 个明确的阶段, 每个阶段都写一条 <code>kb_ingestion_log</code> 流水:</p>
 <pre><code class="language-mermaid">flowchart LR
     A[原始文档&lt;br/&gt;MD/HTML/PDF/DOCX/XLSX/TXT] --&gt; B[Parse&lt;br/&gt;格式解析]
@@ -4787,6 +4920,9 @@ Index(
     L &lt;-. trace_id 关联 .-&gt; T
     M &lt;-. endpoint 关联 .-&gt; L
 </code></pre>
+<p><strong>怎么读这张三角图 — "一次客户投诉的排查"</strong>: 客户说"刚才问账单特别慢". 排查路径是 —
+① 看 <strong>Metrics</strong>: 哪个端点的延迟飙了 (账单查询 P99 从 200ms 变 3s); ② 看 <strong>Traces</strong>: 慢在哪一跳 (是 ES 慢还是 LLM 慢); ③ 看 <strong>Logs</strong>: 那次调用到底发生了什么 (超时? 重试?). 三者靠 <code>trace_id</code> 串成一条线: 从"哪个端点慢" (指标) 下钻到"哪次调用报错" (日志), 中间不用人工拼数据.</p>
+<p><strong>为什么三条都要, 不能只留一条</strong>: 只有指标 → 知道"慢了"但不知道为什么; 只有日志 → 每条都有细节但看不出趋势; 只有追踪 → 单次调用很清楚但没法发现"整体在恶化". 三者是<strong>望远镜 (趋势)、放大镜 (细节)、透视镜 (链路)</strong> 的关系.</p>
 <p>三者通过 <code>trace_id</code> 和 <code>endpoint</code> 互相串联:同一次请求产生的所有日志都会带上当前活跃 span 的 <code>trace_id</code>(<code>logger.py:34-47</code>),而指标又可以按 <code>endpoint</code> 维度聚合——这样从"哪个端点慢了"下钻到"具体哪次调用报错了"是平滑的,中间不需要人工做 join。</p>
 <p>值得提醒的一点:三大支柱不是"加得越多越好"。每加一个指标,TSDB 就要多一份存储;每加一条日志,Loki 就要多一份索引;每开一个 span,OTel collector 就要多一份处理。Lumio 在选型时严格遵循「<strong>指标回答 what、日志回答 how、trace 回答 where</strong>」的分工——能用 counter 回答的就不打 log,以此控制观测成本。</p>
 <h2 id="10.2-17-个-Prometheus-指标">10.2 17 个 Prometheus 指标</h2>
@@ -5148,6 +5284,8 @@ if route is not None and hasattr(route, &quot;endpoint&quot;):
     style L4 fill:#cfe7ff,stroke:#2c5fa8
     style L5 fill:#e0d4f4,stroke:#7d3c98
 </code></pre>
+<p><strong>怎么读这张图 — "一次攻击者尝试的全景"</strong>: 攻击者想偷看别人的会话记录, 要连闯 5 关 —
+① Nginx: 先过 TLS 和 IP 限速 (爬虫先被挡); ② JWT: 没有有效 token, 直接 401 (伪造 token 过不了 HS256 签名); ③ RBAC: 就算有 token 但不是 admin, 403 (角色不够); ④ PII 脱敏: 就算读到数据, 卡号手机号也已打码; ⑤ 审计: 就算侥幸读到, 每次访问都留了痕, 事后可追责. <strong>单层被突破不代表系统失守</strong> — 这就是"纵深"的含义: 每层都是独立失效域, 攻击成本随层数指数上升.</p>
 <p>5 层各司其职,设计上不允许跨层"借力":例如 Nginx 不会做应用层鉴权,JWT 不会做业务级字段过滤。一旦某一层需要扩展,改动也只局限在那一层,不会引发雪崩式回归。第 10 章讲到的可观测性横切所有 5 层,但它本身不是独立防线。</p>
 <h2 id="11.2-JWT-接入:从签发到解析的完整链路">11.2 JWT 接入:从签发到解析的完整链路</h2>
 <p>Lumio 选用 JWT 而非 Session,核心动机是<strong>无状态</strong>:多副本部署无需共享 session 存储,access token 自带 role 声明,网关层可直接做粗粒度路由。但 JWT 一旦泄漏即可被任意重放,所以签发、解析、刷新三段都做了针对性加固。</p>
@@ -5450,6 +5588,7 @@ if safety_filter.is_crisis_input(user_input):
     ES -.双写回滚.-&gt; MV
     PG -.audit_log.-&gt; K
 </code></pre>
+<p><strong>怎么读这张图 — "一条消息落在哪"</strong>: 客户发"查账单" → 会话状态进 Redis (毫秒级读写); 账单数据从 PG 查 (秒级); 如果客户还问了"免年费规则" → 知识库从 ES/Milvus 检索 (双路召回); 通话录音/文档原文件进 MinIO; 审计流水最终可推 Kafka. <strong>每种数据找自己最合适的家</strong>: 状态要快 → Redis; 业务要准 → PG; 文本要搜 → ES; 语义要似 → Milvus; 文件要大 → MinIO; 事件要缓冲 → Kafka.</p>
 <p>设计上有三条<strong>硬性原则</strong>贯穿所有模块:</p>
 <ol>
 <li><strong>PG 是唯一的真相之源</strong>。Redis 只是 PG 的"投影 + 加速", 一旦 Redis 丢失, 必须能从 PG 重建(<code>session.py:67-95</code> 的 CAS Lua 失败回退到 PG 重读)。这也是为什么我们不把"会话历史"完全放在 Redis, 而是 PG <code>chat_message</code> + Redis <code>lumio:session:{id}:history</code> 双写 + 兜底。</li>
@@ -6051,6 +6190,7 @@ except Exception as e:
 <p>值得专门说一句的是 etcd 的"刻意不暴露": <code>deploy/docker-compose.yml:91</code> 留了一行注释, 解释 etcd 端口故意不开给宿主机——<code>避免与 VPNKit 代理冲突</code>。在 macOS + Colima / OrbStack 环境下, 容器与宿主网络之间的端口转发非常容易撞车, 让 etcd 只活在容器网络 <code>lumio-net</code> 内部, 既满足了 Milvus 的内部寻址, 又把潜在端口冲突的可能性压到零。这种"少开一个端口"的小决定, 是多年被 Docker 网络折磨出来的经验。</p>
 <p>再细看 ES 的镜像构建: <code>deploy/elasticsearch/Dockerfile:6</code> 一行 <code>RUN elasticsearch-plugin install --batch ...</code> 在构建期就把 IK 中文分词器装好了, 而不是让用户首次启动后再去手动执行 <code>bin/elasticsearch-plugin install</code> 还要重启。这种"构建期固化运行期配置"的做法, 与 multi-stage 镜像的"只在 builder 阶段装工具"是同一种哲学: 一切不可变的部分都应该在不可变层完成。</p>
 <h2 id="13.2-部署拓扑与启动顺序">13.2 部署拓扑与启动顺序</h2>
+<p><strong>怎么读这张图 — "谁先起来谁后起来"</strong>: 箭头表示"依赖" — 没有 etcd 和 MinIO, Milvus 起不来; 没有 Milvus/ES/Redis/PG, Bot 和 Assist 起不来. 这就像盖楼: 地基 (数据层) 必须先于楼层 (应用层), 楼层必须先于装修 (监控). 顺序错了, 应用启动时连不上数据库, 直接崩溃.</p>
 <p>24 个服务不是同时拉起的, 它们之间有严格的依赖关系。Milvus 必须等 etcd + minio 健康; 应用服务必须等 Milvus / ES / Redis / Postgres 全部就绪; Bot 与 Assist 还必须等一次性 <code>demo-init</code> 跑完迁移+种子:</p>
 <pre><code class="language-mermaid">graph LR
     subgraph 核心
@@ -6262,6 +6402,7 @@ ASSIST_PORT = 8766  # 避免与开发环境 :8001 冲突
     BC --&gt; T1[test_bot_api.py / test_chat_poll.py]
     AC --&gt; T2[test_assist_api.py / test_session_lifecycle_e2e.py]
 </code></pre>
+<p><strong>怎么读这张图 — "测试的前置关卡"</strong>: 跑测试前先问三件事 — ① 中间件 (Redis/PG) 起了吗? 没起就<strong>跳过</strong> (不是报错, 开发者没 <code>make up</code> 也看得懂); ② 服务子进程 90 秒内能就绪吗? 不能就<strong>失败</strong> (真有问题要暴露); ③ 都好了 → 客户端 fixture 才可用. 整个流程是<strong>显式的</strong>: 每个分支都有明确结果, 不会出现"莫名失败 5 分钟才发现是没起 Docker"的噪音.</p>
 <h2 id="14.4-TOP-10-测试覆盖密度">14.4 TOP 10 测试覆盖密度</h2>
 <p>下面这张表是按用例数排的 TOP 10, 直接反映 Lumio 当前最"被担心出 bug"的几块:</p>
 <table>
@@ -6867,6 +7008,7 @@ flowchart TB
     style L3e fill:#d4f4dd
     style LLM fill:#cce5ff
 </code></pre>
+<p><strong>怎么读这张图 — "每次回答前, 系统在拼什么"</strong>: 客户每说一句话, 系统要回答前先<strong>组装三样东西</strong> — ① Layer 1 结构化记忆 (摘要/画像/实体, 永在); ② Layer 2 近期历史 (超预算就裁最旧的, 但投诉/承诺类轮次豁免); ③ Layer 3 检索知识 (没搜到就跳过, 搜到了再附加知识图谱补关系). 三样都齐了才送进 LLM. <strong>红色分支 (L1Empty/L2Empty/L3Empty) 是降级路径</strong> — 任何一层失败, 系统照常回答, 只是少一份信息, 对话绝不中断. 这就是"能记住 30 轮前的事, 但永远不会爆 token"的秘密.</p>
 <h2 id="15.7-设计取舍深度分析">15.7 设计取舍深度分析</h2>
 <h3 id="15.7.1-为何用字符类-token-估算而非-tiktoken">15.7.1 为何用字符类 token 估算而非 <code>tiktoken</code></h3>
 <table>
@@ -7562,6 +7704,7 @@ def query_entity_relations(entity: str, query_text: str) -&gt; list[dict]:
 
     LLM--&gt;&gt;U: 回答 (含 KG 补充信息)
 </code></pre>
+<p><strong>怎么读这张图 — "RAG 答具体问题, 知识图谱补关联"</strong>: 客户问"信用卡额度怎么提升" — ① 先从知识库检索到额度相关条文 (RAG 给出<strong>具体答案</strong>: 临时提额 20%、永久提额需审核); ② 知识图谱再检查问题里有没有"信用卡/额度"这类<strong>实体</strong> — 有, 就追加一段关系链: 额度 → 关联提额/降额/冻结/分期; ③ LLM 综合两者回答. <strong>两者的分工</strong>: RAG 负责"这句话的答案在哪", 知识图谱负责"这个话题还牵扯哪些事" — 让 Bot 的回答不止于直接答案, 还能主动提示关联业务 (客户问提额, Bot 顺带提醒冻结会影响额度).</p>
 <h2 id="16.9-设计取舍深度分析">16.9 设计取舍深度分析</h2>
 <h3 id="16.9.1-为何正则而非-LLM">16.9.1 为何正则而非 LLM</h3>
 <table>
@@ -8080,6 +8223,7 @@ stateDiagram-v2
     unclear --&gt; pending: pending 不消耗&lt;br/&gt;继续等待
     expired --&gt; [*]: 清除 pending&lt;br/&gt;提示重新发起
 </code></pre>
+<p><strong>怎么读这张图 — "挂失前的最后一道闸"</strong>: 客户说"帮我把卡挂失" → 系统<strong>不立即执行</strong>, 而是进入 <code>pending</code> 状态, 回一句"您确认要办理银行卡挂失吗?" — 然后客户的所有回复都会被解读为四种之一: 说"确认" → 真执行; 说"取消" → 放弃; 说别的 (比如"那积分怎么算") → <code>unclear</code>, 系统<strong>不放弃</strong>继续等, 但累计 3 次会<strong>自动取消并放行新问题</strong> (防卡死); 5 分钟没回复 → <code>expired</code> 自动失效. <strong>为什么要这道闸</strong>: 挂失/调额/分期都是不可逆或影响重大的操作, AI 说办就办 = 合规事故; 让客户亲口确认, 既合规又给客户反悔的机会.</p>
 <h3 id="17.4.2-PendingAction-7-字段">17.4.2 <code>PendingAction</code> 7 字段</h3>
 <p><code>models.py:216-229</code>:</p>
 <pre><code class="language-python"># models.py:216
@@ -8496,6 +8640,7 @@ TOOL_GUARD_DENIALS = Counter(
 <li><strong>双维度交叉定位</strong>: "哪个工具被哪种规则拒得最多" → 调白名单 / 调金额上限</li>
 </ul>
 <h2 id="17.8-工具调用全链路时序图">17.8 工具调用全链路时序图</h2>
+<p><strong>怎么读这张图 — "调额 5 万的完整旅程"</strong>: 客户说"我要调额到 5 万", 系统走了<strong>四道闸</strong> — ① 工具选择: 只给 LLM 看 4 个额度相关工具 (不是 22 个); ② 护栏: 金额 5 万在限额内才放行; ③ 确认: 因为是敏感操作, <strong>先问客户确认</strong> (写 PendingAction, 5 分钟有效); ④ 客户说"确认" → 二次校验 → 真调工具 → 脱敏 → 审计 → LLM 组织回答. <strong>注意第 657 行的"二次校验"</strong>: 客户确认后还要再过一次护栏 — 防止确认期间参数被篡改 (比如"确认"时金额被改成 50 万).</p>
 <pre><code class="language-mermaid">sequenceDiagram
     participant U as 客户
     participant Bot as bot_agent

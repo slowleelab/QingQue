@@ -22,6 +22,8 @@ tags: ["mcp", "streamable-http", "工具调用", "护栏", "higress"]
 
 ## 7.1 MCP 协议概览
 
+**先讲个业务场景**: 客户说"帮我把额度临时提到 8 万" — 这是要动真金白银的操作. Bot 得调用银行的额度调整服务, 但**两个巨大的技术障碍**: ① LLM 是个语言模型, 不会直接调 Java 服务; ② 调额度是敏感操作, 不能模型说调就调. MCP 协议解决第一个问题 (给 LLM 一套标准化的"工具调用"方式), 而"敏感操作要确认"是 Lumio 在 MCP 之上加的第二道保险 (第 17 章详讲).
+
 MCP (Model Context Protocol) 是 Anthropic 2024 年提出的 **AI Agent 调用工具标准协议**. Lumio 采用 streamable-http 传输 (替代旧 SSE):
 
 ```mermaid
@@ -31,13 +33,16 @@ sequenceDiagram
     participant Java as Java MCP Server
     participant Tools as 22 信用卡工具
 
+    Note over Python,Higress: 第 1 步: 先"问有什么工具可用"
     Python->>Higress: POST /mcp<br/>streamable-http
     Note over Python,Higress: initialize + list_tools
     Higress->>Java: 转发 + 鉴权 + 限流
     Java-->>Higress: 工具列表
     Higress-->>Python: 22 工具 schema
 
+    Note over Python,Python: 第 2 步: LLM 根据工具清单决定调哪个
     Python->>Python: LLM 决定调 tool_X
+    Note over Python,Higress: 第 3 步: 真实调用 (经网关脱敏审计)
     Python->>Higress: POST /mcp<br/>call_tool(tool_X, args)
     Higress->>Higress: 鉴权 + 脱敏
     Higress->>Java: 转发
@@ -46,8 +51,18 @@ sequenceDiagram
     Java-->>Higress: result (PII 脱敏)
     Higress-->>Python: result
 
+    Note over Python,Python: 第 4 步: LLM 把工具结果组织成回答
     Python->>Python: LLM 二次生成回答
 ```
+
+### 7.1.1 三步走解读 — "LLM 怎么学会用工具"
+
+1. **问清单** (initialize + list_tools): 系统启动时, LLM 先拿到 22 个工具的"说明书" (每个工具叫什么、收什么参数、干什么用). 就像给新人一张工具台清单: 有查账单的、有挂失的、有调额的.
+2. **选工具** (LLM 决定): 客户说"提额", LLM 在清单里挑出 `adjust_temp_credit_limit` 并填好参数 (额度 8 万、卡号). 这一步 LLM 可能**选错工具或填错参数** — 这就是第 17 章"工具护栏"要拦的.
+3. **调工具** (call_tool): 真正发起调用, 经 Higress 网关 (鉴权/限流/脱敏) 转发给 Java 服务执行, 结果原路返回.
+4. **组织回答**: LLM 拿到工具返回的 JSON, 翻译成人话告诉客户 ("您的额度已临时调整至 8 万元, 有效期至月底").
+
+**为什么中间要过 Higress 网关**: Python 和 Java 是两套技术栈, 直接互连 = 每个工具都要处理鉴权、限流、脱敏 — 22 个工具 × 3 个关注点, 代码爆炸. 网关把"谁可以调、调多频繁、返回脱不脱敏、有没有审计"全部收口到一处, 工具只负责干活.
 
 **streamable-http vs 旧 SSE 优势**:
 - **双向流**: HTTP POST + GET 并存, 旧 SSE 单向
