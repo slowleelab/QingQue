@@ -299,3 +299,87 @@ async def test_chat_send_creates_session_id(app: FastAPI, setup_state) -> None:
         resp = await c.post("/api/chat/send", json={"session_id": "", "message": "你好"})
     assert resp.status_code == 200
     assert resp.json()["session_id"]
+
+
+# ── get_session_messages ──
+
+
+async def test_get_session_messages_success(app: FastAPI, setup_state) -> None:
+    """正常读取历史: 解析 JSON 条目 + 跳过损坏条目"""
+    redis = setup_state["redis"]
+    redis.lrange = AsyncMock(
+        return_value=[
+            json.dumps({"speaker": "user", "content": "你好", "timestamp": 1, "intent": None}),
+            json.dumps({"speaker": "bot", "content": "您好", "timestamp": 2}),
+            "not-json{{{",
+        ]
+    )
+    async with await _client(app) as c:
+        resp = await c.get("/api/sessions/s1/messages")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["count"] == 2
+    assert data["messages"][0]["speaker"] == "user"
+    assert data["session_id"] == "s1"
+
+
+async def test_get_session_messages_no_redis(app: FastAPI) -> None:
+    """Redis 未就绪 → 503 (不静默返回空列表)"""
+    async with await _client(app) as c:
+        resp = await c.get("/api/sessions/s1/messages")
+    assert resp.status_code == 503
+
+
+async def test_get_session_messages_customer_owner_mismatch(app: FastAPI, setup_state) -> None:
+    """customer 读取他人会话 → 403 越权拦截"""
+
+    redis = setup_state["redis"]
+    redis.get = AsyncMock(return_value=json.dumps({"customer_id": "other-user"}))
+    async with await _client(app) as c:
+        resp = await c.get("/api/sessions/s1/messages")
+    assert resp.status_code == 403
+    redis.lrange.assert_not_awaited()  # 未读取消息
+
+
+async def test_get_session_messages_customer_owner_match(app: FastAPI, setup_state) -> None:
+    """customer 读取本人会话 → 放行"""
+
+    redis = setup_state["redis"]
+    redis.get = AsyncMock(return_value=json.dumps({"customer_id": "u1"}))
+    redis.lrange = AsyncMock(return_value=[])
+    async with await _client(app) as c:
+        resp = await c.get("/api/sessions/s1/messages")
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 0
+
+
+async def test_get_session_messages_customer_no_meta(app: FastAPI, setup_state) -> None:
+    """customer + 无 meta → 放行"""
+    redis = setup_state["redis"]
+    redis.lrange = AsyncMock(return_value=[])
+    async with await _client(app) as c:
+        resp = await c.get("/api/sessions/s1/messages")
+    assert resp.status_code == 200
+
+
+async def test_get_session_messages_customer_meta_invalid(app: FastAPI, setup_state) -> None:
+    """customer + meta 损坏 → 放行 (不阻断)"""
+    redis = setup_state["redis"]
+    redis.get = AsyncMock(return_value="not-json")
+    redis.lrange = AsyncMock(return_value=[])
+    async with await _client(app) as c:
+        resp = await c.get("/api/sessions/s1/messages")
+    assert resp.status_code == 200
+
+
+async def test_get_session_messages_admin_skips_owner_check(app: FastAPI, setup_state) -> None:
+    """admin 角色跳过 meta 归属校验"""
+    from lumio.shared.auth import AuthUser, get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: AuthUser(user_id="u1", role="admin", session_id=None)
+    redis = setup_state["redis"]
+    redis.lrange = AsyncMock(return_value=[])
+    async with await _client(app) as c:
+        resp = await c.get("/api/sessions/s1/messages")
+    assert resp.status_code == 200
+    redis.get.assert_not_awaited()
