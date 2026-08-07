@@ -169,6 +169,9 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.demo.yml logs --no-color bot assist | tail -100
             exit 1
           fi
+      - name: Show demo-init logs (诊断)
+        working-directory: deploy
+        run: docker compose -f docker-compose.yml -f docker-compose.demo.yml logs --no-color demo-init | tail -50 || true
       - name: Check DB tables (诊断)
         working-directory: deploy
         run: |
