@@ -278,3 +278,97 @@ class TestProgressiveDisclosureRouting:
 
         te.run_conversation.assert_not_awaited()
         assert result["response"] == "RAG 知识回复"
+
+
+class TestBotAgentBranches:
+    """Bot Agent 边界分支测试"""
+
+    @pytest.fixture
+    def mock_deps(self) -> dict:
+        classifier = MagicMock()
+        classifier.classify = AsyncMock(
+            return_value=(
+                IntentResult(primary_intent=IntentLabel.FAQ, primary_confidence=0.5),
+                [],
+                MagicMock(),
+                "",
+            )
+        )
+        degradation_mgr = MagicMock()
+        degradation_mgr.generate_with_fallback = AsyncMock()
+        degradation_mgr._degrader = MagicMock()
+        degradation_mgr._degrader.hardcoded_fallback = MagicMock(return_value="抱歉，服务暂时不可用")
+        transfer_checker = MagicMock()
+        transfer_checker.check = MagicMock(return_value=(False, "", ""))
+        session_manager = MagicMock()
+        session_manager.get_history = AsyncMock(return_value=[])
+        session_manager.get_session = AsyncMock(return_value=None)
+        session_manager.patch_state = AsyncMock(return_value={"ok": True, "new_version": 2})
+        session_manager.add_turn = AsyncMock()
+        return {
+            "classifier": classifier,
+            "degradation_mgr": degradation_mgr,
+            "transfer_checker": transfer_checker,
+            "session_manager": session_manager,
+        }
+
+    @pytest.mark.asyncio
+    async def test_crisis_intervention(self, mock_deps: dict) -> None:
+        """危机干预: 自伤表达 → 安抚话术 + 强制转人工"""
+        from lumio.services.bot.prompts import CRISIS_RESPONSE
+
+        agent = LumioAgent(**mock_deps)
+        result = await agent.run("s1", "我不想活了，活着没意思")
+        assert result["response_source"] == "template"
+        assert result["should_transfer"] is True
+        assert result["transfer_reason"].startswith("crisis_intervention")
+        assert result["response"] == CRISIS_RESPONSE
+
+    @pytest.mark.asyncio
+    async def test_business_card_loss_transfers(self, mock_deps: dict) -> None:
+        """挂失 → 直接转人工"""
+        mock_deps["classifier"].classify = AsyncMock(
+            return_value=(
+                IntentResult(primary_intent=IntentLabel.CARD_LOSS, primary_confidence=0.95),
+                [],
+                MagicMock(),
+                "",
+            )
+        )
+        agent = LumioAgent(**mock_deps)
+        result = await agent.run("s1", "我的卡丢了要挂失")
+        assert result["should_transfer"] is True
+        assert result["transfer_reason"] == "挂失业务"
+
+    @pytest.mark.asyncio
+    async def test_complaint_creates_ticket(self, mock_deps: dict) -> None:
+        """投诉 → 创建工单"""
+        mock_deps["classifier"].classify = AsyncMock(
+            return_value=(
+                IntentResult(primary_intent=IntentLabel.COMPLAINT, primary_confidence=0.9),
+                [],
+                MagicMock(),
+                "",
+            )
+        )
+        agent = LumioAgent(**mock_deps)
+        result = await agent.run("s1", "我要投诉你们服务态度差", customer_id="c1")
+        # 投诉走转人工或工单路径
+        assert result["response"] != ""
+
+    @pytest.mark.asyncio
+    async def test_normalize_question(self) -> None:
+        """问题归一化: 去标点/空白"""
+        from lumio.services.bot.bot_agent import LumioAgent
+
+        assert LumioAgent._normalize_question("  年费  怎么 减免？？ ") == "年费怎么减免"
+
+
+class TestRepeatDetection:
+    """重复提问检测"""
+
+    def test_normalize_matches(self) -> None:
+        from lumio.services.bot.bot_agent import LumioAgent
+
+        assert LumioAgent._normalize_question("年费怎么减免？") == LumioAgent._normalize_question("年费怎么减免")
+        assert LumioAgent._normalize_question(" 账单 查询 ") == LumioAgent._normalize_question("账单查询")

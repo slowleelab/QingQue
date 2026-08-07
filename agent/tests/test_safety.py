@@ -190,3 +190,73 @@ def test_large_word_list_performance():
     assert not is_safe
     assert len(hits) == 2
     assert elapsed_ms < 100, f"AC 匹配耗时 {elapsed_ms:.1f}ms，应 < 100ms"
+
+
+# ── 危机干预 ──
+
+
+def test_crisis_input_detection():
+    """危机词命中"""
+    sf = SafetyFilter()
+    assert sf.is_crisis_input("我不想活了") is True
+    assert sf.is_crisis_input("最近很绝望") is True
+    assert sf.is_crisis_input("想死的心都有了") is True
+
+
+def test_crisis_input_negative():
+    """非危机词放行 + 空输入"""
+    sf = SafetyFilter()
+    assert sf.is_crisis_input("今天天气不错") is False
+    assert sf.is_crisis_input("") is False
+    assert sf.is_crisis_input(None) is False
+
+
+# ── check_input_detailed 边界 ──
+
+
+def test_check_input_detailed_empty():
+    """空文本/无自动机 → 安全"""
+    sf = SafetyFilter()
+    assert sf.check_input_detailed("") == (True, [])
+    assert sf.check_input_detailed("普通文本") == (True, [])
+
+
+def test_check_input_detailed_hits():
+    """详细命中含位置信息"""
+    sf = SafetyFilter()
+    sf.load_from_set({"保本保息"})
+    is_safe, hits = sf.check_input_detailed("这个产品保本保息")
+    assert not is_safe
+    assert hits[0]["word"] == "保本保息"
+    assert hits[0]["start"] >= 0
+    assert hits[0]["end"] > hits[0]["start"]
+
+
+# ── load_from_file 存在性 ──
+
+
+def test_load_from_file_missing_returns_zero():
+    """文件不存在 → 0"""
+    sf = SafetyFilter()
+    assert sf.load_from_file("/nonexistent/path/words.txt") == 0
+
+
+# ── 单例与词集 ──
+
+
+def test_words_property_and_count():
+    """words/word_count 属性"""
+    sf = SafetyFilter()
+    sf.load_from_set({"a", "b", "c"})
+    assert sf.words == {"a", "b", "c"}
+    assert sf.word_count == 3
+
+
+def test_add_word_rebuilds_automaton():
+    """增量 add_word 后自动机可匹配"""
+    sf = SafetyFilter()
+    sf.load_from_set({"旧词"})
+    sf.add_word("新词")
+    is_safe, hits = sf.check_input("提到新词")
+    assert not is_safe
+    assert "新词" in hits

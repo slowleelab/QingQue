@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -417,3 +418,102 @@ async def test_circuit_breaker_closes_on_successes() -> None:
     for _ in range(2):
         await cb._probe_once()
     assert cb.is_available
+
+
+class TestEmbeddingBreakerProbe:
+    """嵌入熔断器探测循环"""
+
+    @pytest.mark.asyncio
+    async def test_probe_success_closes(self) -> None:
+        """初始 fail-closed, 首次探测成功 → 可用"""
+        from lumio.services.common.embedding import EmbeddingCircuitBreaker
+
+        provider = MagicMock()
+        provider.health_check = AsyncMock(return_value=True)
+        breaker = EmbeddingCircuitBreaker(provider=provider, failure_threshold=2, recovery_threshold=1)
+        assert breaker.is_available is False  # 初始假定不可用
+        await breaker._probe_once()
+        assert breaker.is_available is True  # 1 次成功即关闭 (recovery_threshold=1)
+
+    @pytest.mark.asyncio
+    async def test_probe_failures_reopen(self) -> None:
+        """关闭后连续失败 → 重新打开"""
+        from lumio.services.common.embedding import EmbeddingCircuitBreaker
+
+        provider = MagicMock()
+        provider.health_check = AsyncMock(return_value=False)
+        breaker = EmbeddingCircuitBreaker(provider=provider, failure_threshold=2, recovery_threshold=2)
+        breaker._is_open = False  # 模拟已通过探测
+        await breaker._probe_once()
+        assert breaker.is_available is True  # 1 次未达阈值
+        await breaker._probe_once()
+        assert breaker.is_available is False  # 2 次 → 打开
+
+    @pytest.mark.asyncio
+    async def test_probe_once_recovery(self) -> None:
+        """打开后连续成功 → 关闭"""
+        from lumio.services.common.embedding import EmbeddingCircuitBreaker
+
+        provider = MagicMock()
+        provider.health_check = AsyncMock(return_value=True)
+        breaker = EmbeddingCircuitBreaker(provider=provider, failure_threshold=1, recovery_threshold=2)
+        breaker._is_open = True  # 手动打开
+        await breaker._probe_once()
+        await breaker._probe_once()
+        assert breaker.is_available is True
+
+    @pytest.mark.asyncio
+    async def test_probe_loop_start_stop(self) -> None:
+        """start_probe/stop_probe 生命周期"""
+        from lumio.services.common.embedding import EmbeddingCircuitBreaker
+
+        provider = MagicMock()
+        provider.health_check = AsyncMock(return_value=True)
+        breaker = EmbeddingCircuitBreaker(provider=provider, probe_interval=0.01)
+        await breaker.start_probe()
+        assert breaker._probe_task is not None
+        await asyncio.sleep(0.05)
+        assert provider.health_check.await_count > 0
+        await breaker.stop_probe()
+        assert breaker._probe_task is None
+
+    @pytest.mark.asyncio
+    async def test_probe_loop_handles_exception(self) -> None:
+        """探测异常被捕获, 循环继续"""
+        from lumio.services.common.embedding import EmbeddingCircuitBreaker
+
+        provider = MagicMock()
+        provider.health_check = AsyncMock(side_effect=RuntimeError("boom"))
+        breaker = EmbeddingCircuitBreaker(provider=provider, probe_interval=0.01)
+        await breaker.start_probe()
+        await asyncio.sleep(0.05)
+        await breaker.stop_probe()
+        assert breaker._probe_task is None
+
+
+class TestEmbeddingHealth:
+    """健康检查失败路径"""
+
+    @pytest.mark.asyncio
+    async def test_ollama_health_check_failure(self) -> None:
+        """Ollama 健康检查异常 → False"""
+        import httpx
+
+        from lumio.services.common.embedding import OllamaEmbedding
+
+        emb = OllamaEmbedding(base_url="http://localhost:11434", model="bge-m3", dim=1024)
+        with patch("lumio.services.common.embedding.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(side_effect=httpx.ConnectError("conn refused"))
+            assert await emb.health_check() is False
+
+    @pytest.mark.asyncio
+    async def test_tei_health_check_failure(self) -> None:
+        """TEI 健康检查异常 → False"""
+        import httpx
+
+        from lumio.services.common.embedding import TEIEmbedding
+
+        emb = TEIEmbedding(base_url="http://localhost:8080", model="bge-m3", dim=1024)
+        with patch("lumio.services.common.embedding.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(side_effect=httpx.ConnectError("conn refused"))
+            assert await emb.health_check() is False
