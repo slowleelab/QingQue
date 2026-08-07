@@ -46,9 +46,9 @@ jobs:
           echo "mypy_error_count=${errors}"
 
       - name: Observability loop check
-        working-directory: agent
         # P1-4 整改: verify-observability 入 CI, 防止 dashboard 名字错回归
         # (commit e86a962 那种 lumio_session_transitions_total → session_transitions_total 错)
+        # 注意: Makefile 在仓库根, 不能设 working-directory: agent
         run: make verify-observability
 
   unit-tests:
