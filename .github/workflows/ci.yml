@@ -94,8 +94,7 @@ jobs:
       - name: Run unit tests
         working-directory: agent
         # P1-7 整改: 加 --cov + --cov-fail-under, 让 pyproject fail_under 真正生效
-        # 当前实测 ~57% (test_retrieval RecursionError 拉低), 留 buffer
-        # 后续 P1-6 修 RecursionError 后再提到 60
+        # 实测 62% (补 217 个单元测试后), 门槛锁定 60%
         # 第五轮修复: 删除已随 gRPC 移除的 generate_grpc.py 死步骤 (CI 必红);
         # test_integration.py 为纯 mock 测试 (无 Docker 依赖), 纳入运行
         run: |
@@ -103,7 +102,7 @@ jobs:
             --ignore=tests/test_bot_api.py \
             --ignore=tests/test_assist_api.py \
             --ignore=tests/test_session_lifecycle_e2e.py \
-            --cov=lumio --cov-report=term-missing --cov-fail-under=55 \
+            --cov=lumio --cov-report=term-missing --cov-fail-under=60 \
             -v --tb=short
 
   mcp-server:

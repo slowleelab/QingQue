@@ -52,7 +52,7 @@ tags: ["lumio", "索引", "阅读路径"]
 | [11](chapters/11-security-compliance.md) | 安全合规: JWT + PBKDF2 + 双重审计 | 中级 | 14 分 |
 | [12](chapters/12-data-layer.md) | 数据层: PG 19 表 + Redis 15 key + 双写一致性 | 中级 | 14 分 |
 | [13](chapters/13-deployment.md) | 部署: 24 Docker 服务 + K8s + opt-in 网关 | 中级 | 12 分 |
-| [14](chapters/14-testing-strategy.md) | 测试策略: 60+ 文件 / 716 用例通过 + 真实中间件 | 中级 | 12 分 |
+| [14](chapters/14-testing-strategy.md) | 测试策略: 70+ 文件 / 969 用例通过 + 真实中间件 | 中级 | 12 分 |
 
 ### 第四部分: 客服 Agent 能力深挖 (第 15-17 章) — 对话系统核心
 

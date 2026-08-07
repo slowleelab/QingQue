@@ -303,7 +303,7 @@ tags: ["glossary", "术语"]
 | **httpx.AsyncClient** | 异步 HTTP 客户端, 5 个 e2e fixture |
 | **subprocess.Popen** | uvicorn 子进程拉起, 端口 8765/8766 避免冲突 |
 | **e2e (end-to-end)** | 端到端测试, 真实中间件 + 真实子进程 |
-| **覆盖率门槛** | 55% (pyproject 锁, CI 同), 留 buffer → 后续提到 60% |
+| **覆盖率门槛** | 60% (pyproject 锁, CI 同) |
 | **mypy advisory** | 类型错误不阻塞 CI, 但新增错误立刻可见 |
 | **pre-commit** | 8 步钩子: trailing-whitespace / eof / yaml / toml / large-files 500KB / merge-conflict / private-key / ruff |
 | **pytest.skip** | 中间件不可用时跳过, 不算失败 |

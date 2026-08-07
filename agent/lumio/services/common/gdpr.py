@@ -333,9 +333,10 @@ class GDPRService:
                 return 0
 
             settings = get_settings()
+            prefix = settings.elasticsearch.index_prefix
             indices = [
-                settings.elasticsearch.dialogue_index,
-                settings.elasticsearch.knowledge_index,
+                f"{prefix}_dialogue",
+                f"{prefix}_kb_chunks",
             ]
             deleted = 0
             for index in indices:

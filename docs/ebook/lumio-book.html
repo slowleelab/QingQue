@@ -309,7 +309,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
 </tr>
 <tr>
 <td><a href="chapters/14-testing-strategy.md">14</a></td>
-<td>测试策略: 60+ 文件 / 716 用例通过 + 真实中间件</td>
+<td>测试策略: 70+ 文件 / 969 用例通过 + 真实中间件</td>
 <td>中级</td>
 <td>12 分</td>
 </tr>
@@ -6570,16 +6570,13 @@ ASSIST_PORT = 8766  # 避免与开发环境 :8001 冲突
     GHA--&gt;&gt;Main: ✅ 烟测通过
 </code></pre>
 <h2 id="14.6-覆盖率门槛渐进">14.6 覆盖率门槛渐进</h2>
-<p><code>unit-tests</code> job 加了 <code>--cov-fail-under=55</code> (<code>.github/workflows/ci.yml:108</code>), 同时 <code>agent/pyproject.toml:160-163</code> 锁了 <code>[tool.coverage.report] fail_under = 55</code>。两处对齐, pytest 才会真正读取门槛 (只有 <code>pyproject</code> 的锁而 pytest 不读, 实际不生效)。</p>
-<p>为什么不直接锁 60%? 因为 <code>test_retrieval.RecursionError</code> 在某些 PG 版本下会拉低覆盖率, 当前实测在 57% 附近, 卡 60% 会被这个已知问题反复绊倒。注释里写得很直白 (<code>.github/workflows/ci.yml:99-101</code>):</p>
-<pre><code class="language-yaml"># 当前实测 ~57% (test_retrieval RecursionError 拉低), 留 buffer
-# 后续修 RecursionError 后再提到 60
-</code></pre>
+<p><code>unit-tests</code> job 加了 <code>--cov-fail-under=60</code> (<code>.github/workflows/ci.yml</code>), 同时 <code>agent/pyproject.toml</code> 锁了 <code>[tool.coverage.report] fail_under = 60</code>。两处对齐, pytest 才会真正读取门槛 (只有 <code>pyproject</code> 的锁而 pytest 不读, 实际不生效)。</p>
+<p>门槛从 55% 提到 60% 的过程: 早期实测 ~57%, 卡 60% 会被 <code>test_retrieval.RecursionError</code> 等已知问题反复绊倒, 所以先锁 55% 留 buffer。在补齐 217 个单元测试 (tenant/a2ui_schema/entity_sandbox/experiments/alerting/injection_guard/tracing/decision_log/prompt_registry/customer_memory/gdpr/llm/budget) 后, 实测 62%, 门槛正式提到 60%。</p>
 <p>这就是<strong>渐进式门槛</strong>的工程意义: 让 CI 立刻 fail 在新写的代码上, 但不要 fail 在<strong>已经知道、还没修</strong>的问题上。</p>
 <h2 id="14.7-已知-35-errors-的根因">14.7 已知 35 errors 的根因</h2>
 <p>当前 pytest 全量跑会有 35 个 errors, 这不是 bug, 是 e2e 排除策略的副产品。</p>
 <p>根因链条很清楚: <code>unit-tests</code> job 在 CI 排除了 5 个 e2e 文件, 但开发者<strong>本地</strong>不排除, 直接 <code>pytest</code> 跑全套。如果本地没 <code>make up</code>, <code>bot_server</code> / <code>assist_server</code> fixture 在 <code>_check_middleware_ready()</code> 那一步就 <code>pytest.skip</code>, 而 <code>bot_client</code> 依赖 <code>bot_server</code> — skip 链会从 e2e 文件扩散到任何 import 它们的 conftest。最后呈现给开发者的是一长串 SKIPPED + 中间夹着 ERROR, 看着吓人。</p>
-<p>更隐蔽的根因: <code>test_retrieval.py</code> 在某些依赖版本下出现 <code>RecursionError</code> (PG 驱动 + asyncio 兼容问题), 这条链会拉低覆盖率 1-2 个百分点, 让 <code>--cov-fail-under</code> 阈值上限被锁死在 57%。</p>
+<p>更隐蔽的根因: <code>test_retrieval.py</code> 在某些依赖版本下出现 <code>RecursionError</code> (PG 驱动 + asyncio 兼容问题), 这条链曾拉低覆盖率 1-2 个百分点, 让 <code>--cov-fail-under</code> 阈值上限一度被锁死在 57%。</p>
 <p>启动超时 (90s 容忍线) 是第三条线 — 容器内 cold start + 模型预热超过 90s 的话, <code>bot_server</code> 调 <code>pytest.fail</code>, 后续全部 fixture 级联失败。</p>
 <p>解决方案不是再放宽门槛, 而是<strong>让 e2e 在 CI 也能跑</strong> — 比如改用 TestContainers 化 e2e。</p>
 <h2 id="14.8-mypy-advisory-模式">14.8 mypy advisory 模式</h2>
@@ -6608,7 +6605,7 @@ disallow_untyped_defs = false
 <p><strong>push / PR 触发 (3 个)</strong>:</p>
 <ul>
 <li><code>lint</code> — ruff check + ruff format check + mypy advisory + <code>make verify-observability</code></li>
-<li><code>unit-tests</code> — service container 启 Redis/PG + pytest + 55% 覆盖率门槛</li>
+<li><code>unit-tests</code> — service container 启 Redis/PG + pytest + 60% 覆盖率门槛</li>
 <li><code>mcp-server</code> — JDK 21 + <code>mvn verify</code> (Java 端 mcp-server 独立构建)</li>
 </ul>
 <p><strong>仅 main 分支触发 (2 个)</strong>:</p>
@@ -6650,7 +6647,7 @@ disallow_untyped_defs = false
 <p><strong>mypy advisory 模式下, 类型错误可能累积</strong>。存量错误 + 每天新增, 没有 fail CI 卡住, 全靠"开发者自觉看末尾 echo"。<strong>应对</strong>: 按模块拆分, 指定 owner 逐步收敛。</p>
 <p><strong>E2E 在 CI 排除导致覆盖率上限 57%</strong>。<code>test_bot_api.py</code> 等 5 个文件一旦在 CI 跑, 覆盖率立刻上 60+, 但 90s 启动 + 中间件依赖让 unit-tests job 时间翻倍。<strong>应对</strong>: 改用 TestContainers, 把 e2e 完全容器化后塞回 unit-tests, 但工作量较大, 留待后续迭代。</p>
 <h2 id="14.13-小结">14.13 小结</h2>
-<p>Lumio 的测试策略是把"CI 时间"当稀缺资源分配: <strong>快反馈 (lint + unit + 55% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main</strong>。真实中间件 + 真实子进程的哲学让测试信号更有价值, 但代价是 e2e 只能在 main 跑, 覆盖率被锁在 57%。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。</p>
+<p>Lumio 的测试策略是把"CI 时间"当稀缺资源分配: <strong>快反馈 (lint + unit + 60% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main</strong>。真实中间件 + 真实子进程的哲学让测试信号更有价值; 补足单元测试后覆盖率实测 62%, E2E 在 main 分支全链路通过 (迁移→seed→启动→登录→对话)。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。</p>
 <blockquote>
 <p><strong>延伸阅读</strong>:
 - <a href="08-error-handling.md">第 8 章 错误处理</a> — <code>test_middleware.py</code> 覆盖
@@ -9860,7 +9857,7 @@ TOOL_GUARD_DENIALS = Counter(
 </tr>
 <tr>
 <td><strong>覆盖率门槛</strong></td>
-<td>55% (pyproject 锁, CI 同), 留 buffer → 后续提到 60%</td>
+<td>60% (pyproject 锁, CI 同)</td>
 </tr>
 <tr>
 <td><strong>mypy advisory</strong></td>
@@ -10363,7 +10360,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 中间件未起, e2e skip
 - 启动超时</p>
 <p><strong>修复</strong>:
-- 短期: 接受现实, 55% 覆盖率门槛
+- 短期: 接受现实, 60% 覆盖率门槛
 - 长期: 修掉 RecursionError 后, 提到 60% 门槛</p>
 <h3 id="C.9.2-mypy-错误累积">C.9.2 mypy 错误累积</h3>
 <p><strong>症状</strong>: 171 → 200 个 mypy 错误, 还在涨.</p>

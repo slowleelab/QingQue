@@ -11,7 +11,7 @@ code_references:
   - ".github/workflows/ci.yml"
   - ".pre-commit-config.yaml"
 last_updated: "2026-08-05"
-summary: "60+ 文件 / 716 用例通过 / 真实中间件 + 真实子进程哲学 + 覆盖率 55% + mypy advisory + 8 步 pre-commit."
+summary: "70+ 文件 / 969 用例通过 / 真实中间件 + 真实子进程哲学 + 覆盖率 60% + mypy advisory + 8 步 pre-commit."
 tags: ["测试", "pytest", "e2e", "覆盖率", "CI"]
 ---
 
@@ -136,14 +136,9 @@ sequenceDiagram
 
 ## 14.6 覆盖率门槛渐进
 
-`unit-tests` job 加了 `--cov-fail-under=55` (`.github/workflows/ci.yml:108`), 同时 `agent/pyproject.toml:160-163` 锁了 `[tool.coverage.report] fail_under = 55`。两处对齐, pytest 才会真正读取门槛 (只有 `pyproject` 的锁而 pytest 不读, 实际不生效)。
+`unit-tests` job 加了 `--cov-fail-under=60` (`.github/workflows/ci.yml`), 同时 `agent/pyproject.toml` 锁了 `[tool.coverage.report] fail_under = 60`。两处对齐, pytest 才会真正读取门槛 (只有 `pyproject` 的锁而 pytest 不读, 实际不生效)。
 
-为什么不直接锁 60%? 因为 `test_retrieval.RecursionError` 在某些 PG 版本下会拉低覆盖率, 当前实测在 57% 附近, 卡 60% 会被这个已知问题反复绊倒。注释里写得很直白 (`.github/workflows/ci.yml:99-101`):
-
-```yaml
-# 当前实测 ~57% (test_retrieval RecursionError 拉低), 留 buffer
-# 后续修 RecursionError 后再提到 60
-```
+门槛从 55% 提到 60% 的过程: 早期实测 ~57%, 卡 60% 会被 `test_retrieval.RecursionError` 等已知问题反复绊倒, 所以先锁 55% 留 buffer。在补齐 217 个单元测试 (tenant/a2ui_schema/entity_sandbox/experiments/alerting/injection_guard/tracing/decision_log/prompt_registry/customer_memory/gdpr/llm/budget) 后, 实测 62%, 门槛正式提到 60%。
 
 这就是**渐进式门槛**的工程意义: 让 CI 立刻 fail 在新写的代码上, 但不要 fail 在**已经知道、还没修**的问题上。
 
@@ -153,7 +148,7 @@ sequenceDiagram
 
 根因链条很清楚: `unit-tests` job 在 CI 排除了 5 个 e2e 文件, 但开发者**本地**不排除, 直接 `pytest` 跑全套。如果本地没 `make up`, `bot_server` / `assist_server` fixture 在 `_check_middleware_ready()` 那一步就 `pytest.skip`, 而 `bot_client` 依赖 `bot_server` — skip 链会从 e2e 文件扩散到任何 import 它们的 conftest。最后呈现给开发者的是一长串 SKIPPED + 中间夹着 ERROR, 看着吓人。
 
-更隐蔽的根因: `test_retrieval.py` 在某些依赖版本下出现 `RecursionError` (PG 驱动 + asyncio 兼容问题), 这条链会拉低覆盖率 1-2 个百分点, 让 `--cov-fail-under` 阈值上限被锁死在 57%。
+更隐蔽的根因: `test_retrieval.py` 在某些依赖版本下出现 `RecursionError` (PG 驱动 + asyncio 兼容问题), 这条链曾拉低覆盖率 1-2 个百分点, 让 `--cov-fail-under` 阈值上限一度被锁死在 57%。
 
 启动超时 (90s 容忍线) 是第三条线 — 容器内 cold start + 模型预热超过 90s 的话, `bot_server` 调 `pytest.fail`, 后续全部 fixture 级联失败。
 
@@ -196,7 +191,7 @@ disallow_untyped_defs = false
 **push / PR 触发 (3 个)**:
 
 - `lint` — ruff check + ruff format check + mypy advisory + `make verify-observability`
-- `unit-tests` — service container 启 Redis/PG + pytest + 55% 覆盖率门槛
+- `unit-tests` — service container 启 Redis/PG + pytest + 60% 覆盖率门槛
 - `mcp-server` — JDK 21 + `mvn verify` (Java 端 mcp-server 独立构建)
 
 **仅 main 分支触发 (2 个)**:
@@ -257,7 +252,7 @@ disallow_untyped_defs = false
 
 ## 14.13 小结
 
-Lumio 的测试策略是把"CI 时间"当稀缺资源分配: **快反馈 (lint + unit + 55% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main**。真实中间件 + 真实子进程的哲学让测试信号更有价值, 但代价是 e2e 只能在 main 跑, 覆盖率被锁在 57%。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。
+Lumio 的测试策略是把"CI 时间"当稀缺资源分配: **快反馈 (lint + unit + 60% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main**。真实中间件 + 真实子进程的哲学让测试信号更有价值; 补足单元测试后覆盖率实测 62%, E2E 在 main 分支全链路通过 (迁移→seed→启动→登录→对话)。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。
 
 > **延伸阅读**:
 > - [第 8 章 错误处理](08-error-handling.md) — `test_middleware.py` 覆盖

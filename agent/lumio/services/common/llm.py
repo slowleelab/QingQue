@@ -201,6 +201,10 @@ class LLMClient:
                 # 旧 except TimeoutError 是死分支 (SDK 超时落入泛化 except, 超时统计永远不触发)
                 last_error = exc
                 logger.warning("LLM 调用超时 (attempt %d/%d)", attempt + 1, max_retries)
+            except LLMInferenceError:
+                # 业务错误 (如连续空内容) 不重试、不包装, 直接上抛 — 此前落入泛化
+                # except 被包装成 LLMTimeoutError, 与注释意图不符且误导熔断语义
+                raise
             except Exception as exc:
                 last_error = exc
                 logger.warning("LLM 调用异常 (attempt %d/%d): %s", attempt + 1, max_retries, exc)
