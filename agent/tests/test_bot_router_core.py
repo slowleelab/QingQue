@@ -422,7 +422,7 @@ class _FakeSem:
     def locked(self) -> bool:
         return self._locked
 
-    async def __aenter__(self) -> "_FakeSem":
+    async def __aenter__(self) -> _FakeSem:
         return self
 
     async def __aexit__(self, *args: object) -> bool:
@@ -433,7 +433,7 @@ async def _run_worker(monkeypatch, redis, q, agent, *, sem_locked: bool = False,
     """以 1ms 空闲超时运行 worker (空队列快速退出, 无需等 300s)"""
     _real_wait_for = asyncio.wait_for
 
-    async def fast_wait_for(awaitable, timeout):  # noqa: ARG001
+    async def fast_wait_for(awaitable, timeout):
         return await _real_wait_for(awaitable, 0.001)
 
     monkeypatch.setattr(asyncio, "wait_for", fast_wait_for)
@@ -701,7 +701,7 @@ async def test_consumer_loop_retries_on_error(monkeypatch):
     redis.xreadgroup = AsyncMock(side_effect=[ConnectionError("down"), []])
     _real_sleep = asyncio.sleep
 
-    async def fast_sleep(seconds):  # noqa: ARG001
+    async def fast_sleep(seconds):
         await _real_sleep(0.001)
 
     monkeypatch.setattr(asyncio, "sleep", fast_sleep)
@@ -724,7 +724,7 @@ async def test_monitoring_loop_collects_metrics(monkeypatch):
     redis.xlen = AsyncMock(return_value=10)
     _real_sleep = asyncio.sleep
 
-    async def fast_sleep(seconds):  # noqa: ARG001
+    async def fast_sleep(seconds):
         await _real_sleep(0.001)
 
     monkeypatch.setattr(asyncio, "sleep", fast_sleep)
@@ -750,7 +750,7 @@ async def test_monitoring_loop_no_semaphore(monkeypatch):
     redis.xlen = AsyncMock(return_value=0)
     _real_sleep = asyncio.sleep
 
-    async def fast_sleep(seconds):  # noqa: ARG001
+    async def fast_sleep(seconds):
         await _real_sleep(0.001)
 
     monkeypatch.setattr(asyncio, "sleep", fast_sleep)
@@ -836,7 +836,7 @@ async def test_run_agent_transfer_with_chat_client():
     """转人工 + chat-svc 在线 → 创建会话 + 扩展 response key + 合并审计"""
     from datetime import datetime
 
-    from lumio.shared.models import Entity, IntentLabel, IntentResult, SessionState
+    from lumio.shared.models import Entity, SessionState
 
     agent = _make_agent(_transfer_result())
     sm = agent._session_manager

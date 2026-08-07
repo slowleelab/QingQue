@@ -280,7 +280,7 @@ async def test_chat_send_idempotency_check_error(app: FastAPI, setup_state) -> N
     """幂等检查异常 → 放行 (at-least-once 语义)"""
     redis = setup_state["redis"]
 
-    async def boom(key):  # noqa: ARG001
+    async def boom(key):
         raise ConnectionError("redis down")
 
     redis.get = AsyncMock(side_effect=boom)
