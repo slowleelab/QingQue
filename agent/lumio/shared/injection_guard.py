@@ -67,8 +67,14 @@ class InjectionVerdict:
 
 _USER_INPUT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # 经典 prompt injection
-    (re.compile(r"忽略\s*(以上|之前|上面|前述)\s*(所有|全部)?\s*(指令|提示|规则|约束|说明)", re.I), "ignore_previous_cn"),
-    (re.compile(r"ignore\s+(all\s+)?(previous|above|prior|system)\s+(instructions?|prompts?|rules?)", re.I), "ignore_previous_en"),
+    (
+        re.compile(r"忽略\s*(以上|之前|上面|前述)\s*(所有|全部)?\s*(指令|提示|规则|约束|说明)", re.I),
+        "ignore_previous_cn",
+    ),
+    (
+        re.compile(r"ignore\s+(all\s+)?(previous|above|prior|system)\s+(instructions?|prompts?|rules?)", re.I),
+        "ignore_previous_en",
+    ),
     (re.compile(r"disregard\s+(all\s+)?(previous|above)\s+", re.I), "disregard_en"),
     (re.compile(r"forget\s+(everything|all)\s+(you|about)", re.I), "forget_en"),
     # 角色劫持
@@ -77,24 +83,36 @@ _USER_INPUT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"扮演\s*[一乍]?\s*(个|位)?\s*(黑客|管理员|系统|root|admin|dan)", re.I), "role_play_jailbreak_cn"),
     (re.compile(r"act\s+as\s+(a\s+)?(hacker|admin|root|system|dan|jailbreak)", re.I), "role_play_jailbreak_en"),
     # 越权请求
-    (re.compile(r"给我\s*(一|1|十|100|1000|一万|10000|百万|1000000|亿)\s*[万千百]?\s*(额度|钱|金额|分期)", re.I), "amount_injection_cn"),
+    (
+        re.compile(r"给我\s*(一|1|十|100|1000|一万|10000|百万|1000000|亿)\s*[万千百]?\s*(额度|钱|金额|分期)", re.I),
+        "amount_injection_cn",
+    ),
     (re.compile(r"transfer\s+\$?\d+[kmb]?\s+to", re.I), "amount_injection_en"),
     # 系统指令泄露
-    (re.compile(r"(print|show|reveal|output|重复)\s+(your\s+)?(system\s+)?(prompt|instructions?|initial)", re.I), "prompt_leak_en"),
+    (
+        re.compile(r"(print|show|reveal|output|重复)\s+(your\s+)?(system\s+)?(prompt|instructions?|initial)", re.I),
+        "prompt_leak_en",
+    ),
     (re.compile(r"输出\s*(你|您的)?\s*(系统|原始|完整)\s*(提示|指令|规则|prompt)", re.I), "prompt_leak_cn"),
     # Jailbreak 模板
     (re.compile(r"DAN|do\s+anything\s+now", re.I), "dan_jailbreak"),
     (re.compile(r"jailbreak|bypass\s+safety", re.I), "jailbreak_keyword"),
     (re.compile(r"developer\s+mode|god\s+mode", re.I), "developer_mode"),
     # 银行场景特定
-    (re.compile(r"(请|帮我|求你|务必)\s*(把|把卡|帮我把)\s*(卡|钱|额度|密码)\s*(给我|转|改成|变为)", re.I), "bank_specific_cn"),
+    (
+        re.compile(r"(请|帮我|求你|务必)\s*(把|把卡|帮我把)\s*(卡|钱|额度|密码)\s*(给我|转|改成|变为)", re.I),
+        "bank_specific_cn",
+    ),
     (re.compile(r"(set|change|reset)\s+(my\s+)?(password|pin|credit\s+limit)\s+to", re.I), "bank_specific_en"),
 ]
 
 _RAG_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # 检索内容中不应含指令
     (re.compile(r"^\s*(请|必须|务必|一定)\s*(回答|告诉|告知|输出|返回|执行)", re.I), "rag_directive_cn"),
-    (re.compile(r"^\s*(you\s+must|please\s+answer|tell\s+the\s+user|return\s+the\s+following)", re.I), "rag_directive_en"),
+    (
+        re.compile(r"^\s*(you\s+must|please\s+answer|tell\s+the\s+user|return\s+the\s+following)", re.I),
+        "rag_directive_en",
+    ),
     (re.compile(r"[\u4e00-\u9fff]*?(忽略|忘记)\s*(之前|以上)", re.I), "rag_injection_ignore"),
     (re.compile(r"<\|im_start\|>|<\|im_end\|>|<<SYS>>|<</SYS>>", re.I), "rag_special_tokens"),
     (re.compile(r"\[\s*系统\s*\]|\[\s*system\s*\]|\[\s*assistant\s*\]", re.I), "rag_role_tag"),
@@ -103,7 +121,12 @@ _RAG_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 _TOOL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # tool 返回中不应含新指令
     (re.compile(r"(请|务必|一定|现在|立刻)\s*(告诉|通知|回复|告诉客户|答复客户)", re.I), "tool_directive_cn"),
-    (re.compile(r"(please\s+)?(now|immediately|urgent)\s+(tell|reply|inform|notify)\s+(the\s+)?(user|customer)", re.I), "tool_directive_en"),
+    (
+        re.compile(
+            r"(please\s+)?(now|immediately|urgent)\s+(tell|reply|inform|notify)\s+(the\s+)?(user|customer)", re.I
+        ),
+        "tool_directive_en",
+    ),
     # 编码注入 (base64/hex 指令)
     (re.compile(r"data:text/plain;base64,[A-Za-z0-9+/=]{50,}", re.I), "tool_base64_injection"),
 ]
@@ -313,7 +336,7 @@ class InjectionGuard:
                 reason=f"Tool 返回含指令, 已净化: {matched_pattern}",
             )
 
-        return result, InjectionVerdict(
+        return cleaned, InjectionVerdict(
             action=InjectionAction.PASS,
             layer=InjectionLayer.TOOL_RESULT,
             pattern="none",
@@ -326,7 +349,7 @@ class InjectionGuard:
             return obj, None
         if isinstance(obj, str):
             if len(obj.encode("utf-8")) > max_size:
-                obj = obj[: max_size] + "...[已截断]"
+                obj = obj[:max_size] + "...[已截断]"
             for pattern, name in self.tool_patterns:
                 if pattern.search(obj):
                     return "[已净化]", name  # 不暴露 pattern 名

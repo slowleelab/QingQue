@@ -48,9 +48,7 @@ def _read_service_version() -> str:
         return "0.0.0"
     # 兼容 PEP 621 [project] 与 Poetry 1.x [tool.poetry] 两种格式
     return str(
-        data.get("project", {}).get("version")
-        or data.get("tool", {}).get("poetry", {}).get("version")
-        or "0.0.0"
+        data.get("project", {}).get("version") or data.get("tool", {}).get("poetry", {}).get("version") or "0.0.0"
     )
 
 
@@ -90,7 +88,7 @@ def _init_tracing(app_name: str = "lumio") -> None:
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.sdk.trace.sampling import ParentBasedTraceIdRatioSampler
+        from opentelemetry.sdk.trace.sampling import ParentBasedTraceIdRatio
 
         # 读 deployment.environment (Settings 可能未就绪, 降级 'unknown')
         try:
@@ -115,7 +113,7 @@ def _init_tracing(app_name: str = "lumio") -> None:
         )
         # ParentBased 包装: 当上游有 traceparent 时跟随上游决策, 否则按 ratio 采样.
         # 这样跨服务 trace 不会被本地采样率切断.
-        sampler = ParentBasedTraceIdRatioSampler(sampling_ratio)
+        sampler = ParentBasedTraceIdRatio(sampling_ratio)
         provider = TracerProvider(resource=resource, sampler=sampler)
         endpoint = otlp_endpoint or f"http://{jaeger_host}:4318/v1/traces"
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))

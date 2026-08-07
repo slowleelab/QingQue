@@ -459,7 +459,7 @@ class ObservabilitySettings(BaseSettings):
     # http://{jaeger_host}:4318/v1/traces
     otlp_endpoint: str | None = None
     # 追踪采样率 (0.0~1.0). 默认 1.0 (全采样, dev 友好).
-    # prod 建议 0.1; 用 ParentBasedTraceIdRatioSampler 包装保证跨服务 trace 不被切断.
+    # prod 建议 0.1; 用 ParentBasedTraceIdRatio 包装保证跨服务 trace 不被切断.
     sampling_ratio: float = Field(
         default=1.0,
         ge=0.0,
