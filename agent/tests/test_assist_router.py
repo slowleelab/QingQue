@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -202,3 +203,105 @@ async def test_feedback_submit(app: FastAPI, setup_state) -> None:
             json={"session_id": "s1", "agent_id": "a1", "action": "accept"},
         )
     assert resp.status_code in (200, 202, 400)
+
+
+# ── notify / analyze ──
+
+
+async def test_notify_message(app: FastAPI, setup_state) -> None:
+    """notify: 发布到 session 频道 → 202"""
+    redis = app.state.redis_client
+    async with await _client(app) as c:
+        resp = await c.post(
+            "/api/notify",
+            json={"session_id": "s1", "message": "客户消息", "event": "customer_message"},
+        )
+    assert resp.status_code == 202
+    assert resp.json()["status"] == "accepted"
+    redis.publish.assert_awaited_once()
+
+
+async def test_notify_no_redis(app: FastAPI) -> None:
+    """notify: 无 Redis → 5001"""
+    async with await _client(app) as c:
+        resp = await c.post(
+            "/api/notify",
+            json={"session_id": "s1", "message": "hi", "event": "customer_message"},
+        )
+    assert resp.status_code == 500
+    assert resp.json()["error"]["code"] == 5001
+
+
+async def test_analyze_with_classifier(app: FastAPI, setup_state, monkeypatch) -> None:
+    """analyze: 分类器 + 引擎降级链路"""
+    import lumio.services.assist.router as ar
+    from lumio.shared.models import IntentLabel, IntentResult
+
+    classifier = MagicMock()
+    classifier.classify = AsyncMock(
+        return_value=(
+            IntentResult(primary_intent=IntentLabel.BILL_QUERY, primary_confidence=0.9),
+            [],
+            MagicMock(),
+            "rule",
+        )
+    )
+    app.state.classifier = classifier
+    app.state.assist_ws_pool = {}
+
+    async def fake_engine(app, session_id, message, intent, confidence, sentiment=None):
+        return {"type": "assist_push", "session_id": session_id, "payload": {"fusion_type": "service_only"}}
+
+    monkeypatch.setattr(ar, "_run_assist_engine", fake_engine)
+
+    async with await _client(app) as c:
+        resp = await c.post("/api/analyze", json={"session_id": "s1", "message": "查账单"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok" or "session_id" in data
+
+
+async def test_analyze_classifier_timeout(app: FastAPI, setup_state, monkeypatch) -> None:
+    """analyze: 分类超时 → 默认 FAQ 继续"""
+    import lumio.services.assist.router as ar
+
+    classifier = MagicMock()
+
+    async def slow_classify(message):
+        await asyncio.sleep(5)
+
+    classifier.classify = slow_classify
+    app.state.classifier = classifier
+    app.state.assist_ws_pool = {}
+
+    async def fake_engine(app, session_id, message, intent, confidence, sentiment=None):
+        return None  # 引擎返回 None → 空 payload 占位
+
+    monkeypatch.setattr(ar, "_run_assist_engine", fake_engine)
+
+    async with await _client(app) as c:
+        resp = await c.post("/api/analyze", json={"session_id": "s1", "message": "查账单"})
+    assert resp.status_code == 200  # 超时降级仍返回
+
+
+async def test_analyze_no_classifier(app: FastAPI, setup_state, monkeypatch) -> None:
+    """analyze: 无分类器 → 默认 FAQ"""
+    import lumio.services.assist.router as ar
+
+    app.state.classifier = None
+    app.state.assist_ws_pool = {}
+
+    captured = {}
+
+    async def fake_engine(app, session_id, message, intent, confidence, sentiment=None):
+        captured["intent"] = intent
+        return None
+
+    monkeypatch.setattr(ar, "_run_assist_engine", fake_engine)
+
+    from lumio.shared.models import IntentLabel
+
+    async with await _client(app) as c:
+        resp = await c.post("/api/analyze", json={"session_id": "s1", "message": "你好"})
+    assert resp.status_code == 200
+    assert captured["intent"] == IntentLabel.FAQ
