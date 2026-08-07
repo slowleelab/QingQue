@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from lumio.shared.config import get_settings
 from lumio.shared.exceptions import (
+    BusinessError,
     InvalidTransitionError,
     LumioError,
     ServiceOverloadedError,
@@ -26,6 +27,7 @@ _logger = logging.getLogger(__name__)
 _HTTP_STATUS_OVERRIDES: dict[int, int] = {
     SessionNotFoundError.code: 404,
     InvalidTransitionError.code: 409,
+    BusinessError.code: 409,  # 业务规则不允许 (会话上限等)
     ServiceOverloadedError.code: 503,  # 服务过载/依赖不可用 → 503
     1001: 401,  # AuthenticationError
     1003: 403,  # AuthorizationError

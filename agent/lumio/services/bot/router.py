@@ -1143,13 +1143,13 @@ async def chat_send(body: ChatSendRequest, request: Request, user: CurrentUser):
         raise ServiceOverloadedError("Redis 未就绪, 无法接收消息")
 
     # 输入校验: 拒绝空消息 (含全角空格/零宽字符)
+    from lumio.shared.exceptions import IntentUnrecognizedError
+
     msg = (
         (body.message or "").replace("　", " ").replace("", "").replace("‌", "").replace("‍", "").replace("﻿", "").strip()
     )
     if not msg:
         # P3-4 整改: 走统一错误体 (IntentUnrecognizedError → 400)
-        from lumio.shared.exceptions import IntentUnrecognizedError
-
         raise IntentUnrecognizedError("消息内容不能为空")
 
     # P0-6 第三轮修复: A3 注入防护接入生产入口 (此前 check_user_input 仅测试引用)
