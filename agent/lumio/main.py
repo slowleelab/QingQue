@@ -118,6 +118,21 @@ def _safe_init_global_redis() -> None:
         logging.getLogger("lumio.main").warning("全局 Redis 客户端初始化失败 (配额/预算将懒加载重试): %s", exc)
 
 
+async def stop_gdpr_worker_step(_app: FastAPI) -> None:
+    """关闭步骤包装: 同步停止 GDPR 调度 worker."""
+    stop_gdpr_sweep_worker()
+
+
+async def start_gdpr_worker_step(_app: FastAPI) -> None:
+    """启动步骤包装: 同步启动 GDPR 调度 worker."""
+    _safe_start_gdpr_worker()
+
+
+async def build_alert_rules_step(_app: FastAPI) -> None:
+    """启动步骤包装: 同步接线告警规则."""
+    _safe_build_alert_rules()
+
+
 def _safe_start_gdpr_worker() -> None:
     """P0-4: 启动 GDPR 调度 worker (消费到期硬删除). 异常不抛出."""
     import logging
@@ -189,9 +204,9 @@ _BOT_INIT_STEPS = [
     init_agent,
     start_bot_worker,
     # P0-4 第三轮修复: GDPR 调度 worker (消费到期硬删除)
-    lambda _app: _safe_start_gdpr_worker(),
+    start_gdpr_worker_step,
     # P0-6 第三轮修复: 告警规则接线 (LLM 错误率/预算超限 → P0/P1 告警)
-    lambda _app: _safe_build_alert_rules(),
+    build_alert_rules_step,
 ]
 
 _BOT_CLOSE_STEPS = [
@@ -202,7 +217,7 @@ _BOT_CLOSE_STEPS = [
     *_COMMON_CLOSE_STEPS[:2],  # close_classifier, close_session_manager
     close_degradation_manager,
     close_health_monitor,
-    stop_gdpr_sweep_worker,  # P0-4: 停 GDPR 调度 worker
+    stop_gdpr_worker_step,  # P0-4: 停 GDPR 调度 worker
     *_COMMON_CLOSE_STEPS[2:],  # close_llm ... close_db
 ]
 
