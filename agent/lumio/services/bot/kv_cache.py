@@ -168,10 +168,7 @@ def build_layered_messages(
         messages.append(
             {
                 "role": "user",
-                "content": (
-                    f"<retrieved_context>\n{rag_context}\n</retrieved_context>\n\n"
-                    f"{user_input}"
-                ),
+                "content": (f"<retrieved_context>\n{rag_context}\n</retrieved_context>\n\n" f"{user_input}"),
             }
         )
     else:

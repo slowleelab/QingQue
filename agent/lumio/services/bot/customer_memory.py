@@ -43,8 +43,8 @@ _VIP_SIGNALS: list[tuple[str, str, int]] = [
 
 # 风险偏好信号（值越大越激进）
 _RISK_SIGNALS: list[tuple[str, int]] = [
-    (r"分期|借钱|贷款|融资", 1),       # 倾向借款 → 风险略高
-    (r"理财|投资|基金|股票|收益", 3),   # 主动投资 → 高风险偏好
+    (r"分期|借钱|贷款|融资", 1),  # 倾向借款 → 风险略高
+    (r"理财|投资|基金|股票|收益", 3),  # 主动投资 → 高风险偏好
     (r"不敢.*分期|怕.*逾期|保守|稳健", -2),  # 厌恶风险
 ]
 
@@ -83,8 +83,7 @@ async def learn_customer_profile(
         async with session_factory() as session:
             # 聚合对话内容（取最近 90 天的 customer 发言, 限 1000 条防内存爆炸）
             result = await session.execute(
-                select(func.string_agg(DialogueLog.content, "\n"))
-                .where(
+                select(func.string_agg(DialogueLog.content, "\n")).where(
                     DialogueLog.customer_id == customer_id,
                     DialogueLog.speaker == "customer",
                     DialogueLog.created_at >= cutoff,
@@ -208,9 +207,9 @@ async def apply_learned_profile(
         card_days = max(0, (now - card_updated_at) / 86400) if card_updated_at else 999
 
         # 衰减系数
-        vip_decay = 0.95 ** vip_days if vip_days < 999 else 0.0
-        risk_decay = 0.95 ** risk_days if risk_days < 999 else 0.0
-        card_decay = 0.95 ** card_days if card_days < 999 else 0.0
+        vip_decay = 0.95**vip_days if vip_days < 999 else 0.0
+        risk_decay = 0.95**risk_days if risk_days < 999 else 0.0
+        card_decay = 0.95**card_days if card_days < 999 else 0.0
 
         # VIP 衰减: 跌破 0.5 → 降级
         vip_learned = profiles.get("vip_level")

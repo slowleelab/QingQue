@@ -59,9 +59,9 @@ class TestJWTValidator:
             cfg = Settings()  # 不应抛
         assert cfg.environment == "development"
         # WARNING 包含 "占位"
-        assert any("占位" in rec.message for rec in caplog.records), (
-            f"应记录占位密钥 WARNING, 实际日志: {[r.message for r in caplog.records]}"
-        )
+        assert any(
+            "占位" in rec.message for rec in caplog.records
+        ), f"应记录占位密钥 WARNING, 实际日志: {[r.message for r in caplog.records]}"
 
     def test_dev_change_me_placeholder_warns(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

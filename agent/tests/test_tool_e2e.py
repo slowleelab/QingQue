@@ -163,7 +163,11 @@ class TestToolLayerE2E:
 
             # 第一轮：LLM 请求敏感工具 → 应短路为 pending（不执行）
             llm = _ScriptedLLM(
-                [_tool_call_result("c2", "apply_bill_installment", {"card_no": "6225880012346780", "amount": 3000, "periods": 6})]
+                [
+                    _tool_call_result(
+                        "c2", "apply_bill_installment", {"card_no": "6225880012346780", "amount": 3000, "periods": 6}
+                    )
+                ]
             )
             executor = ToolCallingExecutor(client, llm, None, client._settings)  # type: ignore[arg-type]
 

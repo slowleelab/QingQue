@@ -47,9 +47,7 @@ _SUMMARIZE_SYSTEM_PROMPT = """请将以下多轮对话压缩为简洁的中文�
 """
 
 BUSINESS_TRANSFER_TEMPLATE = (
-    "您的问题需要专员协助处理, 我已为您转接. "
-    "转接原因: {reason}. "
-    "请稍候, 人工客服将尽快为您服务."
+    "您的问题需要专员协助处理, 我已为您转接. " "转接原因: {reason}. " "请稍候, 人工客服将尽快为您服务."
 )
 
 GREETING_RESPONSE = "您好, 我是 Lumio 智能客服, 请问有什么可以帮您?"
@@ -65,13 +63,13 @@ CRISIS_RESPONSE = (
 )
 
 __all__ = [
-    "KNOWLEDGE_SYSTEM_PROMPT",
     "BUSINESS_SYSTEM_PROMPT",
-    "COMPLAINT_SYSTEM_PROMPT",
-    "FALLBACK_SYSTEM_PROMPT",
-    "_SUMMARIZE_SYSTEM_PROMPT",
     "BUSINESS_TRANSFER_TEMPLATE",
-    "GREETING_RESPONSE",
-    "FAREWELL_RESPONSE",
+    "COMPLAINT_SYSTEM_PROMPT",
     "CRISIS_RESPONSE",
+    "FALLBACK_SYSTEM_PROMPT",
+    "FAREWELL_RESPONSE",
+    "GREETING_RESPONSE",
+    "KNOWLEDGE_SYSTEM_PROMPT",
+    "_SUMMARIZE_SYSTEM_PROMPT",
 ]

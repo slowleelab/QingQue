@@ -121,10 +121,12 @@ class TestSlotTracker:
 
     def test_all_required_filled(self) -> None:
         tracker = SlotTracker.for_intent(IntentLabel.INSTALLMENT_INQUIRY)
-        tracker.fill_from_entities([
-            {"entity_type": "amount", "value": "5000"},
-            {"entity_type": "period", "value": "12"},
-        ])
+        tracker.fill_from_entities(
+            [
+                {"entity_type": "amount", "value": "5000"},
+                {"entity_type": "period", "value": "12"},
+            ]
+        )
         assert tracker.all_required_filled
 
     def test_build_prompt_shows_missing(self) -> None:

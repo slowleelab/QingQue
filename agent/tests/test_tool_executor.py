@@ -125,9 +125,7 @@ class TestRunConversation:
         ex = _make_executor(mcp=mcp, llm=llm, settings=MCPSettings(enabled=True, max_tool_iterations=3))
 
         with pytest.raises(RuntimeError, match="最大轮数"):
-            await ex.run_conversation(
-                system_prompt="sys", user_input="x", history=[], session_id="s1", actor_id="c1"
-            )
+            await ex.run_conversation(system_prompt="sys", user_input="x", history=[], session_id="s1", actor_id="c1")
 
     async def test_llm_exception_propagates(self):
         """LLM 异常向上抛出，由调用方降级"""
@@ -135,9 +133,7 @@ class TestRunConversation:
         llm.chat_with_tools = AsyncMock(side_effect=RuntimeError("llm down"))
         ex = _make_executor(llm=llm)
         with pytest.raises(RuntimeError, match="llm down"):
-            await ex.run_conversation(
-                system_prompt="sys", user_input="x", history=[], session_id="s1", actor_id="c1"
-            )
+            await ex.run_conversation(system_prompt="sys", user_input="x", history=[], session_id="s1", actor_id="c1")
 
     async def test_tool_names_passthrough_to_openai_tools(self):
         """渐进式暴露：tool_names 原样透传给 to_openai_tools(names)"""
@@ -166,9 +162,7 @@ class TestRunConversation:
         llm.chat_with_tools = AsyncMock(return_value=ToolCallResult(content="您好"))
         ex = _make_executor(mcp=mcp, llm=llm)
 
-        await ex.run_conversation(
-            system_prompt="sys", user_input="hi", history=[], session_id="s1", actor_id="c1"
-        )
+        await ex.run_conversation(system_prompt="sys", user_input="hi", history=[], session_id="s1", actor_id="c1")
         mcp.to_openai_tools.assert_called_once_with(None)
 
 
@@ -219,9 +213,7 @@ class TestAuditOnExecution:
         )
         ex = _make_executor(mcp=mcp, llm=llm, audit_factory=mock_factory)
 
-        await ex.run_conversation(
-            system_prompt="sys", user_input="查余额", history=[], session_id="s1", actor_id="c1"
-        )
+        await ex.run_conversation(system_prompt="sys", user_input="查余额", history=[], session_id="s1", actor_id="c1")
         mock_session.add.assert_called_once()
         mock_session.commit.assert_awaited_once()
 

@@ -11,6 +11,7 @@
 
 不使用 mock, 直接通过构造非法输入触发真实代码路径.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -103,9 +104,7 @@ async def test_reflect_invalid_json_returns_pass() -> None:
     mock_client.chat.completions.create = AsyncMock(return_value=bad_response)
     r._client = mock_client
 
-    result = await r.reflect(
-        question="q", tool_name="t", tool_args={}, tool_result={}, session_id="s3"
-    )
+    result = await r.reflect(question="q", tool_name="t", tool_args={}, tool_result={}, session_id="s3")
     # JSON 解析失败, Reflector 走 except, 返回 PASS 降级
     assert result.decision == ReflectionDecision.PASS
 
@@ -132,9 +131,7 @@ async def test_reflect_invalid_decision_enum_falls_back_to_pass() -> None:
     mock_client.chat.completions.create = AsyncMock(return_value=good_response)
     r._client = mock_client
 
-    result = await r.reflect(
-        question="q", tool_name="t", tool_args={}, tool_result={}, session_id="s4"
-    )
+    result = await r.reflect(question="q", tool_name="t", tool_args={}, tool_result={}, session_id="s4")
     assert result.decision == ReflectionDecision.PASS
 
 

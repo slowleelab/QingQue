@@ -375,11 +375,12 @@ class SessionManager:
                 new_sub_phase = SessionSubPhase.AG_QUEUED
 
         # 校验转换合法性
-        if state.sub_phase is not None and new_sub_phase is not None:
-            if not validate_transition(state.current_phase, state.sub_phase, new_sub_phase):
-                raise InvalidTransitionError(
-                    f"session={session_id} " f"{state.sub_phase.value} → {new_sub_phase.value}"
-                )
+        if (
+            state.sub_phase is not None
+            and new_sub_phase is not None
+            and not validate_transition(state.current_phase, state.sub_phase, new_sub_phase)
+        ):
+            raise InvalidTransitionError(f"session={session_id} " f"{state.sub_phase.value} → {new_sub_phase.value}")
 
         old_phase = state.current_phase
         old_sub = state.sub_phase
@@ -404,7 +405,7 @@ class SessionManager:
             logger.warning("transition_phase CAS 冲突, 重试: session=%s", session_id)
             latest = await self.get_session(session_id)
             if latest is None:
-                raise SessionNotFoundError(session_id)
+                raise SessionNotFoundError(session_id) from None
             latest.current_phase = new_phase
             latest.sub_phase = new_sub_phase
             latest.last_active_at = datetime.now()

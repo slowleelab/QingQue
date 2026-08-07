@@ -110,7 +110,9 @@ class Reflector:
             from openai import AsyncOpenAI
 
             self._client = AsyncOpenAI(
-                base_url=self._base_url, api_key="ollama", timeout=10.0  # 反思必须快
+                base_url=self._base_url,
+                api_key="ollama",
+                timeout=10.0,  # 反思必须快
             )
         except ImportError:
             logger.warning("openai SDK 未安装, Reflector 不可用")
@@ -128,9 +130,7 @@ class Reflector:
         失败兜底: 反射失败 → 默认 PASS (信任主结果, 避免阻塞).
         """
         if self._client is None:
-            return ReflectionResult(
-                decision=ReflectionDecision.PASS, reason="Reflector 不可用, 跳过反思"
-            )
+            return ReflectionResult(decision=ReflectionDecision.PASS, reason="Reflector 不可用, 跳过反思")
 
         import json
 
@@ -189,9 +189,7 @@ class Reflector:
 
         except Exception as exc:
             logger.warning("Reflector 调用失败, 降级 PASS: %s", exc)
-            return ReflectionResult(
-                decision=ReflectionDecision.PASS, reason=f"反思失败, 降级: {exc}"
-            )
+            return ReflectionResult(decision=ReflectionDecision.PASS, reason=f"反思失败, 降级: {exc}")
 
     def reset_failure_count(self, session_id: str) -> None:
         """会话成功完成后重置失败计数."""

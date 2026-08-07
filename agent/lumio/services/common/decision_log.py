@@ -225,9 +225,7 @@ class DecisionLogger:
         try:
             import json
 
-            items = await redis.lrange(
-                f"lumio:decision:session:{session_id}", 0, limit - 1
-            )
+            items = await redis.lrange(f"lumio:decision:session:{session_id}", 0, limit - 1)
             return [json.loads(item) for item in items]
         except Exception as exc:
             logger.warning("决策查询失败: %s", exc)

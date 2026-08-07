@@ -51,6 +51,7 @@ def _reset_otel_tracer_provider():
     # 恢复 _TRACER_PROVIDER 到原值或 None
     trace._TRACER_PROVIDER = original_provider
 
+
 # ── 指标定义与 /metrics 暴露 ──
 
 
@@ -536,10 +537,7 @@ def test_p1_3_three_metrics_in_overview_dashboard() -> None:
                     found[metric] = panel.get("title", "<no-title>")
 
     missing = target_metrics - found.keys()
-    assert not missing, (
-        f"lumio-overview.json 缺以下 P1-3 metric panel: {sorted(missing)}. "
-        f"实际找到: {found}"
-    )
+    assert not missing, f"lumio-overview.json 缺以下 P1-3 metric panel: {sorted(missing)}. " f"实际找到: {found}"
 
 
 # ── P2-2a: lumio-dashboard.json 5 panel 必须用 job=~ bot-service|assist-service ──
@@ -556,13 +554,7 @@ def test_p2_2a_legacy_dashboard_uses_job_label_not_app() -> None:
     """
     from pathlib import Path
 
-    dash = (
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "grafana"
-        / "dashboards"
-        / "lumio-dashboard.json"
-    )
+    dash = Path(__file__).resolve().parents[2] / "config" / "grafana" / "dashboards" / "lumio-dashboard.json"
     data = json.loads(dash.read_text(encoding="utf-8"))
     panels = data.get("panels") or data.get("dashboard", {}).get("panels", [])
 
@@ -573,9 +565,7 @@ def test_p2_2a_legacy_dashboard_uses_job_label_not_app() -> None:
         for tgt in panel.get("targets", []):
             expr = tgt.get("expr", "")
             if forbidden.search(expr):
-                found_forbidden.append(
-                    f"{panel.get('title', '<no-title>')}: {expr[:80]}"
-                )
+                found_forbidden.append(f"{panel.get('title', '<no-title>')}: {expr[:80]}")
             # 计数用了 job=~ 的 panel (这 5 panel 必须有此)
             if "job=~" in expr and "bot-service" in expr:
                 job_panel_count += 1
@@ -586,6 +576,5 @@ def test_p2_2a_legacy_dashboard_uses_job_label_not_app() -> None:
     )
     # 这 5 panel (QPS/P95/错误率/限流/HTTP 延迟分布) 必须都用 job label
     assert job_panel_count >= 5, (
-        f"lumio-dashboard.json 应有 ≥5 panel 用 job=~bot-service|assist-service, "
-        f"实际 {job_panel_count}"
+        f"lumio-dashboard.json 应有 ≥5 panel 用 job=~bot-service|assist-service, " f"实际 {job_panel_count}"
     )

@@ -33,24 +33,154 @@ logger = get_logger(__name__)
 
 # 中文停用词 (客服场景定制)
 _STOP_WORDS_ZH = {
-    "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一",
-    "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没",
-    "看", "好", "自己", "这", "那", "里", "为", "么", "什么", "怎么", "如何",
-    "请问", "请", "您", "我们", "咱们", "吧", "呢", "啊", "嗯", "哦", "哈",
-    "这个", "那个", "一下", "一些", "一直", "已经", "可以", "可能",
-    "应该", "或者", "如果", "因为", "所以", "但是", "不过", "然后", "于是",
-    "比较", "大概", "差不多", "基本", "主要", "一般", "另外", "其他", "之类",
+    "的",
+    "了",
+    "是",
+    "在",
+    "我",
+    "有",
+    "和",
+    "就",
+    "不",
+    "人",
+    "都",
+    "一",
+    "一个",
+    "上",
+    "也",
+    "很",
+    "到",
+    "说",
+    "要",
+    "去",
+    "你",
+    "会",
+    "着",
+    "没",
+    "看",
+    "好",
+    "自己",
+    "这",
+    "那",
+    "里",
+    "为",
+    "么",
+    "什么",
+    "怎么",
+    "如何",
+    "请问",
+    "请",
+    "您",
+    "我们",
+    "咱们",
+    "吧",
+    "呢",
+    "啊",
+    "嗯",
+    "哦",
+    "哈",
+    "这个",
+    "那个",
+    "一下",
+    "一些",
+    "一直",
+    "已经",
+    "可以",
+    "可能",
+    "应该",
+    "或者",
+    "如果",
+    "因为",
+    "所以",
+    "但是",
+    "不过",
+    "然后",
+    "于是",
+    "比较",
+    "大概",
+    "差不多",
+    "基本",
+    "主要",
+    "一般",
+    "另外",
+    "其他",
+    "之类",
 }
 
 # 英文停用词
 _STOP_WORDS_EN = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "to", "of", "in", "on", "at", "by", "for", "with", "about", "as", "into",
-    "and", "or", "but", "if", "then", "so", "than", "that", "this", "these",
-    "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us",
-    "my", "your", "his", "its", "our", "their", "what", "which", "who", "whom",
-    "do", "does", "did", "have", "has", "had", "will", "would", "should", "could",
-    "can", "may", "might", "must", "shall", "am", "just", "also", "very", "really",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "to",
+    "of",
+    "in",
+    "on",
+    "at",
+    "by",
+    "for",
+    "with",
+    "about",
+    "as",
+    "into",
+    "and",
+    "or",
+    "but",
+    "if",
+    "then",
+    "so",
+    "than",
+    "that",
+    "this",
+    "these",
+    "i",
+    "you",
+    "he",
+    "she",
+    "it",
+    "we",
+    "they",
+    "me",
+    "him",
+    "her",
+    "us",
+    "my",
+    "your",
+    "his",
+    "its",
+    "our",
+    "their",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "do",
+    "does",
+    "did",
+    "have",
+    "has",
+    "had",
+    "will",
+    "would",
+    "should",
+    "could",
+    "can",
+    "may",
+    "might",
+    "must",
+    "shall",
+    "am",
+    "just",
+    "also",
+    "very",
+    "really",
 }
 
 # 关键信息保护词性: 数字 / 金额 / 卡号 / 日期 / 专有名词
@@ -77,17 +207,12 @@ def _is_stop_word(token: str) -> bool:
     if t in _STOP_WORDS_ZH or t in _STOP_WORDS_EN:
         return True
     # 单字符非汉字非字母, 标点
-    if len(t) == 1 and not t.isalnum() and not ("\u4e00" <= t <= "\u9fff"):
-        return True
-    return False
+    return len(t) == 1 and not t.isalnum() and not ("\u4e00" <= t <= "\u9fff")
 
 
 def _is_protected(token: str) -> bool:
     """判断是否需要保护 (关键信息, 不能压缩)."""
-    for pat in _PROTECTED_PATTERNS:
-        if pat.search(token):
-            return True
-    return False
+    return any(pat.search(token) for pat in _PROTECTED_PATTERNS)
 
 
 def _tokenize_zh(text: str) -> list[str]:
@@ -205,17 +330,14 @@ class SelectiveCompressor:
             score = _token_importance(tok, sent_idx, len(sents), freq)
             scored.append((tok, score, sent_idx))
 
-        # 4. 保留 top-K (按 preserve_ratio)
-        target_kept = max(1, int(len(scored) * self._settings.preserve_ratio))
-        # 按重要性降序排序
+        # 4. 按重要性降序排序
         scored.sort(key=lambda x: x[1], reverse=True)
-        kept_set = {id(s) for s in scored[:target_kept]}
 
         # 5. 按原文顺序重组 (保留句子的所有 token, 不打断句子)
         # 策略: 保留所有被标记为 keep 的 token, 移除相邻停用词
         # 为保持可读性, 整句保留得分 >= 阈值 (句子平均分)
         sent_scores: list[float] = []
-        for i, sent in enumerate(sents):
+        for i, _sent in enumerate(sents):
             sent_tokens = [s for s in scored if s[2] == i]
             if not sent_tokens:
                 sent_scores.append(0.0)

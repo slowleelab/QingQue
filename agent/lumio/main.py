@@ -92,9 +92,7 @@ def _safe_init_global_factory() -> None:
     try:
         init_global_session_factory()
     except Exception as exc:
-        logging.getLogger("lumio.main").warning(
-            "全局 session factory 初始化失败 (决策日志降级为 Redis-only): %s", exc
-        )
+        logging.getLogger("lumio.main").warning("全局 session factory 初始化失败 (决策日志降级为 Redis-only): %s", exc)
 
 
 def _safe_init_global_redis() -> None:
@@ -107,9 +105,7 @@ def _safe_init_global_redis() -> None:
     try:
         init_global_redis_client()
     except Exception as exc:
-        logging.getLogger("lumio.main").warning(
-            "全局 Redis 客户端初始化失败 (配额/预算将懒加载重试): %s", exc
-        )
+        logging.getLogger("lumio.main").warning("全局 Redis 客户端初始化失败 (配额/预算将懒加载重试): %s", exc)
 
 
 def _safe_start_gdpr_worker() -> None:

@@ -158,9 +158,7 @@ class LLMJudge:
             return self._heuristic_score(question, response, expected_keywords or [])
 
         keywords_str = ", ".join(expected_keywords) if expected_keywords else "(无)"
-        user_prompt = _JUDGE_USER_TEMPLATE.format(
-            question=question, response=response, expected_keywords=keywords_str
-        )
+        user_prompt = _JUDGE_USER_TEMPLATE.format(question=question, response=response, expected_keywords=keywords_str)
 
         try:
             api_result = await self._client.chat.completions.create(
@@ -198,9 +196,7 @@ class LLMJudge:
             logger.warning("Judge LLM 调用失败, 降级到启发式: %s", exc)
             return self._heuristic_score(question, response, expected_keywords or [])
 
-    def _heuristic_score(
-        self, question: str, response: str, expected_keywords: list[str]
-    ) -> JudgeResult:
+    def _heuristic_score(self, question: str, response: str, expected_keywords: list[str]) -> JudgeResult:
         """启发式评分 (LLM 不可用时降级).
 
         中文用子串匹配而非 set(字符) — 避免把每字当 1 词导致覆盖率虚高.
@@ -252,6 +248,7 @@ class LLMJudge:
 
 
 # ── Golden Set 加载器 ──
+
 
 class GoldenSet:
     """金标测试集 (100 条典型场景).
@@ -362,6 +359,7 @@ class GoldenSet:
 
 
 # ── 回归测试运行器 ──
+
 
 async def run_regression(
     judge: LLMJudge,

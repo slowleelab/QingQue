@@ -18,13 +18,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
 from lumio.shared.logger import get_logger
-from lumio.shared.metrics import INJECTION_BLOCKED
 
 logger = get_logger(__name__)
 
@@ -325,6 +323,7 @@ async def run_red_team(
 
 
 # ── pytest fixture ──
+
 
 def pytest_red_team() -> dict[str, Any]:
     """pytest 入口: 同步运行红队测试.

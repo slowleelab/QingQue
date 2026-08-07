@@ -190,9 +190,7 @@ def test_p3_8_config_path_uses_source_file_not_cwd(tmp_path, monkeypatch) -> Non
     # 配置文件独有 '找领导' (默认 _DEFAULT_TRANSFER_KEYWORDS 不含)
     # 如果走了相对源文件路径, '找领导' 应触发转人工
     # 如果走了 cwd 相对 (broken), 应 fallback 到默认列表, 不会触发
-    assert "找领导" in checker._transfer_keywords, (
-        f"配置文件未加载, 当前关键词: {sorted(checker._transfer_keywords)}"
-    )
+    assert "找领导" in checker._transfer_keywords, f"配置文件未加载, 当前关键词: {sorted(checker._transfer_keywords)}"
 
     intent = IntentResult(primary_intent=IntentLabel.BILL_QUERY, primary_confidence=0.9)
     session = _make_session()

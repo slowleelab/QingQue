@@ -129,9 +129,7 @@ class AlertRouter:
                 return True
         return False
 
-    async def _call_handler(
-        self, channel: str, handler: Callable[[Alert], Any], alert: Alert
-    ) -> None:
+    async def _call_handler(self, channel: str, handler: Callable[[Alert], Any], alert: Alert) -> None:
         try:
             result = handler(alert)
             if asyncio.iscoroutine(result):
@@ -157,19 +155,18 @@ def build_alert_rules(router: AlertRouter) -> None:
         try:
             for metric in REQUEST_COUNT.collect():
                 for sample in metric.samples:
-                    if sample.labels.get("status", "").startswith("5"):
-                        if sample.value > 100:  # 5min 内 5xx > 100
-                            await router.send(
-                                Alert(
-                                    level=AlertLevel.P1,
-                                    title="LLM 错误率过高",
-                                    description=f"5xx 错误数: {sample.value}",
-                                    source="metrics",
-                                    metric_name="http_requests_total",
-                                    metric_value=sample.value,
-                                    threshold=100,
-                                )
+                    if sample.labels.get("status", "").startswith("5") and sample.value > 100:
+                        await router.send(
+                            Alert(
+                                level=AlertLevel.P1,
+                                title="LLM 错误率过高",
+                                description=f"5xx 错误数: {sample.value}",
+                                source="metrics",
+                                metric_name="http_requests_total",
+                                metric_value=sample.value,
+                                threshold=100,
                             )
+                        )
         except Exception as exc:
             logger.debug("错误率检查失败: %s", exc)
 
@@ -207,6 +204,7 @@ def build_alert_rules(router: AlertRouter) -> None:
 
 
 # ── 简单内置 handlers (无外部依赖) ──
+
 
 async def console_handler(alert: Alert) -> None:
     """默认 console handler (开发环境)."""

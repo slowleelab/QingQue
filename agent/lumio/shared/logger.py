@@ -72,9 +72,7 @@ class JSONFormatter(logging.Formatter):
             log_entry["exception"] = mask_pii(exc_text)
         # 合并 extra 字段（如 logger.info("msg", extra={"request_id": "..."})）
         if hasattr(record, "extra") and isinstance(record.extra, dict):
-            log_entry.update(
-                {k: mask_pii(v) if isinstance(v, str) else v for k, v in record.extra.items()}
-            )
+            log_entry.update({k: mask_pii(v) if isinstance(v, str) else v for k, v in record.extra.items()})
         return json.dumps(log_entry, ensure_ascii=False)
 
 

@@ -127,6 +127,10 @@ ignore = [
     "RUF003", # ambiguous unicode in comments — Chinese punctuation is intentional
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI Depends 在默认参数中调用是官方惯用法 (依赖注入)
+extend-immutable-calls = ["fastapi.Depends"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["lumio"]
 

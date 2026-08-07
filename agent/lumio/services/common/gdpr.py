@@ -308,7 +308,6 @@ class GDPRService:
     async def _delete_milvus(self, customer_id: str) -> int:
         """Milvus 删除含该 customer_id 的向量 (best-effort)."""
         try:
-
             collection = getattr(self, "_milvus_collection", None)
             if collection is None:
                 logger.warning("GDPR Milvus 删除跳过: collection 未配置")
@@ -395,9 +394,7 @@ async def _gdpr_sweep_loop() -> None:
             redis = await service._get_redis()
             if redis:
                 now = time.time()
-                due_ids = await redis.zrangebyscore(
-                    "lumio:gdpr:scheduled", 0, now, start=0, num=20
-                )
+                due_ids = await redis.zrangebyscore("lumio:gdpr:scheduled", 0, now, start=0, num=20)
                 for rid in due_ids:
                     try:
                         await service.hard_delete(rid)

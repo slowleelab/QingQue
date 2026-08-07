@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from typing import ClassVar
 
 import pytest
 
@@ -61,7 +62,7 @@ class TestQuickIntentMatchRegex:
 class TestFastReplyMessages:
     """满荷固定话术验证"""
 
-    REPLIES = {
+    REPLIES: ClassVar[dict[str, str]] = {
         "lost_card": "挂失为紧急业务，正在为您优先处理，请稍候。如超过 10 秒未回复，请直接输入'转人工'。",
         "complaint": "您的投诉已记录，正在转接人工处理。",
         "bill_query": "当前咨询量较大，账单查询结果稍后返回，也可输入'转人工'联系客服。",

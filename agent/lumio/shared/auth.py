@@ -165,8 +165,7 @@ def get_current_user(request: Request) -> AuthUser:
         if settings.dev_auth_bypass and settings.environment == "development":
             if settings.service_host not in ("127.0.0.1", "localhost"):
                 raise AuthenticationError(
-                    "开发旁路仅允许绑定 loopback (127.0.0.1/localhost), "
-                    f"当前 service_host={settings.service_host!r}"
+                    "开发旁路仅允许绑定 loopback (127.0.0.1/localhost), " f"当前 service_host={settings.service_host!r}"
                 )
             return AuthUser(user_id="dev-user", role="admin")
         raise AuthenticationError("缺少 Authorization 头")

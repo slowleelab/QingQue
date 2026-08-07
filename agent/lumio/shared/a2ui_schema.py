@@ -68,6 +68,7 @@ class UIRichResponse(BaseModel):
 
 # ── 卡片工厂 ──
 
+
 def bill_summary_card(
     bill_amount: float,
     due_date: str,
@@ -124,10 +125,7 @@ def installment_plan_card(
             "total_amount": f"¥{total_amount:.2f}",
             "plans": plans,  # [{"periods": 6, "monthly_rate": "0.75%", "monthly_payment": ...}]
         },
-        actions=[
-            {"label": f"选 {p['periods']} 期", "intent_hint": f"INSTALLMENT_{p['periods']}"}
-            for p in plans
-        ],
+        actions=[{"label": f"选 {p['periods']} 期", "intent_hint": f"INSTALLMENT_{p['periods']}"} for p in plans],
     )
 
 

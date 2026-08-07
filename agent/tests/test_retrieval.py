@@ -148,7 +148,19 @@ class TestRetrieve:
         mock_es = AsyncMock()
         mock_es.search.return_value = {
             "hits": {
-                "hits": [{"_id": "1", "_score": 3.0, "_source": {"chunk_id": "c1", "content": "test", "doc_id": "d1", "approval_status": "PUBLISHED", "is_current_version": True}}]
+                "hits": [
+                    {
+                        "_id": "1",
+                        "_score": 3.0,
+                        "_source": {
+                            "chunk_id": "c1",
+                            "content": "test",
+                            "doc_id": "d1",
+                            "approval_status": "PUBLISHED",
+                            "is_current_version": True,
+                        },
+                    }
+                ]
             }
         }
         request = RetrieveRequest(query="test", top_k=3, search_type="bm25_only", rerank=False)
@@ -172,7 +184,17 @@ class TestRetrieve:
         mock_es.search.return_value = {
             "hits": {
                 "hits": [
-                    {"_id": "1", "_score": 0.1, "_source": {"chunk_id": "c1", "content": "low score", "doc_id": "d1", "approval_status": "PUBLISHED", "is_current_version": True}},
+                    {
+                        "_id": "1",
+                        "_score": 0.1,
+                        "_source": {
+                            "chunk_id": "c1",
+                            "content": "low score",
+                            "doc_id": "d1",
+                            "approval_status": "PUBLISHED",
+                            "is_current_version": True,
+                        },
+                    },
                 ]
             }
         }
@@ -199,7 +221,13 @@ class TestRetrieve:
                     {
                         "_id": "1",
                         "_score": 3.0,
-                        "_source": {"chunk_id": "c1", "content": "test content", "doc_id": "d1", "approval_status": "PUBLISHED", "is_current_version": True},
+                        "_source": {
+                            "chunk_id": "c1",
+                            "content": "test content",
+                            "doc_id": "d1",
+                            "approval_status": "PUBLISHED",
+                            "is_current_version": True,
+                        },
                     }
                 ]
             }
@@ -230,7 +258,13 @@ class TestRetrieve:
                     {
                         "_id": "1",
                         "_score": 3.0,
-                        "_source": {"chunk_id": "c1", "content": "bm25 hit", "doc_id": "d1", "approval_status": "PUBLISHED", "is_current_version": True},
+                        "_source": {
+                            "chunk_id": "c1",
+                            "content": "bm25 hit",
+                            "doc_id": "d1",
+                            "approval_status": "PUBLISHED",
+                            "is_current_version": True,
+                        },
                     }
                 ]
             }

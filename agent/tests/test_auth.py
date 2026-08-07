@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fastapi
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -90,7 +91,7 @@ async def test_get_current_user_with_valid_token():
     app = FastAPI()
 
     @app.get("/test")
-    async def test_endpoint(user=pytest.importorskip("fastapi").Depends(get_current_user)):
+    async def test_endpoint(user=fastapi.Depends(get_current_user)):
         return {"user_id": user.user_id, "role": user.role}
 
     transport = ASGITransport(app=app)
@@ -113,7 +114,7 @@ async def test_get_current_user_dev_mode_no_token(monkeypatch: pytest.MonkeyPatc
     app = FastAPI()
 
     @app.get("/test")
-    async def test_endpoint(user=pytest.importorskip("fastapi").Depends(get_current_user)):
+    async def test_endpoint(user=fastapi.Depends(get_current_user)):
         return {"user_id": user.user_id, "role": user.role}
 
     transport = ASGITransport(app=app)
@@ -133,7 +134,7 @@ async def test_get_current_user_dev_bypass_default_off(monkeypatch: pytest.Monke
     app = FastAPI()
 
     @app.get("/test")
-    async def test_endpoint(user=pytest.importorskip("fastapi").Depends(get_current_user)):
+    async def test_endpoint(user=fastapi.Depends(get_current_user)):
         return {"user_id": user.user_id, "role": user.role}
 
     # dev_bypass 默认 False → 显式断言 AuthenticationError 被 raise
@@ -153,7 +154,7 @@ async def test_get_current_user_token_via_query_param():
     app = FastAPI()
 
     @app.get("/test")
-    async def test_endpoint(user=pytest.importorskip("fastapi").Depends(get_current_user)):
+    async def test_endpoint(user=fastapi.Depends(get_current_user)):
         return {"user_id": user.user_id, "role": user.role}
 
     transport = ASGITransport(app=app)

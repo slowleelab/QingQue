@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 import redis.asyncio as aioredis
@@ -74,8 +75,6 @@ async def close_global_redis_client() -> None:
     """关闭全局 Redis 客户端 (测试 teardown 用)."""
     global _global_redis
     if _global_redis is not None:
-        try:
+        with contextlib.suppress(Exception):
             await _global_redis.aclose()
-        except Exception:
-            pass
         _global_redis = None

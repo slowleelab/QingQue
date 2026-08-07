@@ -23,8 +23,9 @@ from lumio.shared.models import IntentLabel
 @dataclass
 class SlotDef:
     """槽位定义"""
-    name: str            # 槽位名（如 "amount"/"period"）
-    label: str           # 中文标签（如 "金额"/"期数"）
+
+    name: str  # 槽位名（如 "amount"/"period"）
+    label: str  # 中文标签（如 "金额"/"期数"）
     required: bool = True
     ask_prompt: str = ""  # 追问话术模板
 
@@ -181,7 +182,10 @@ class SlotTracker:
     def to_dict(self) -> dict[str, Any]:
         return {
             "intent": self.intent,
-            "slots": [{"name": s.name, "label": s.label, "required": s.required, "filled": s.filled, "value": s.value} for s in self.slots],
+            "slots": [
+                {"name": s.name, "label": s.label, "required": s.required, "filled": s.filled, "value": s.value}
+                for s in self.slots
+            ],
         }
 
     @classmethod
@@ -189,8 +193,13 @@ class SlotTracker:
         tracker = cls(intent=data.get("intent", "faq"))
         for sd in data.get("slots", []):
             tracker.slots.append(
-                SlotState(name=sd["name"], label=sd["label"], required=sd["required"],
-                          ask_prompt=sd.get("ask_prompt", ""), filled=sd.get("filled", False),
-                          value=sd.get("value"))
+                SlotState(
+                    name=sd["name"],
+                    label=sd["label"],
+                    required=sd["required"],
+                    ask_prompt=sd.get("ask_prompt", ""),
+                    filled=sd.get("filled", False),
+                    value=sd.get("value"),
+                )
             )
         return tracker

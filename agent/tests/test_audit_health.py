@@ -1,4 +1,5 @@
 """审计中间件 + 健康检查单元测试"""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -121,9 +122,7 @@ class TestInferAction:
 
     def test_deep_path_with_session_id(self) -> None:
         """含 session_id 的路径应正确提取"""
-        action, target_type, target_id = _infer_action(
-            self._req("PUT", "/api/session/sess-123/update")
-        )
+        action, target_type, target_id = _infer_action(self._req("PUT", "/api/session/sess-123/update"))
         assert target_type == "session"
         assert target_id == "sess-123"
 
@@ -259,9 +258,7 @@ class TestHealthErrorResponse:
     async def test_llm_down_returns_error_code_not_exception_text(self) -> None:
         app = MagicMock()
         app.state.llm_client = MagicMock()
-        app.state.llm_client.health_check = _async_raise(
-            RuntimeError("openai api key invalid: sk-prod-abc123...")
-        )
+        app.state.llm_client.health_check = _async_raise(RuntimeError("openai api key invalid: sk-prod-abc123..."))
         result = await _check_llm(app)
         assert result["status"] == "down"
         # 关键: 不应含 API key

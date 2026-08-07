@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any
 
 from lumio.shared.exceptions import LumioError as LumioException  # alias
@@ -105,6 +104,7 @@ class TenantGuard:
 
 
 # ── 装饰器: 自动注入 tenant 校验 ──
+
 
 def require_tenant(extract_tenant: str = "tenant_id") -> Any:
     """FastAPI 依赖: 提取并校验 tenant_id.

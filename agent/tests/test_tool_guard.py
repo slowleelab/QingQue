@@ -92,7 +92,9 @@ def _executor_with_guard(guard, *, is_sensitive=False, audit_factory=None):
     mcp.get_tool.return_value = MagicMock(description="账单分期办理")
     llm = MagicMock()
     settings = guard._settings
-    ex = ToolCallingExecutor(mcp_client=mcp, llm_client=llm, audit_session_factory=audit_factory, settings=settings, guard=guard)
+    ex = ToolCallingExecutor(
+        mcp_client=mcp, llm_client=llm, audit_session_factory=audit_factory, settings=settings, guard=guard
+    )
     return ex, mcp, llm
 
 
@@ -102,7 +104,9 @@ class TestGuardInExecutor:
         ex, mcp, llm = _executor_with_guard(guard)
         llm.chat_with_tools = AsyncMock(
             return_value=ToolCallResult(
-                tool_calls=[ToolCall(id="t1", name="apply_bill_installment", arguments={"amount": 80000, "periods": 6})],
+                tool_calls=[
+                    ToolCall(id="t1", name="apply_bill_installment", arguments={"amount": 80000, "periods": 6})
+                ],
                 raw_message={"role": "assistant", "content": "", "tool_calls": []},
             )
         )
@@ -120,7 +124,9 @@ class TestGuardInExecutor:
         llm.chat_with_tools = AsyncMock(
             side_effect=[
                 ToolCallResult(
-                    tool_calls=[ToolCall(id="t1", name="apply_bill_installment", arguments={"amount": 3000, "periods": 6})],
+                    tool_calls=[
+                        ToolCall(id="t1", name="apply_bill_installment", arguments={"amount": 3000, "periods": 6})
+                    ],
                     raw_message={"role": "assistant", "content": "", "tool_calls": []},
                 ),
                 ToolCallResult(content="已为您办理分期"),

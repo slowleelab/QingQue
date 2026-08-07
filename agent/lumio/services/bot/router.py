@@ -232,10 +232,8 @@ async def _mark_processed(redis_client, client_message_id: str) -> None:
     """标记消息已处理 (幂等键, 防 at-least-once 重投递重复执行)."""
     if not client_message_id:
         return
-    try:
+    with contextlib.suppress(Exception):
         await redis_client.setex(f"{_PROCESSED_PREFIX}:{client_message_id}", _PROCESSED_TTL, "1")
-    except Exception:
-        pass
 
 
 # ── Consumer group 初始化 ───────────────────────────────────────
@@ -1390,10 +1388,8 @@ async def _wait_for_response(
         await pubsub.unsubscribe(notify_channel)
         # P2 第三轮修复: pubsub 连接必须 aclose 释放回池 —
         # 旧代码只 unsubscribe 不 aclose, 60/min/IP 轮询压力下耗尽 20 连接池
-        try:
+        with contextlib.suppress(Exception):
             await pubsub.aclose()
-        except Exception:
-            pass
 
 
 @router.post("/kb/retrieve", response_model=RetrieveResponse)
@@ -1590,14 +1586,12 @@ async def chat_end(body: ChatEndRequest, req: Request, user: CurrentUser):
     _ensure_session_owned(user, body.session_id)
     session_manager = getattr(req.app.state, "session_manager", None)
     if session_manager:
-        try:
+        with contextlib.suppress(Exception):  # 会话可能已结束
             await session_manager.transition_phase(
                 body.session_id,
                 SessionPhase.ENDED,
                 reason="customer_ended",
             )
-        except Exception:
-            pass  # 会话可能已结束
     return {"status": "ok", "session_id": body.session_id}
 
 

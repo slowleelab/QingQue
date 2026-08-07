@@ -123,7 +123,7 @@ class StreamingLLMClient:
                 event = json.dumps({"type": "delta", "content": chunk}, ensure_ascii=False)
                 yield f"data: {event}\n\n"
             # 结束标记
-            yield "data: {\"type\":\"done\"}\n\n"
+            yield 'data: {"type":"done"}\n\n'
         except asyncio.CancelledError:
             # 客户端取消: 真中断, raise 让 FastAPI 终止 generator
             # 不再 yield 假 "cancelled" 事件 (会先 flush 给客户端, 浪费 token)

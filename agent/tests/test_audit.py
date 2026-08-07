@@ -60,7 +60,6 @@ class TestWriteAuditLog:
         assert result is None
 
 
-
 class TestWriteChatMessage:
     """消息审计写入测试"""
 

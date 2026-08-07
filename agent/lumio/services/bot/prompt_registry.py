@@ -129,8 +129,6 @@ class PromptRegistry:
         优先级: Nacos → Redis 缓存 → 本地兜底
         A/B 路由: rollout_pct < 100 时, 按 customer_id hash 决定是否启用新版本
         """
-        settings = self._settings
-
         # 1. 尝试从缓存 (Redis 或内存) 获取
         version = self._get_from_cache(name)
         if version is None:
@@ -143,12 +141,11 @@ class PromptRegistry:
                     return f"[PROMPT_MISSING:{name}]"
 
         # A/B 路由: rollout_pct < 100 时按 hash 分流
-        if version.rollout_pct < 100.0 and customer_id:
-            if not self._is_in_rollout(customer_id, version.rollout_pct):
-                # 切回主版本
-                main_version = self._get_main_version(name)
-                if main_version:
-                    version = main_version
+        if version.rollout_pct < 100.0 and customer_id and not self._is_in_rollout(customer_id, version.rollout_pct):
+            # 切回主版本
+            main_version = self._get_main_version(name)
+            if main_version:
+                version = main_version
 
         return version.content
 

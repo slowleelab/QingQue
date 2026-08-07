@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
@@ -105,8 +106,6 @@ async def close_global_session_factory() -> None:
     global _global_session_factory
     if _global_session_factory is not None:
         # engine 嵌入在 factory 中, 这里直接 dispose 全部
-        try:
+        with contextlib.suppress(Exception):
             await _global_session_factory.kw["bind"].dispose()  # type: ignore[union-attr]
-        except Exception:
-            pass
         _global_session_factory = None

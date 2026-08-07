@@ -120,9 +120,7 @@ def render_prompt(template_name: str, context: dict[str, Any]) -> str:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # 在 async 上下文: schedule warmup, 走缓存 fallback 用 raw text
-                logger.warning(
-                    "模板 %s 未预热, 请在 startup 调 warmup(); 当前同步加载", template_name
-                )
+                logger.warning("模板 %s 未预热, 请在 startup 调 warmup(); 当前同步加载", template_name)
         except RuntimeError:
             pass
         _template_cache[template_name] = _load_template_sync(template_name)

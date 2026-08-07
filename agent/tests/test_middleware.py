@@ -167,7 +167,14 @@ async def test_generic_error_production_hides_type():
     finally:
         os.environ.pop("LUMIO_ENVIRONMENT", None)
         os.environ.pop("LUMIO_JWT_SECRET", None)
-        for _k in ("LLM_API_KEY", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "ES_USERNAME", "ES_PASSWORD", "REDIS_PASSWORD"):
+        for _k in (
+            "LLM_API_KEY",
+            "MINIO_ACCESS_KEY",
+            "MINIO_SECRET_KEY",
+            "ES_USERNAME",
+            "ES_PASSWORD",
+            "REDIS_PASSWORD",
+        ):
             os.environ.pop(_k, None)
         # 恢复 lru_cache
         from lumio.shared.config import get_settings

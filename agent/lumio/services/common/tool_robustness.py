@@ -34,6 +34,7 @@ T = TypeVar("T")
 
 # ── 异步重试装饰器 ──
 
+
 def async_retry(
     max_attempts: int = 3,
     base_delay: float = 0.5,
@@ -49,6 +50,7 @@ def async_retry(
         async def call_tool(...):
             ...
     """
+
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
@@ -59,12 +61,8 @@ def async_retry(
                 except retry_on as exc:
                     last_exc = exc
                     if attempt < max_attempts - 1:
-                        delay = min(
-                            base_delay * (2**attempt if exponential else 1), max_delay
-                        )
-                        TOOL_RETRIES.labels(
-                            tool_name=tool_name or func.__name__, reason=type(exc).__name__
-                        ).inc()
+                        delay = min(base_delay * (2**attempt if exponential else 1), max_delay)
+                        TOOL_RETRIES.labels(tool_name=tool_name or func.__name__, reason=type(exc).__name__).inc()
                         logger.warning(
                             "Tool %s 重试 %d/%d: %s, delay=%.2fs",
                             tool_name or func.__name__,
@@ -92,6 +90,7 @@ def async_retry(
 
 # ── 并发执行多 tool (失败隔离) ──
 
+
 async def execute_tools_concurrent(
     tools: list[tuple[str, dict[str, Any]]],
     executor: Callable[[str, dict[str, Any]], Awaitable[Any]],
@@ -109,6 +108,7 @@ async def execute_tools_concurrent(
         [{"tool_name": ..., "result": ..., "error": ...}, ...]
         按输入顺序返回, 失败的 tool 用 {"error": ...} 占位
     """
+
     async def _run_one(name: str, args: dict[str, Any]) -> dict[str, Any]:
         _start = time.monotonic()
         try:
@@ -128,6 +128,7 @@ async def execute_tools_concurrent(
 
 
 # ── Per-customer tool 配额 ──
+
 
 class ToolQuotaGuard:
     """Tool 调用配额守卫 (Redis counter)."""
@@ -169,9 +170,7 @@ class ToolQuotaGuard:
             count_raw = await redis.eval(incr_with_expire, 1, key, window + 10)
             count = int(count_raw) if count_raw is not None else 0
             if count > max_calls:
-                TOOL_QUOTA_EXCEEDED.labels(
-                    tool_name=tool_name, scope="customer_window"
-                ).inc()
+                TOOL_QUOTA_EXCEEDED.labels(tool_name=tool_name, scope="customer_window").inc()
                 logger.warning(
                     "Tool 配额超限: customer=%s tool=%s count=%d max=%d",
                     customer_id,
@@ -211,6 +210,7 @@ def get_quota_guard() -> ToolQuotaGuard:
 
 # ── MCP 自动重连后台任务 ──
 
+
 class MCPReconnector:
     """MCP 后端自动重连器 (后台任务)."""
 
@@ -247,14 +247,9 @@ class MCPReconnector:
                     MCP_RECONNECT_ATTEMPTS.labels(
                         server_name="default", result="success" if success else "failed"
                     ).inc()
-                    if success:
-                        backoff = 1.0
-                    else:
-                        backoff = min(backoff * 2, 60.0)
+                    backoff = 1.0 if success else min(backoff * 2, 60.0)
                 else:
                     backoff = 1.0
             except Exception as exc:
                 logger.warning("MCP 重连异常: %s", exc)
-                MCP_RECONNECT_ATTEMPTS.labels(
-                    server_name="default", result="failed"
-                ).inc()
+                MCP_RECONNECT_ATTEMPTS.labels(server_name="default", result="failed").inc()

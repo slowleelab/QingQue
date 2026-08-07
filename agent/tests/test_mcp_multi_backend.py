@@ -54,7 +54,9 @@ def _two_backend_settings() -> MCPSettings:
         enabled=True,
         backends=[
             MCPBackend(name="card", endpoint="http://card/mcp", prefix="card."),
-            MCPBackend(name="points", endpoint="http://points/mcp", prefix="pts.", sensitive_tools=["query_transactions"]),
+            MCPBackend(
+                name="points", endpoint="http://points/mcp", prefix="pts.", sensitive_tools=["query_transactions"]
+            ),
         ],
     )
 

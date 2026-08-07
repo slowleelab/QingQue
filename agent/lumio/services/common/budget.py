@@ -65,15 +65,9 @@ class BudgetManager:
     async def record_usage(self, record: CostRecord) -> None:
         """上报 token 使用 + 成本 (指标 + Redis 累计)."""
         # 1. Prometheus 指标
-        LLM_TOKEN_USAGE.labels(
-            model=record.model, method=record.method, direction="input"
-        ).inc(record.input_tokens)
-        LLM_TOKEN_USAGE.labels(
-            model=record.model, method=record.method, direction="output"
-        ).inc(record.output_tokens)
-        LLM_COST_USD.labels(
-            model=record.model, tenant_id=record.tenant_id
-        ).inc(record.cost_usd)
+        LLM_TOKEN_USAGE.labels(model=record.model, method=record.method, direction="input").inc(record.input_tokens)
+        LLM_TOKEN_USAGE.labels(model=record.model, method=record.method, direction="output").inc(record.output_tokens)
+        LLM_COST_USD.labels(model=record.model, tenant_id=record.tenant_id).inc(record.cost_usd)
 
         # 2. Redis 累计 (用于预算检查)
         redis = await self._get_redis()
@@ -113,9 +107,7 @@ class BudgetManager:
         try:
             # 1. 月度预算
             yyyymm = time.strftime("%Y-%m")
-            monthly_cost = float(
-                await redis.get(f"lumio:budget:monthly:{yyyymm}") or 0
-            )
+            monthly_cost = float(await redis.get(f"lumio:budget:monthly:{yyyymm}") or 0)
             monthly_limit = self._settings.monthly_budget_usd
             if monthly_cost >= monthly_limit:
                 LLM_BUDGET_EXCEEDED.labels(tenant_id=tenant_id, scope="monthly").inc()
@@ -127,9 +119,7 @@ class BudgetManager:
 
             # 2. Per-tenant 日预算
             yyyy_mm_dd = time.strftime("%Y-%m-%d")
-            tenant_cost = float(
-                await redis.get(f"lumio:budget:tenant:{tenant_id}:{yyyy_mm_dd}") or 0
-            )
+            tenant_cost = float(await redis.get(f"lumio:budget:tenant:{tenant_id}:{yyyy_mm_dd}") or 0)
             daily_limit = self._settings.per_tenant_daily_limit_usd
             if tenant_cost >= daily_limit:
                 LLM_BUDGET_EXCEEDED.labels(tenant_id=tenant_id, scope="daily_tenant").inc()
@@ -149,9 +139,7 @@ class BudgetManager:
             yyyymm = time.strftime("%Y-%m")
             yyyy_mm_dd = time.strftime("%Y-%m-%d")
             monthly = float(await redis.get(f"lumio:budget:monthly:{yyyymm}") or 0)
-            tenant = float(
-                await redis.get(f"lumio:budget:tenant:{tenant_id}:{yyyy_mm_dd}") or 0
-            )
+            tenant = float(await redis.get(f"lumio:budget:tenant:{tenant_id}:{yyyy_mm_dd}") or 0)
             return {
                 "monthly_remaining": self._settings.monthly_budget_usd - monthly,
                 "daily_tenant_remaining": self._settings.per_tenant_daily_limit_usd - tenant,

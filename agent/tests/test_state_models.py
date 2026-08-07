@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
+from pydantic import ValidationError
 
 from lumio.shared.models import (
     ArbitrationResult,
@@ -70,9 +71,9 @@ class TestEmotionVector:
         assert decayed < 1.0
 
     def test_score_bounds(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EmotionVector(label=SentimentLabel.POSITIVE, score=-0.1)
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EmotionVector(label=SentimentLabel.POSITIVE, score=1.5)
 
     def test_custom_decay_lambda(self) -> None:
@@ -214,7 +215,7 @@ class TestFeedbackSignal:
         assert fs.action == "partial_accept"
 
     def test_invalid_action(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             FeedbackSignal(session_id="sess-1", agent_id="agent-1", action="invalid")  # type: ignore[arg-type]
 
 

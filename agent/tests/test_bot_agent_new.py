@@ -190,9 +190,7 @@ class TestProgressiveDisclosureRouting:
             )
         )
         degradation_mgr = MagicMock()
-        degradation_mgr.generate_with_fallback = AsyncMock(
-            return_value=MagicMock(content="RAG 知识回复", source="llm")
-        )
+        degradation_mgr.generate_with_fallback = AsyncMock(return_value=MagicMock(content="RAG 知识回复", source="llm"))
         degradation_mgr._degrader = MagicMock()
         degradation_mgr._degrader.hardcoded_fallback = MagicMock(return_value="兜底")
         transfer_checker = MagicMock()
@@ -212,9 +210,7 @@ class TestProgressiveDisclosureRouting:
 
         te = MagicMock()
         te.has_tools = MagicMock(return_value=True)
-        te.run_conversation = AsyncMock(
-            return_value=ToolExecutionResult(content="您本期账单 8650 元", source="tool")
-        )
+        te.run_conversation = AsyncMock(return_value=ToolExecutionResult(content="您本期账单 8650 元", source="tool"))
         return te
 
     def _patch_flag(self, monkeypatch: pytest.MonkeyPatch, enabled: bool) -> None:
@@ -247,9 +243,7 @@ class TestProgressiveDisclosureRouting:
         assert result["response_source"] == "tool"
 
     @pytest.mark.asyncio
-    async def test_flag_off_keeps_knowledge_routing(
-        self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_flag_off_keeps_knowledge_routing(self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch) -> None:
         """开关关闭 → 不进入工具编排，BILL_QUERY 仍走 knowledge/RAG（路由同现状）"""
         self._patch_flag(monkeypatch, False)
         te = self._tool_executor()
@@ -261,9 +255,7 @@ class TestProgressiveDisclosureRouting:
         assert result["response"] == "RAG 知识回复"
 
     @pytest.mark.asyncio
-    async def test_tool_failure_falls_back_to_knowledge(
-        self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_tool_failure_falls_back_to_knowledge(self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch) -> None:
         """工具编排异常 → 优雅回落知识问答"""
         self._patch_flag(monkeypatch, True)
         te = self._tool_executor()
@@ -275,9 +267,7 @@ class TestProgressiveDisclosureRouting:
         assert result["response"] == "RAG 知识回复"
 
     @pytest.mark.asyncio
-    async def test_flag_on_but_no_tools_keeps_knowledge(
-        self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_flag_on_but_no_tools_keeps_knowledge(self, mock_deps: dict, monkeypatch: pytest.MonkeyPatch) -> None:
         """开关开启但无可用工具 → 不进入工具编排"""
         self._patch_flag(monkeypatch, True)
         te = self._tool_executor()

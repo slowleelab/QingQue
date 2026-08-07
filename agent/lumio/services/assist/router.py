@@ -218,7 +218,12 @@ async def _run_assist_engine(app, session_id: str, message: str, intent, confide
             ),
             timeout=5.0,
         )
-        logger.debug("坐席辅助引擎完成: session=%s elapsed=%.1fs ai_executor=%s", session_id, time.monotonic() - t0, "on" if ai_executor else "off(degraded)")
+        logger.debug(
+            "坐席辅助引擎完成: session=%s elapsed=%.1fs ai_executor=%s",
+            session_id,
+            time.monotonic() - t0,
+            "on" if ai_executor else "off(degraded)",
+        )
         return push_data
     except TimeoutError:
         logger.warning("坐席辅助引擎超时: session=%s", session_id)
@@ -692,7 +697,9 @@ async def record_feedback(body: FeedbackRequest, request: Request):
             await redis_client.setex(tracker_key, 3600, json.dumps(tracker.to_dict()))
             logger.debug(
                 "PushTracker 已更新: session=%s card=%s action=%s interval=%.1fs",
-                body.session_id, body.card_type, body.action,
+                body.session_id,
+                body.card_type,
+                body.action,
                 tracker.min_interval.get(body.card_type, 0),
             )
         except Exception as e:

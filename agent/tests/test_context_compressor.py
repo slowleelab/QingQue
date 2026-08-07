@@ -1,4 +1,5 @@
 """ContextCompressor 单元测试 (第五轮补测试 — 此前压缩器生产接线但零测试)."""
+
 from __future__ import annotations
 
 from lumio.services.bot.context_compressor import SelectiveCompressor, compress_history
@@ -54,7 +55,8 @@ def test_compress_history_over_budget_marks() -> None:
     """
     long_turn = {
         "role": "user",
-        "content": "我想了解一下信用卡分期手续费率是多少。账单分期有哪几期可以选择。手续费是按月收取吗。提前还款会退手续费吗。" * 3,
+        "content": "我想了解一下信用卡分期手续费率是多少。账单分期有哪几期可以选择。手续费是按月收取吗。提前还款会退手续费吗。"
+        * 3,
     }
     history = [
         long_turn,

@@ -10,13 +10,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from lumio.shared.config import ExperimentSettings, get_settings
 from lumio.shared.logger import get_logger
 from lumio.shared.metrics import AB_EXPERIMENT_CONVERSIONS, AB_EXPERIMENT_EXPOSURES
 
@@ -56,9 +53,7 @@ class Experiment:
         return {
             "name": self.name,
             "description": self.description,
-            "variants": [
-                {"name": v.name, "weight": v.weight, "config": v.config} for v in self.variants
-            ],
+            "variants": [{"name": v.name, "weight": v.weight, "config": v.config} for v in self.variants],
             "status": self.status.value,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -102,27 +97,19 @@ class ExperimentRegistry:
         for variant in exp.variants:
             cumulative += variant.weight
             if h < cumulative:
-                AB_EXPERIMENT_EXPOSURES.labels(
-                    experiment=experiment_name, variant=variant.name
-                ).inc()
+                AB_EXPERIMENT_EXPOSURES.labels(experiment=experiment_name, variant=variant.name).inc()
                 return variant.name
 
         # 默认返回最后一个 (兜底)
         return exp.variants[-1].name if exp.variants else None
 
-    def track_conversion(
-        self, experiment_name: str, customer_id: str, goal: str = "default"
-    ) -> None:
+    def track_conversion(self, experiment_name: str, customer_id: str, goal: str = "default") -> None:
         """记录转化 (埋点)."""
         variant = self.assign_variant(experiment_name, customer_id)
         if variant:
-            AB_EXPERIMENT_CONVERSIONS.labels(
-                experiment=experiment_name, variant=variant, goal=goal
-            ).inc()
+            AB_EXPERIMENT_CONVERSIONS.labels(experiment=experiment_name, variant=variant, goal=goal).inc()
 
-    def get_config(
-        self, experiment_name: str, customer_id: str, default: Any = None
-    ) -> Any:
+    def get_config(self, experiment_name: str, customer_id: str, default: Any = None) -> Any:
         """获取变体配置 (替代硬编码, 业务代码调用)."""
         variant_name = self.assign_variant(experiment_name, customer_id)
         if not variant_name:
@@ -137,6 +124,7 @@ class ExperimentRegistry:
 
 
 # ── 统计显著性检验 (简化版) ──
+
 
 def check_significance(
     control_conversions: int,
@@ -189,6 +177,7 @@ def _normal_cdf(x: float) -> float:
 
 
 # ── 预置实验 ──
+
 
 def register_default_experiments(registry: ExperimentRegistry) -> None:
     """注册默认实验 (在 app 启动时调用)."""

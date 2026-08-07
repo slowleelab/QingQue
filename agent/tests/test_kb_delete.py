@@ -101,7 +101,9 @@ class TestDeleteDocument:
         milvus = MagicMock()
         milvus.delete = MagicMock(side_effect=RuntimeError("milvus down"))
 
-        result = await delete_document(doc_id="doc-1", db=db, user=_make_user(), es_client=None, milvus_collection=milvus)
+        result = await delete_document(
+            doc_id="doc-1", db=db, user=_make_user(), es_client=None, milvus_collection=milvus
+        )
 
         assert result["status"] == "ok"
         assert doc.is_deleted is True
