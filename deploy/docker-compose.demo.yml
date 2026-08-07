@@ -85,6 +85,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
       LLM_PRIMARY_MODEL: ${LLM_PRIMARY_MODEL:-qwen2.5:7b}
+      # 首次 login 自动创建 admin 用户 (密码 = 该值); 默认 admin123 便于 demo
+      LUMIO_ADMIN_PASSWORD: ${LUMIO_ADMIN_PASSWORD:-admin123}
     ports:
       - "8000:8000"
     depends_on:

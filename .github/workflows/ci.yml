@@ -143,6 +143,7 @@ jobs:
       LUMIO_RATE_LIMIT_ENABLED: "false"
       LLM_BASE_URL: http://localhost:11434/v1
       POSTGRES_PASSWORD_DOCKER: lumio_pass
+      LUMIO_ADMIN_PASSWORD: admin123
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
