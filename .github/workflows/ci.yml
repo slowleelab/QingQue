@@ -183,5 +183,7 @@ jobs:
             -H 'Content-Type: application/json' \
             -H "Authorization: Bearer ${TOKEN}" \
             -d '{"message":"信用卡年费怎么减免"}')
+          echo "TOKEN 前 20 字符: ${TOKEN:0:20}"
+          echo "RESP: $RESP"
           echo "$RESP" | grep -q '"accepted":true'
           echo "✅ Send OK"
