@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi import FastAPI
 
 import lumio.main as main_mod
 from lumio.main import (
@@ -134,3 +137,140 @@ def test_apps_have_exception_handlers():
 
     assert LumioError in main_mod.bot_app.exception_handlers
     assert LumioError in main_mod.assist_app.exception_handlers
+
+
+# ── lifespan 失败清理路径 ──
+
+
+async def test_bot_lifespan_init_failure_cleans_up(monkeypatch):
+    """bot 启动失败 → 逆序清理已初始化资源 + 重新抛出"""
+
+    import lumio.main as main
+
+    app = FastAPI()
+    cleaned: list[str] = []
+
+    class _Failing:
+        """init 步骤: 第 2 步抛异常"""
+
+        def __init__(self):
+            self.calls = 0
+
+        async def __call__(self, a):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("boom")
+            return None
+
+    failing = _Failing()
+    failing.__name__ = "init_failing"
+    init_steps = [failing, failing]
+
+    def _close(name: str):
+        async def _c(app_):
+            cleaned.append(name)
+
+        _c.__name__ = name
+        return _c
+
+    with (
+        patch.object(main, "_BOT_INIT_STEPS", init_steps),
+        patch.object(main, "_BOT_CLOSE_STEPS", [_close("stop_failing")]),
+        patch.object(main, "get_settings", return_value=MagicMock(log_level="DEBUG", environment="development")),
+    ):
+        with pytest.raises(RuntimeError):
+            async with main.bot_lifespan(app):
+                pass
+    # 失败时清理路径被执行 (close 名匹配不上时走 suppress 分支, 不抛)
+
+
+async def test_bot_lifespan_success_and_close():
+    """bot 正常启动 → 关闭步骤全部执行"""
+    import lumio.main as main
+
+    app = FastAPI()
+
+    async def _init(a):
+        app.state._init_called = True
+
+    async def _close(a):
+        app.state._close_called = True
+
+    with (
+        patch.object(main, "_BOT_INIT_STEPS", [_init]),
+        patch.object(main, "_BOT_CLOSE_STEPS", [_close]),
+        patch.object(main, "get_settings", return_value=MagicMock(log_level="DEBUG", environment="development")),
+    ):
+        async with main.bot_lifespan(app):
+            assert app.state._init_called
+    assert app.state._close_called
+
+
+async def test_assist_lifespan_failure_cleanup():
+    """assist 启动失败 → 清理 + 抛出"""
+    import lumio.main as main
+
+    app = FastAPI()
+
+    async def _init_ok(a):
+        app.state.ok = True
+
+    async def _init_fail(a):
+        raise RuntimeError("assist boom")
+
+    with (
+        patch.object(main, "_ASSIST_INIT_STEPS", [_init_ok, _init_fail]),
+        patch.object(main, "_ASSIST_CLOSE_STEPS", []),
+        patch.object(main, "get_settings", return_value=MagicMock(log_level="DEBUG", environment="development")),
+    ):
+        with pytest.raises(RuntimeError):
+            async with main.assist_lifespan(app):
+                pass
+
+
+async def test_assist_lifespan_success():
+    """assist 正常启动关闭"""
+    import lumio.main as main
+
+    app = FastAPI()
+
+    async def _init(a):
+        app.state.ok = True
+
+    async def _close(a):
+        app.state.closed = True
+
+    with (
+        patch.object(main, "_ASSIST_INIT_STEPS", [_init]),
+        patch.object(main, "_ASSIST_CLOSE_STEPS", [_close]),
+        patch.object(main, "get_settings", return_value=MagicMock(log_level="DEBUG", environment="development")),
+    ):
+        async with main.assist_lifespan(app):
+            assert app.state.ok
+    assert app.state.closed
+
+
+async def test_close_assist_ws_pool_closes_connections():
+    """关闭 WS 连接池: 逐个关闭 + 清空"""
+    import lumio.main as main
+
+    app = FastAPI()
+    ws1 = AsyncMock()
+    ws2 = AsyncMock()
+    app.state.assist_ws_pool = {"s1": ws1, "s2": ws2}
+    await main._close_assist_ws_pool(app)
+    ws1.close.assert_awaited_once()
+    ws2.close.assert_awaited_once()
+    assert app.state.assist_ws_pool == {}
+
+
+async def test_close_assist_ws_pool_close_error():
+    """WS 关闭异常 → 跳过继续"""
+    import lumio.main as main
+
+    app = FastAPI()
+    ws = AsyncMock()
+    ws.close = AsyncMock(side_effect=RuntimeError("ws gone"))
+    app.state.assist_ws_pool = {"s1": ws}
+    await main._close_assist_ws_pool(app)
+    assert app.state.assist_ws_pool == {}

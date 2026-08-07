@@ -459,9 +459,10 @@ async def test_session_worker_normal_path(monkeypatch):
     redis = _make_redis()
     q = asyncio.Queue()
     agent = _make_agent()
-    with patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent, patch.object(
-        bot_router, "write_chat_message", new=AsyncMock()
-    ) as write_msg:
+    with (
+        patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent,
+        patch.object(bot_router, "write_chat_message", new=AsyncMock()) as write_msg,
+    ):
         q.put_nowait(_make_msg("m1", "hi", extra={"customer_id": "c1", "channel": "web"}))
         await _run_worker(monkeypatch, redis, q, agent, db_factory=object())
     write_msg.assert_awaited_once()
@@ -479,9 +480,10 @@ async def test_session_worker_skips_expired_message(monkeypatch):
     redis = _make_redis()
     q = asyncio.Queue()
     agent = _make_agent()
-    with patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent, patch.object(
-        bot_router, "update_chat_message", new=AsyncMock()
-    ) as update_msg:
+    with (
+        patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent,
+        patch.object(bot_router, "update_chat_message", new=AsyncMock()) as update_msg,
+    ):
         q.put_nowait(_make_msg("m1", "hi", enqueue=asyncio.get_event_loop().time() - 100))
         await _run_worker(monkeypatch, redis, q, agent, db_factory=object())
     run_agent.assert_not_awaited()
@@ -503,7 +505,12 @@ async def test_session_worker_skips_duplicate(monkeypatch):
     q = asyncio.Queue()
     agent = _make_agent()
     with patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent:
-        q.put_nowait(_make_msg("m1", "hi", ))
+        q.put_nowait(
+            _make_msg(
+                "m1",
+                "hi",
+            )
+        )
         await _run_worker(monkeypatch, redis, q, agent)
     run_agent.assert_not_awaited()
     redis.xack.assert_awaited_with("lumio:chat:stream", "bot-group", "m1")
@@ -515,10 +522,17 @@ async def test_session_worker_fast_reply(monkeypatch):
     q = asyncio.Queue()
     agent = _make_agent()
     bot_router._rule_loader.load_from_memory()  # 种子规则: 账单→bill_query
-    with patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent, patch.object(
-        bot_router, "update_chat_message", new=AsyncMock()
-    ) as update_msg, patch.object(bot_router, "write_chat_message", new=AsyncMock()):
-        q.put_nowait(_make_msg("m1", "账单", ))
+    with (
+        patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent,
+        patch.object(bot_router, "update_chat_message", new=AsyncMock()) as update_msg,
+        patch.object(bot_router, "write_chat_message", new=AsyncMock()),
+    ):
+        q.put_nowait(
+            _make_msg(
+                "m1",
+                "账单",
+            )
+        )
         await _run_worker(monkeypatch, redis, q, agent, sem_locked=True, db_factory=object())
     run_agent.assert_not_awaited()
     update_msg.assert_awaited_once()
@@ -547,7 +561,12 @@ async def test_session_worker_cooldown_active(monkeypatch):
     q = asyncio.Queue()
     agent = _make_agent()
     with patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent:
-        q.put_nowait(_make_msg("m1", "账单", ))
+        q.put_nowait(
+            _make_msg(
+                "m1",
+                "账单",
+            )
+        )
         await _run_worker(monkeypatch, redis, q, agent, sem_locked=True)
     run_agent.assert_awaited_once()  # 冷却期内仍处理, 只是不兜底
 
@@ -558,9 +577,24 @@ async def test_session_worker_merges_queued_messages(monkeypatch):
     q = asyncio.Queue()
     agent = _make_agent()
     with patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent:
-        q.put_nowait(_make_msg("m1", "第一句", ))
-        q.put_nowait(_make_msg("m2", "第二句", ))
-        q.put_nowait(_make_msg("m3", "第三句", ))
+        q.put_nowait(
+            _make_msg(
+                "m1",
+                "第一句",
+            )
+        )
+        q.put_nowait(
+            _make_msg(
+                "m2",
+                "第二句",
+            )
+        )
+        q.put_nowait(
+            _make_msg(
+                "m3",
+                "第三句",
+            )
+        )
         await _run_worker(monkeypatch, redis, q, agent)
     run_agent.assert_awaited_once()
     merged = run_agent.await_args.args[3]
@@ -595,10 +629,16 @@ async def test_session_worker_merge_skips_expired_pending(monkeypatch):
     redis = _make_redis()
     q = asyncio.Queue()
     agent = _make_agent()
-    with patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent, patch.object(
-        bot_router, "update_chat_message", new=AsyncMock()
-    ) as update_msg:
-        q.put_nowait(_make_msg("m1", "新的", ))
+    with (
+        patch.object(bot_router, "_run_agent", new=AsyncMock()) as run_agent,
+        patch.object(bot_router, "update_chat_message", new=AsyncMock()) as update_msg,
+    ):
+        q.put_nowait(
+            _make_msg(
+                "m1",
+                "新的",
+            )
+        )
         q.put_nowait(_make_msg("m2", "过期消息", enqueue=asyncio.get_event_loop().time() - 100))
         await _run_worker(monkeypatch, redis, q, agent, db_factory=object())
     run_agent.assert_awaited_once()
@@ -612,10 +652,16 @@ async def test_session_worker_agent_error_dead_letter(monkeypatch):
     redis = _make_redis()
     q = asyncio.Queue()
     agent = _make_agent()
-    with patch.object(bot_router, "_run_agent", new=AsyncMock(side_effect=RuntimeError("boom"))), patch.object(
-        bot_router, "update_chat_message", new=AsyncMock()
-    ) as update_msg:
-        q.put_nowait(_make_msg("m1", "hi", ))
+    with (
+        patch.object(bot_router, "_run_agent", new=AsyncMock(side_effect=RuntimeError("boom"))),
+        patch.object(bot_router, "update_chat_message", new=AsyncMock()) as update_msg,
+    ):
+        q.put_nowait(
+            _make_msg(
+                "m1",
+                "hi",
+            )
+        )
         await _run_worker(monkeypatch, redis, q, agent, db_factory=object())
     update_msg.assert_awaited_once()
     assert update_msg.await_args.kwargs["processing_status"] == bot_router.ChatMessageStatus.ERROR
@@ -661,9 +707,7 @@ async def test_session_worker_cancelled(monkeypatch):
     agent = _make_agent()
     bot_router._session_queues["s1"] = q
     bot_router._session_active["s1"] = True
-    task = asyncio.create_task(
-        bot_router._session_worker("s1", q, redis, agent)
-    )
+    task = asyncio.create_task(bot_router._session_worker("s1", q, redis, agent))
     await asyncio.sleep(0)  # 让 worker 启动并挂起在 wait_for
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -777,9 +821,11 @@ async def test_start_bot_worker_without_db():
             db_session_factory=None,
         )
     )
-    with patch.object(bot_router, "_consumer_loop", new=AsyncMock()), patch.object(
-        bot_router, "_claim_stale", new=AsyncMock()
-    ), patch.object(bot_router, "_monitoring_loop", new=AsyncMock()):
+    with (
+        patch.object(bot_router, "_consumer_loop", new=AsyncMock()),
+        patch.object(bot_router, "_claim_stale", new=AsyncMock()),
+        patch.object(bot_router, "_monitoring_loop", new=AsyncMock()),
+    ):
         await bot_router.start_bot_worker(app)
     assert bot_router._agent_semaphore is not None
     assert bot_router._rule_loader.rules  # 内存种子规则兜底
@@ -801,13 +847,13 @@ async def test_start_bot_worker_with_db():
             db_session_factory=MagicMock(),
         )
     )
-    with patch.object(bot_router, "_consumer_loop", new=AsyncMock()), patch.object(
-        bot_router, "_claim_stale", new=AsyncMock()
-    ), patch.object(bot_router, "_monitoring_loop", new=AsyncMock()), patch.object(
-        bot_router._rule_loader, "load_from_db", new=AsyncMock()
-    ) as load_db, patch.object(
-        bot_router._rule_loader, "start_hot_reload", new=AsyncMock()
-    ) as hot_reload:
+    with (
+        patch.object(bot_router, "_consumer_loop", new=AsyncMock()),
+        patch.object(bot_router, "_claim_stale", new=AsyncMock()),
+        patch.object(bot_router, "_monitoring_loop", new=AsyncMock()),
+        patch.object(bot_router._rule_loader, "load_from_db", new=AsyncMock()) as load_db,
+        patch.object(bot_router._rule_loader, "start_hot_reload", new=AsyncMock()) as hot_reload,
+    ):
         await bot_router.start_bot_worker(app)
     load_db.assert_awaited_once()
     hot_reload.assert_awaited_once()
@@ -863,9 +909,7 @@ async def test_run_agent_transfer_with_chat_client():
     redis.get = AsyncMock(return_value=json.dumps({"status": "done", "reply": "x"}))
 
     with patch.object(bot_router, "update_chat_message", new=AsyncMock()) as update_msg:
-        await bot_router._run_agent(
-            redis, agent, "s1", "转人工", "m1", "orig-1", merged_message_ids=["mid-2"]
-        )
+        await bot_router._run_agent(redis, agent, "s1", "转人工", "m1", "orig-1", merged_message_ids=["mid-2"])
     chat_client.create_session.assert_awaited_once()
     # response key 扩展: is_transfer + transfer_url
     setex_calls = [c for c in redis.setex.call_args_list if c.args[0].startswith(bot_router.RESPONSE_KEY_PREFIX)]
@@ -947,9 +991,7 @@ async def test_run_agent_normal_with_merged_audit():
     agent = _make_agent()
     redis = _make_redis()
     with patch.object(bot_router, "update_chat_message", new=AsyncMock()) as update_msg:
-        await bot_router._run_agent(
-            redis, agent, "s1", "hi", "m1", "orig-1", merged_message_ids=["mid-2", "mid-3"]
-        )
+        await bot_router._run_agent(redis, agent, "s1", "hi", "m1", "orig-1", merged_message_ids=["mid-2", "mid-3"])
     assert update_msg.await_count == 3
     sources = {c.kwargs.get("source") for c in update_msg.call_args_list}
     assert "merged" in sources

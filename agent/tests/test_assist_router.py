@@ -578,12 +578,15 @@ async def test_process_customer_message_push(monkeypatch):
 
     ws = AsyncMock()
     app = MagicMock()
-    ar._run_assist_engine = AsyncMock(return_value={"type": "assist_push", "payload": {"x": 1}})
     history: list = []
-    await ar._process_customer_message(ws, app, "s1", {"message": "你好", "intent": "faq", "sentiment": "positive"}, history)
+    with patch.object(
+        ar, "_run_assist_engine", new=AsyncMock(return_value={"type": "assist_push", "payload": {"x": 1}})
+    ):
+        await ar._process_customer_message(
+            ws, app, "s1", {"message": "你好", "intent": "faq", "sentiment": "positive"}, history
+        )
     ws.send_json.assert_awaited_once()
     assert history == [SentimentLabel.POSITIVE]
-    del ar._run_assist_engine  # 还原 (直接删除注入)
 
 
 async def test_process_customer_message_throttled(monkeypatch):
@@ -592,10 +595,9 @@ async def test_process_customer_message_throttled(monkeypatch):
 
     ws = AsyncMock()
     app = MagicMock()
-    ar._run_assist_engine = AsyncMock(return_value=None)
-    await ar._process_customer_message(ws, app, "s1", {"message": "hi"}, [])
+    with patch.object(ar, "_run_assist_engine", new=AsyncMock(return_value=None)):
+        await ar._process_customer_message(ws, app, "s1", {"message": "hi"}, [])
     ws.send_json.assert_not_awaited()
-    del ar._run_assist_engine
 
 
 async def test_process_customer_message_invalid_intent(monkeypatch):
@@ -610,12 +612,11 @@ async def test_process_customer_message_invalid_intent(monkeypatch):
     async def fake_engine(app_, **kwargs):
         captured.update(kwargs)
 
-    ar._run_assist_engine = fake_engine
-    await ar._process_customer_message(
-        ws, app, "s1", {"message": "hi", "intent": "not-an-intent", "sentiment": "weird"}, []
-    )
+    with patch.object(ar, "_run_assist_engine", new=fake_engine):
+        await ar._process_customer_message(
+            ws, app, "s1", {"message": "hi", "intent": "not-an-intent", "sentiment": "weird"}, []
+        )
     assert captured["intent"] == IntentLabel.FAQ
-    del ar._run_assist_engine
 
 
 # ── _handle_agent_messages (坐席 WS) ────────────────────────────
@@ -736,9 +737,7 @@ async def test_agent_messages_agent_message_alerts(monkeypatch):
         with pytest.raises(asyncio.CancelledError):
             await task
     alert_engine.check.assert_awaited_once()
-    assert any(
-        m.get("type") == "assist_push" and m["payload"]["alerts"][0]["level"] == "high" for m in ws.sent
-    )
+    assert any(m.get("type") == "assist_push" and m["payload"]["alerts"][0]["level"] == "high" for m in ws.sent)
     infer.assert_called_once()
 
 
@@ -802,13 +801,15 @@ async def test_kb_search(app: FastAPI, setup_state, monkeypatch):
     from lumio.services.common import deps
 
     fake_result = {"results": [{"doc_id": "d1", "content": "年费说明", "score": 0.9}]}
-    with patch.object(deps, "get_es_client", return_value=None), patch.object(
-        deps, "get_milvus_collection", return_value=None
-    ), patch.object(deps, "get_embedding_breaker", return_value=MagicMock(is_available=False, provider=None)), patch.object(
-        deps, "get_reranker_provider", return_value=None
-    ), patch.object(deps, "get_es_breaker", return_value=MagicMock(allow_request=MagicMock(return_value=True))), patch.object(
-        deps, "get_milvus_breaker", return_value=MagicMock(allow_request=MagicMock(return_value=True))
-    ), patch("lumio.services.common.retrieval.retrieve", new=AsyncMock(return_value=fake_result)):
+    with (
+        patch.object(deps, "get_es_client", return_value=None),
+        patch.object(deps, "get_milvus_collection", return_value=None),
+        patch.object(deps, "get_embedding_breaker", return_value=MagicMock(is_available=False, provider=None)),
+        patch.object(deps, "get_reranker_provider", return_value=None),
+        patch.object(deps, "get_es_breaker", return_value=MagicMock(allow_request=MagicMock(return_value=True))),
+        patch.object(deps, "get_milvus_breaker", return_value=MagicMock(allow_request=MagicMock(return_value=True))),
+        patch("lumio.services.common.retrieval.retrieve", new=AsyncMock(return_value=fake_result)),
+    ):
         async with await _client(app) as c:
             resp = await c.post("/api/kb/search", json={"query": "年费", "top_k": 3})
     assert resp.status_code == 200
@@ -885,8 +886,9 @@ async def test_session_websocket_ready_and_cleanup(monkeypatch):
     async def fake_notify(*a, **kw):
         await asyncio.sleep(3600)
 
-    with patch.object(ar, "_handle_messages", new=fake_messages), patch.object(
-        ar, "_handle_ws_notify", new=fake_notify
+    with (
+        patch.object(ar, "_handle_messages", new=fake_messages),
+        patch.object(ar, "_handle_ws_notify", new=fake_notify),
     ):
         await ar.session_websocket(ws, "s1")
     assert ws.accepted

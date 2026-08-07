@@ -303,12 +303,22 @@ async def test_upload_document_success_txt(monkeypatch):
     file = _FakeUpload("年费说明.txt", "文本内容".encode())
     with patch.object(ingestion, "ingest_document", new=AsyncMock(return_value="COMPLETED")) as mock_ingest:
         result = await bot_router_module.upload_document(
-            deps["db"], deps["es_client"], deps["milvus_collection"], deps["minio_client"],
-            deps["embedding_breaker"], deps["user"],
-            file=file, category="fee", doc_type="rule",
-            security_level="internal", version="1.0", keywords="",
-            card_type=None, customer_tier=None,
-            effective_date=None, expiry_date=None,
+            deps["db"],
+            deps["es_client"],
+            deps["milvus_collection"],
+            deps["minio_client"],
+            deps["embedding_breaker"],
+            deps["user"],
+            file=file,
+            category="fee",
+            doc_type="rule",
+            security_level="internal",
+            version="1.0",
+            keywords="",
+            card_type=None,
+            customer_tier=None,
+            effective_date=None,
+            expiry_date=None,
         )
     assert result["status"] == "COMPLETED"
     assert result["doc_id"]
@@ -326,12 +336,22 @@ async def test_upload_document_pdf_uses_object_key(monkeypatch):
     file = _FakeUpload("年费说明.pdf", b"%PDF-1.4 fake", content_type="application/pdf")
     with patch.object(ingestion, "ingest_document", new=AsyncMock(return_value="COMPLETED")) as mock_ingest:
         result = await bot_router_module.upload_document(
-            deps["db"], deps["es_client"], deps["milvus_collection"], deps["minio_client"],
-            deps["embedding_breaker"], deps["user"],
-            file=file, category="fee", doc_type="rule",
-            security_level="internal", version="1.0", keywords="",
-            card_type=None, customer_tier=None,
-            effective_date=None, expiry_date=None,
+            deps["db"],
+            deps["es_client"],
+            deps["milvus_collection"],
+            deps["minio_client"],
+            deps["embedding_breaker"],
+            deps["user"],
+            file=file,
+            category="fee",
+            doc_type="rule",
+            security_level="internal",
+            version="1.0",
+            keywords="",
+            card_type=None,
+            customer_tier=None,
+            effective_date=None,
+            expiry_date=None,
         )
     assert result["status"] == "COMPLETED"
     args = mock_ingest.await_args
@@ -347,12 +367,22 @@ async def test_upload_document_ingest_failed(monkeypatch):
     file = _FakeUpload("a.md", "# 说明".encode())
     with patch.object(ingestion, "ingest_document", new=AsyncMock(return_value="FAILED")):
         result = await bot_router_module.upload_document(
-            deps["db"], deps["es_client"], deps["milvus_collection"], deps["minio_client"],
-            deps["embedding_breaker"], deps["user"],
-            file=file, category="kb", doc_type="manual",
-            security_level="internal", version="1.0", keywords="",
-            card_type=None, customer_tier=None,
-            effective_date=None, expiry_date=None,
+            deps["db"],
+            deps["es_client"],
+            deps["milvus_collection"],
+            deps["minio_client"],
+            deps["embedding_breaker"],
+            deps["user"],
+            file=file,
+            category="kb",
+            doc_type="manual",
+            security_level="internal",
+            version="1.0",
+            keywords="",
+            card_type=None,
+            customer_tier=None,
+            effective_date=None,
+            expiry_date=None,
         )
     assert result["status"] == "FAILED"
 
@@ -365,12 +395,22 @@ async def test_upload_document_ingest_raises(monkeypatch):
     file = _FakeUpload("a.html", b"<p>hi</p>")
     with patch.object(ingestion, "ingest_document", new=AsyncMock(side_effect=RuntimeError("es down"))):
         result = await bot_router_module.upload_document(
-            deps["db"], deps["es_client"], deps["milvus_collection"], deps["minio_client"],
-            deps["embedding_breaker"], deps["user"],
-            file=file, category="kb", doc_type="manual",
-            security_level="internal", version="1.0", keywords="",
-            card_type=None, customer_tier=None,
-            effective_date=None, expiry_date=None,
+            deps["db"],
+            deps["es_client"],
+            deps["milvus_collection"],
+            deps["minio_client"],
+            deps["embedding_breaker"],
+            deps["user"],
+            file=file,
+            category="kb",
+            doc_type="manual",
+            security_level="internal",
+            version="1.0",
+            keywords="",
+            card_type=None,
+            customer_tier=None,
+            effective_date=None,
+            expiry_date=None,
         )
     assert result["status"] == "FAILED"
 
@@ -383,12 +423,21 @@ async def test_upload_document_metadata_and_dates(monkeypatch):
     file = _FakeUpload("a.txt", "内容".encode())
     with patch.object(ingestion, "ingest_document", new=AsyncMock(return_value="COMPLETED")) as mock_ingest:
         result = await bot_router_module.upload_document(
-            deps["db"], deps["es_client"], deps["milvus_collection"], deps["minio_client"],
-            deps["embedding_breaker"], deps["user"],
-            file=file, category="promo", doc_type="activity",
-            card_type="gold", customer_tier="vip", security_level="confidential",
+            deps["db"],
+            deps["es_client"],
+            deps["milvus_collection"],
+            deps["minio_client"],
+            deps["embedding_breaker"],
+            deps["user"],
+            file=file,
+            category="promo",
+            doc_type="activity",
+            card_type="gold",
+            customer_tier="vip",
+            security_level="confidential",
             version="1.0",
-            effective_date="2026-01-01", expiry_date="2026-12-31",
+            effective_date="2026-01-01",
+            expiry_date="2026-12-31",
             keywords="积分, 换礼, 优惠",
         )
     assert result["status"] == "COMPLETED"
@@ -404,12 +453,22 @@ async def test_upload_document_too_large_by_size_header():
     file = _FakeUpload("a.txt", b"x", size=60 * 1024 * 1024)
     with pytest.raises(Exception) as exc_info:
         await bot_router_module.upload_document(
-            deps["db"], deps["es_client"], deps["milvus_collection"], deps["minio_client"],
-            deps["embedding_breaker"], deps["user"],
-            file=file, category="kb", doc_type="rule",
-            security_level="internal", version="1.0", keywords="",
-            card_type=None, customer_tier=None,
-            effective_date=None, expiry_date=None,
+            deps["db"],
+            deps["es_client"],
+            deps["milvus_collection"],
+            deps["minio_client"],
+            deps["embedding_breaker"],
+            deps["user"],
+            file=file,
+            category="kb",
+            doc_type="rule",
+            security_level="internal",
+            version="1.0",
+            keywords="",
+            card_type=None,
+            customer_tier=None,
+            effective_date=None,
+            expiry_date=None,
         )
     assert "文件过大" in str(exc_info.value)
 
@@ -422,11 +481,21 @@ async def test_upload_document_no_minio():
     file = _FakeUpload("a.txt", "内容".encode())
     with patch.object(ingestion, "ingest_document", new=AsyncMock(return_value="COMPLETED")):
         result = await bot_router_module.upload_document(
-            deps["db"], deps["es_client"], deps["milvus_collection"], None,
-            deps["embedding_breaker"], deps["user"],
-            file=file, category="kb", doc_type="rule",
-            security_level="internal", version="1.0", keywords="",
-            card_type=None, customer_tier=None,
-            effective_date=None, expiry_date=None,
+            deps["db"],
+            deps["es_client"],
+            deps["milvus_collection"],
+            None,
+            deps["embedding_breaker"],
+            deps["user"],
+            file=file,
+            category="kb",
+            doc_type="rule",
+            security_level="internal",
+            version="1.0",
+            keywords="",
+            card_type=None,
+            customer_tier=None,
+            effective_date=None,
+            expiry_date=None,
         )
     assert result["status"] == "COMPLETED"
