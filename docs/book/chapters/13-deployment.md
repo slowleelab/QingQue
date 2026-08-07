@@ -18,7 +18,7 @@ tags: ["部署", "docker", "kubernetes", "nginx", "makefile"]
 
 # 第 13 章: 部署
 
-Lumio 的部署设计遵循一个朴素的工程直觉: **让本地开发与生产环境共享同一份容器编排, 只在 K8s 层做规模化**。这意味着开发者日常用 `make demo` 启动的 24 个容器, 几乎就是 K8s 集群上跑的那一套——只是多了 HPA、Secret 和反代网关。这一章将围绕 docker-compose 拓扑、multi-stage 镜像、K8s manifests、Nginx 反代、opt-in gateway profile 与 33 个 Make target 这六条主线, 解释 Lumio 在部署上做出的一系列权衡。
+Lumio 的部署设计遵循一个朴素的工程直觉: **让本地开发与生产环境共享同一份容器编排, 只在 K8s 层做规模化**。这意味着开发者日常用 `make demo` 启动的 24 个容器, 几乎就是 K8s 集群上跑的那一套——只是多了 HPA、Secret 和反代网关。这一章将围绕 docker-compose 拓扑、multi-stage 镜像、K8s manifests、Nginx 反代、opt-in gateway profile 与 46 个 Make target 这六条主线, 解释 Lumio 在部署上做出的一系列权衡。
 
 ## 13.1 为什么是 24 个服务
 
@@ -275,5 +275,5 @@ Lumio 的部署核心可以总结为三条:
 
 > **延伸阅读**:
 > - [第 1 章 整体架构](../01-architecture-overview.md) — 三层分层
-> - [第 2 章 配置系统](../02-configuration-system.md) — 12+ env_prefix
+> - [第 2 章 配置系统](../02-configuration-system.md) — 16 个 env_prefix
 > - [第 10 章 可观测性](10-observability.md) — Prometheus 抓取

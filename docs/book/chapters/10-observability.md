@@ -61,17 +61,17 @@ graph LR
 
 这五个名字是"领域无关"的,任何 Web 服务都能复用:
 
-| 指标名 | 类型 | 关键 labels | 来源 |
-| --- | --- | --- | --- |
-| `http_requests_total` | Counter | method / endpoint / status | `metrics.py:18-22` |
-| `http_request_duration_seconds` | Histogram(9 buckets) | method / endpoint | `metrics.py:24-29` |
-| `session_transitions_total` | Counter | from_phase / from_sub / to_phase / to_sub / reason | `metrics.py:33-37` |
-| `session_timeouts_total` | Counter | sub_phase / reason | `metrics.py:39-43` |
-| `session_phase_duration_seconds` | Histogram | sub_phase | `metrics.py:45-50` |
-| `tool_calls_total` | Counter | tool / status | `metrics.py:54-58` |
-| `tool_confirmations_total` | Counter | decision | `metrics.py:60-64` |
-| `tool_guard_denials_total` | Counter | tool / reason | `metrics.py:66-70` |
-| `llm_call_duration_seconds` | Histogram | model / method | `metrics.py:74-79` |
+| 指标名 | 类型 | 含义 | 关键 labels | 来源 |
+| --- | --- | --- | --- | --- |
+| `http_requests_total` | Counter | **接口调用次数** (按方法/路径/状态码) | method / endpoint / status | `metrics.py:18-22` |
+| `http_request_duration_seconds` | Histogram(9 buckets) | **接口响应耗时分布** (看 P99 是否超标) | method / endpoint | `metrics.py:24-29` |
+| `session_transitions_total` | Counter | **会话状态转换次数** | from_phase / from_sub / to_phase / to_sub / reason | `metrics.py:33-37` |
+| `session_timeouts_total` | Counter | **会话超时触发次数** | sub_phase / reason | `metrics.py:39-43` |
+| `session_phase_duration_seconds` | Histogram | **各子阶段停留时长** | sub_phase | `metrics.py:45-50` |
+| `tool_calls_total` | Counter | **工具调用次数与成败** | tool / status | `metrics.py:54-58` |
+| `tool_confirmations_total` | Counter | **敏感操作确认各状态** (确认/取消/模糊/过期) | decision | `metrics.py:60-64` |
+| `tool_guard_denials_total` | Counter | **工具护栏拦截次数** (角色不足/金额超限) | tool / reason | `metrics.py:66-70` |
+| `llm_call_duration_seconds` | Histogram | **大模型调用耗时** (桶延伸到 60s, 推理天然慢) | model / method | `metrics.py:74-79` |
 
 注意 `http_request_duration_seconds` 的桶是 `[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]`——这是经验值,既覆盖了健康路径(0.1s 内),又给 P99(5~10s)留了尾部空间;而 `llm_call_duration_seconds` 的桶一直延伸到 60s,因为 LLM 推理天然就慢。
 
@@ -228,7 +228,7 @@ except Exception:
 
 `_write_audit_log`(`audit_middleware.py:58-111`)从 JWT 解出 `actor_id / actor_role`,再调 `_infer_action` 推断操作类型。`actor_id` 默认 `"anonymous"`,在开发环境下会用 `dev-user` 兜底,方便本地手测时不必每次都拿 token。`detail` 字段除了 `elapsed_ms`,还会记录脱敏后的 query params——这条细节在合规审计里很重要:如果某个 `DELETE` 出问题了,审计员需要能复现当时的过滤条件。
 
-**核心是 `_ENDPOINT_ACTION_MAP`**(`audit_middleware.py:174-206`):24 个端点函数名 → `(action, target_type)` 的精确映射表。`_infer_action` 的优先级是「**先查路由元数据,再 fallback 到路径字符串**」:
+**核心是 `_ENDPOINT_ACTION_MAP`**(`audit_middleware.py:174-206`):27 个端点函数名 → `(action, target_type)` 的精确映射表。`_infer_action` 的优先级是「**先查路由元数据,再 fallback 到路径字符串**」:
 
 ```python
 # audit_middleware.py:124-132

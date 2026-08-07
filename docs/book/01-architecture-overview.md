@@ -207,7 +207,7 @@ class _SuppressExceptions:
 | `health.py` | 142 | 5 依赖并行健康检查 |
 | `metrics.py` | 171 | 17 Prometheus 指标 |
 | `tracing.py` | 232 | OTel 全链路 |
-| `audit_middleware.py` | 218 | 24 端点审计自动映射 |
+| `audit_middleware.py` | 218 | 27 端点审计自动映射 |
 | `logger.py` | 110 | JSON 结构化日志 |
 | `degradation.py` | 222 | 4 级降级管理器 |
 | `password.py` | 45 | PBKDF2-HMAC-SHA256 |
@@ -333,7 +333,7 @@ def hash_password(password: str) -> str:
     return f"{ALGORITHM}${ITERATIONS}${b64encode(salt).decode()}${b64encode(dk).decode()}"
 ```
 
-**代价**: 600k 迭代每次 ~200ms, 比 bcrypt 慢但比 argon2 内存硬化弱. 对低 QPS 登录场景够用.
+**代价**: 600k 迭代每次 ~350ms, 比 bcrypt 慢但比 argon2 内存硬化弱. 对低 QPS 登录场景够用.
 
 ### 决策 5: 父-子分块 (Parent-Child Chunking)
 
@@ -380,7 +380,7 @@ graph LR
 
 **关键设计**: `common/` 是 Bot 和 Assist 共享的「业务工具库」, 例如 RAG 检索 (`retrieval.py`) / 会话管理 (`session.py`) / MCP 客户端 (`mcp_client.py`) 都在 common. **不通过 HTTP 互相调用**, 而是直接 import — 因为它们是同一进程的 Python 模块.
 
-## 1.7 本章小结
+## 1.6 本章小结
 
 Lumio 的整体架构可以概括为:
 
@@ -391,6 +391,6 @@ Lumio 的整体架构可以概括为:
 ---
 
 > **延伸阅读**:
-> - [第 2 章 配置系统](02-configuration-system.md) — 12+ SubSettings 的完整体系
+> - [第 2 章 配置系统](02-configuration-system.md) — 16 个 SubSettings 的完整体系
 > - [第 3 章 Bot 自助问答](03-bot-self-service.md) — Bot :8000 内部细节
 > - [第 4 章 坐席辅助引擎](04-assist-engine.md) — Assist :8001 内部细节

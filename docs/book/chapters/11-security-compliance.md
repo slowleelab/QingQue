@@ -234,7 +234,7 @@ if safety_filter.is_crisis_input(user_input):
 
 `shared/audit_middleware.py` 实现**双通道审计**——同一操作既写 `audit_log` 表(供合规取证与查询),也通过结构化日志走 stdout(供 ELK/Loki 聚合)。两路并行,互不阻塞,任何一路故障不影响另一路。
 
-关键设计是 `_ENDPOINT_ACTION_MAP` (audit_middleware.py:174-206):21 条端点函数名到 `(action, target_type)` 的精确映射,优先级高于路径字符串推断。这是因为路径推断会因 `/api/v1/sessions/{id}/update` 与 `/api/v1/sessions/update` 在 `/update` 命中上歧义,而 FastAPI 路由匹配后 `request.scope["route"].endpoint.__name__` 是唯一确定的,这是"权威来源"。
+关键设计是 `_ENDPOINT_ACTION_MAP` (audit_middleware.py:174-206):27 条端点函数名到 `(action, target_type)` 的精确映射,优先级高于路径字符串推断。这是因为路径推断会因 `/api/v1/sessions/{id}/update` 与 `/api/v1/sessions/update` 在 `/update` 命中上歧义,而 FastAPI 路由匹配后 `request.scope["route"].endpoint.__name__` 是唯一确定的,这是"权威来源"。
 
 ```python
 # 精确映射示例

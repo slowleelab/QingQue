@@ -453,7 +453,7 @@ flowchart LR
 2. Milvus 写 → 失败回滚 ES (`_rollback_es_docs` 逐个删)
 3. 全部成功 → 落 KbChunk 表 + 写 7 阶段流水日志
 
-## 5.14 检索端到端流程图
+## 5.12 检索端到端流程图
 
 ```mermaid
 sequenceDiagram
@@ -489,20 +489,20 @@ sequenceDiagram
     end
 ```
 
-## 5.15 监控指标
+## 5.13 监控指标
 
-RAG 链路发射 4 个核心指标:
+RAG 链路发射 4 个核心指标 — 回答"检索快不快、缓存命中高不高、嵌入服务健不健康"：
 
-| 指标 | 类型 | Labels | 位置 |
-|---|---|---|---|
-| `lumio_retrieval_duration_seconds` | Histogram | search_type (hybrid/bm25/vector) | retrieval.py:607 |
-| `lumio_retrieval_cache_hit_total` | Counter | hit/miss | retrieval.py:600 |
-| `lumio_embedding_unavailable_total` | Counter | - | embedding.py:280 |
-| `http_requests_total` | Counter | method, endpoint, status | 全局 |
+| 指标 | 类型 | 含义 | Labels | 位置 |
+|---|---|---|---|---|
+| `lumio_retrieval_duration_seconds` | Histogram | **检索耗时分布** (看是 ES 慢还是 Milvus 慢) | search_type (hybrid/bm25/vector) | retrieval.py:607 |
+| `lumio_retrieval_cache_hit_total` | Counter | **缓存命中/未命中次数** (命中率高 = 重复问题多被复用) | hit/miss | retrieval.py:600 |
+| `lumio_embedding_unavailable_total` | Counter | **嵌入服务不可用次数** (触发降级到 BM25) | - | embedding.py:280 |
+| `http_requests_total` | Counter | 接口调用次数 (复用全局) | method, endpoint, status | 全局 |
 
 **降级告警**: Prometheus 规则 `EmbeddingUnavailabilityHigh` (>5 次/分钟, 持续 5m) → warning.
 
-## 5.16 测试覆盖
+## 5.14 测试覆盖
 
 `agent/tests/test_retrieval.py` (22 用例) 覆盖:
 
@@ -515,7 +515,7 @@ RAG 链路发射 4 个核心指标:
 - `test_parent_child_chunk_relationship` — 父-子分块
 - `test_filter_by_keywords_array` — ARRAY_CONTAINS
 
-## 5.17 本章小结
+## 5.15 本章小结
 
 RAG 检索全链路是 Lumio 服务客户的核心:
 
@@ -535,4 +535,4 @@ RAG 检索全链路是 Lumio 服务客户的核心:
 > - [第 9 章 RAG 摄入管线](chapters/09-rag-ingestion.md) — 摄入端 5 阶段
 > - [第 12 章 数据层](chapters/12-data-layer.md) — ES + Milvus 索引设计
 > - [第 11 章 安全合规](chapters/11-security-compliance.md) — 银行合规字段
-> - [附录 A 术语表](../appendix/A-glossary.md#a6-rag-检索术语) — RAG 术语速查
+> - [附录 A 术语表](appendix/A-glossary.md#a6-rag-检索术语) — RAG 术语速查

@@ -83,11 +83,11 @@ sequenceDiagram
 | `CardServiceTools.java` | 4 | **`report_card_lost`** / `query_card_status` / **`activate_card`** / **`report_transaction_dispute`** | `report_*` / `activate_*` 敏感 |
 | `InstallmentTools.java` | 4 | `query_installment_offer` / **`apply_bill_installment`** / `query_installment_status` / **`cancel_installment`** | `apply_*` / `cancel_*` 敏感 |
 | `PaymentTools.java` | 3 | **`repay_credit_card`** / `query_repayment_history` / **`set_auto_repay`** | `repay_*` / `set_auto_*` 敏感 |
-| **合计** | **22** | | **11 敏感 + 11 只读** |
+| **合计** | **22** | | **10 敏感 + 12 只读** |
 
 **关键设计**:
-- **11 写操作 = 11 敏感**: `destructiveHint=true` 自动标记
-- **11 只读**: `query_*` 前缀, 自动安全
+- **10 写操作 = 10 敏感**: `destructiveHint=true` 自动标记
+- **12 只读**: `query_*` 前缀, 自动安全
 - **业务命名规范**: `动作_对象`, 例如 `query_card_bill` / `report_card_lost`
 
 ## 7.3 Python 端 `MCPToolClient`
@@ -421,16 +421,16 @@ async def list_tools(self) -> list[ToolSpec]:
 
 ## 7.10 监控指标
 
-MCP 链路发射 6 个核心指标:
+MCP 链路发射 6 个核心指标 — 回答"工具调用稳不稳、有没有被拒、连接健不健康"：
 
-| 指标 | 类型 | Labels | 位置 |
-|---|---|---|---|
-| `mcp_tool_calls_total` | Counter | tool, status (success/error) | mcp_client.py:309 |
-| `tool_calls_total` | Counter | tool, status | tool_executor.py:298/309 |
-| `tool_confirmations_total` | Counter | decision (pending/confirm/cancel/unclear/expired) | tool_executor.py:261 |
-| `tool_guard_denials_total` | Counter | tool, reason (role_denied/amount_exceeded) | tool_executor.py:378 |
-| `mcp_connection_state` | Gauge | backend (default/card/loan/...) | mcp_client.py:80 |
-| `http_requests_total` | Counter | method, endpoint, status | 全局 |
+| 指标 | 类型 | 含义 | Labels | 位置 |
+|---|---|---|---|---|
+| `mcp_tool_calls_total` | Counter | **MCP 工具调用次数与成败** | tool, status (success/error) | mcp_client.py:309 |
+| `tool_calls_total` | Counter | **工具循环内调用次数** (含 LLM 二次生成) | tool, status | tool_executor.py:298/309 |
+| `tool_confirmations_total` | Counter | **敏感操作确认各状态** (复用第 3 章) | decision (pending/confirm/cancel/unclear/expired) | tool_executor.py:261 |
+| `tool_guard_denials_total` | Counter | **护栏拦截次数** (角色不够/金额超限) | tool, reason (role_denied/amount_exceeded) | tool_executor.py:378 |
+| `mcp_connection_state` | Gauge | **MCP 连接状态** (1=连上, 0=断开) | backend (default/card/loan/...) | mcp_client.py:80 |
+| `http_requests_total` | Counter | 接口调用次数 (复用全局) | method, endpoint, status | 全局 |
 
 **OTel span** (`mcp_client.py:308`):
 - `mcp.tool` = 工具名

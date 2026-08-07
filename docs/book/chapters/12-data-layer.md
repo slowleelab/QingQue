@@ -299,4 +299,4 @@ ES 与 Milvus 的"互相降级"是 RAG 鲁棒性的关键。检索层在调用�
 > **延伸阅读**:
 > - [第 5 章 RAG 检索全链路](../05-rag-pipeline.md) — 双写一致性细节
 > - [第 9 章 RAG 摄入](09-rag-ingestion.md) — 摄入端双写
-> - [第 6 章 会话状态机](06-session-state-machine.md) — Redis CAS 详解
+> - [第 6 章 会话状态机](../06-session-state-machine.md) — Redis CAS 详解

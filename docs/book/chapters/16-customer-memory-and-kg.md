@@ -600,7 +600,7 @@ sequenceDiagram
 
 | 指标 | 来源 | 含义 |
 |---|---|---|
-| `lumio_customer_profile_applied_total` | 客户画像写入次数 (待加) | 画像学习命中率 |
+| `lumio_customer_profile_applied_total` | 客户画像写入次数 (规划中, 尚未实现) | 画像学习命中率 |
 | DB 查询 `string_agg` P99 延迟 | PG `pg_stat_statements` | DB 性能, 异常时告警 |
 | `_build_session_memory` 中 `state.risk_tolerance` 命中率 | 日志 | 画像应用真实覆盖率 |
 | `logger.debug` "客户画像学习" 日志量 | stdout | 学习频次, 异常突增需排查 |

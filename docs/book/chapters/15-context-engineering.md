@@ -25,7 +25,7 @@ tags: ["上下文工程", "token 预算", "对话摘要", "fire-and-forget", "3 
 
 # 第 15 章: 上下文工程 — 3 层上下文 + token 预算 + 增量摘要
 
-> 本章深入 Lumio Bot 区别于一般 LLM 应用的**最关键设计** — 上下文工程. 银行客服场景下, 客户对话常跨数十轮, 含敏感信息 (卡号/金额/挂失) 与关键承诺 (投诉/转人工), 简单地把全部历史塞进 LLM 会撞 token 上限且丢失关键实体. Lumio 设计了 **3 层上下文架构** + **token 预算 LIFO 累加算法** + **17 关键词豁免** + **增量摘要 fire-and-forget**, 既保证 LLM 总在预算内, 又保证关键信息永不丢失. 看完本章你会理解: 为何 Bot 能"记住"30 轮前客户说"我是白金卡"但又不会因为历史太长爆 token, 为何对话中途能"接着说"而不需要客户重复, 为何摘要生成失败也不会让对话中断.
+> 本章深入 Lumio Bot 区别于一般 LLM 应用的**最关键设计** — 上下文工程. 银行客服场景下, 客户对话常跨数十轮, 含敏感信息 (卡号/金额/挂失) 与关键承诺 (投诉/转人工), 简单地把全部历史塞进 LLM 会撞 token 上限且丢失关键实体. Lumio 设计了 **3 层上下文架构** + **token 预算 LIFO 累加算法** + **19 关键词豁免** + **增量摘要 fire-and-forget**, 既保证 LLM 总在预算内, 又保证关键信息永不丢失. 看完本章你会理解: 为何 Bot 能"记住"30 轮前客户说"我是白金卡"但又不会因为历史太长爆 token, 为何对话中途能"接着说"而不需要客户重复, 为何摘要生成失败也不会让对话中断.
 
 ## 15.1 3 层上下文模型
 
@@ -39,10 +39,10 @@ Lumio Bot 每次 LLM 调用前, 在 `bot_agent._handle_*` (bot_agent.py:201-339)
 
 **核心约束**:
 - Layer 1 永远在 `system_prompt` 头部注入, 永不进入 token 预算计算. 哪怕历史全被裁掉, 客户画像 + 实体池 + 意图栈仍可见.
-- Layer 2 token 预算 = `max(MaxContext - Reserved, 1024)`, 默认 `4096 - 2048 = 2048` token, 但最低 1024 (避免极小模型失效).
+- Layer 2 token 预算 = `max(MaxContext - Reserved, 1024)`, 默认 `8192 - 1024 = 7168` 可用, 历史层预算 `budget_history=1500`, 但最低 1024 (避免极小模型失效).
 - Layer 3 由调用方传入, RAG 检索本身已截断到 `top_k` (默认 5-8 块), 不参与裁剪.
 
-**为什么不只让 LLM "全部读"**: 银行客户对话常 30+ 轮, 一轮 50-100 字, 累加可达 3000+ 字 ≈ 1500+ tokens. 而 LLM 上下文 (4096 tokens) 还要留给回答 (2048) + system_prompt (500) + RAG 上下文 (1000). 实际留给历史的预算只有 ~500 tokens ≈ 2-3 轮 — **显然不够**. 必须做主动上下文管理.
+**为什么不只让 LLM "全部读"**: 银行客户对话常 30+ 轮, 一轮 50-100 字, 累加可达 3000+ 字 ≈ 1500+ tokens. 而 LLM 上下文 (8192 tokens) 还要留给回答 (1024) + system_prompt (500) + RAG 上下文 (1000). 实际留给历史的预算只有 ~500 tokens ≈ 2-3 轮 — **显然不够**. 必须做主动上下文管理.
 
 ## 15.2 Layer 1 — `_build_session_memory` 5 段拼接
 
@@ -180,7 +180,7 @@ def _estimate_tokens(text: str) -> int:
 
 **为何 +4**: OpenAI ChatCompletion 每条 message 都要 `{"role": "...", "content": "..."}` JSON 包装, 实测约 4 tokens 开销.
 
-### 15.3.2 关键轮次豁免 — 17 个 `_IMPORTANT_KEYWORDS`
+### 15.3.2 关键轮次豁免 — 19 个 `_IMPORTANT_KEYWORDS`
 
 `bot_agent.py:79-89` 定义了**永远不会**被裁剪的关键词, 这些轮次即便超出 token 预算也强制保留:
 
@@ -449,7 +449,7 @@ asyncio.create_task(self._ensure_summary(session_id, trimmed_turns))
 ```python
 system_prompt = KNOWLEDGE_SYSTEM_PROMPT  # 静态 system_prompt (3 段: 角色/记忆使用规范/回复规范)
 system_prompt = f"{KNOWLEDGE_SYSTEM_PROMPT}\n\n## 会话记忆\n{session_memory}"  # Layer 1 注入
-system_prompt = f"{system_prompt}\n\n{slot_prompt}"  # 槽位 (第 16 章详谈)
+system_prompt = f"{system_prompt}\n\n{slot_prompt}"  # 槽位 (第 3 章 §3.6 详谈)
 ```
 
 **注意 Layer 1 注入**而非 Layer 2/3: Layer 2 (历史) 和 Layer 3 (RAG) 走 `messages=` 形参, 由 `build_layered_messages` 组装 (第五轮修复后). 这种设计:
@@ -497,7 +497,7 @@ system_prompt = f"{system_prompt}\n\n{slot_prompt}"  # 槽位 (第 16 章详谈)
    - 当前意图: reward_query (本轮)
 2. **Layer 2** (bot_agent.py:583-629):
    - limit=20 拉到最近 20 轮 (轮 11-30)
-   - token 预算 2048, 估算 20 轮 ≈ 1100 tokens
+   - 历史层预算 1500, 估算 20 轮 ≈ 1100 tokens
    - 全部装下, 不需要裁
    - 轮 6 "投诉" + 轮 16 "转人工" 必保留
 3. **Layer 3**:

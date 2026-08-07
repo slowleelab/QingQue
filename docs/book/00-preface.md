@@ -11,7 +11,7 @@ tags: ["preface", "lumio", "阅读指南"]
 
 # 序言
 
-> 灵智 (Lumio) — 银行信用卡场景的智能客服平台, 用 Python 3.11 + FastAPI + PydanticAI 串起两个独立服务: Bot 自助问答 (:8000) 与坐席辅助 (:8001), 后接 PostgreSQL / Redis / Elasticsearch / Milvus / MinIO / Kafka 六大数据基础设施.
+> 灵智 (Lumio) — 银行信用卡场景的智能客服平台, 用 Python 3.11 + FastAPI + asyncio 串起两个独立服务: Bot 自助问答 (:8000) 与坐席辅助 (:8001), 后接 PostgreSQL / Redis / Elasticsearch / Milvus / MinIO / Kafka 六大数据基础设施.
 
 ## 项目定位
 
@@ -60,7 +60,7 @@ async def _session_worker(self, session_id: str) -> None:
 
 ### 4. 数字驱动
 
-所有结论配数字: 16 个 SubSettings / 22 个 MCP 工具 / 35 个错误码 / 367 个测试用例 / 19 张 PG 表 / 15+ Redis key / 24 个 Docker 服务 / 3 套 Grafana dashboard / 6 条告警规则.
+所有结论配数字: 16 个 SubSettings / 22 个 MCP 工具 / 35 个错误码 / 740+ 个测试用例 / 19 张 PG 表 / 15+ Redis key / 24 个 Docker 服务 / 3 套 Grafana dashboard / 6 条告警规则.
 
 ### 5. 命名严格统一
 

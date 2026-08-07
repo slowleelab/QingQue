@@ -248,7 +248,7 @@ docker compose -f deploy/docker-compose.demo.yml logs -f lumio-bot
 **症状**: API 返 401, 客户端提示"未登录".
 
 **原因**:
-- token 过期 (默认 24h)
+- token 过期 (默认 30 分钟)
 - token 签名错误 (secret 不一致)
 - dev bypass 没开
 
@@ -411,7 +411,7 @@ ps aux | grep session_timeout
 # 1. 检查 MCP 开关
 echo $MCP_ENABLED
 # 2. 直连 Java MCP
-curl http://localhost:8090/sse
+curl http://localhost:8090/mcp (streamable-http)
 # 3. 看 mcp_connection_state 指标
 curl http://localhost:8000/metrics | grep mcp_connection_state
 ```
@@ -510,11 +510,11 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 
 ---
 
-## C.13 客服 Agent 场景 (第 15-17 章配套)
+## C.12 客服 Agent 场景 (第 15-17 章配套)
 
 > 以下 8 个问题来自第 15-17 章的客服 Agent 能力层实战, 配套深挖文档 [第 15 章 上下文工程](../chapters/15-context-engineering.md) / [第 16 章 客户记忆与知识图谱](../chapters/16-customer-memory-and-kg.md) / [第 17 章 工具调用与确认状态机](../chapters/17-tool-calling-and-confirmation.md).
 
-### C.13.1 客户说"Bot 不知道我是白金卡"
+### C.12.1 客户说"Bot 不知道我是白金卡"
 
 **症状**: VIP 客户来电, Bot 仍问"您是什么卡?", 体验差.
 
@@ -540,7 +540,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 
 **修复**: 见 [第 16.10 节 已知问题与改进项](../chapters/16-customer-memory-and-kg.md#1610-已知问题与改进项) — 缺 `ix_dialogue_log_customer_time` PARTIAL INDEX.
 
-### C.13.2 工具调用超过 5 轮 (RuntimeError)
+### C.12.2 工具调用超过 5 轮 (RuntimeError)
 
 **症状**: Bot 偶发 `RuntimeError: 工具调用超过最大轮数 5`, 用户看到 500.
 
@@ -561,7 +561,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 中期: 把 `max_tool_iterations` 调到 3 + 加 LLM 提示
 - 长期: 引入"工具调用计划" — LLM 一次性规划所有工具调用, 不循环
 
-### C.13.3 5 态确认状态机卡在 unclear
+### C.12.3 5 态确认状态机卡在 unclear
 
 **症状**: 客户回复"嗯" / "哦" / "好" → Bot 一直追问"请明确回复确认或取消", 体验差.
 
@@ -578,7 +578,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 中期: 用 LLM 二次判定 (50ms 延迟可接受)
 - 长期: 引入"模糊确认"识别 — 客户说"行吧"虽含"吧"但语义是 confirm
 
-### C.13.4 知识图谱注入失效 (无 `## 知识图谱补充信息` 段)
+### C.12.4 知识图谱注入失效 (无 `## 知识图谱补充信息` 段)
 
 **症状**: LLM 答客户问"信用卡额度"时没看到 KG 关系补充.
 
@@ -599,7 +599,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 
 **修复**: 见 16.7.2 潜在改进 — `if entity_name in query_text or query_text in entity_name` 捕获"提额"→"额度"近义.
 
-### C.13.5 对话摘要没生成 (LLM 不可用)
+### C.12.5 对话摘要没生成 (LLM 不可用)
 
 **症状**: `_load_history` 触发 `_ensure_summary` 但摘要始终为空, `_build_session_memory` 没 `[对话摘要]` 段.
 
@@ -615,7 +615,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 检查 session_meta 写权限 (Redis ping)
 - 长期: 摘要失败时记录到 `lumio:summary_failed:{session_id}` 计数, 累积 3 次触发告警
 
-### C.13.6 槽位追踪器意图切换时清空 (高优先级体验问题)
+### C.12.6 槽位追踪器意图切换时清空 (高优先级体验问题)
 
 **症状**: 客户从"问账单"切换到"问积分", Bot 重新问"卡号后四位"等已收集过的信息.
 
@@ -636,7 +636,7 @@ if raw:
 - 中期: 槽位追踪器改为"全局槽位"模式 (L65 `_ENTITY_TO_SLOT` 已有基础)
 - 长期: 槽位 + entity_pool 合并, 消除双层数据
 
-### C.13.7 渐进式暴露不生效 (开关/阈值/映射 三重检查)
+### C.12.7 渐进式暴露不生效 (开关/阈值/映射 三重检查)
 
 **症状**: 配置了 `intent_tool_map` 也开了 `progressive_disclosure_enabled=True`, 但 LLM 仍收到 22 个工具.
 
@@ -652,7 +652,7 @@ if raw:
 
 **修复**: 上述任一命中即按需调整.
 
-### C.13.8 护栏拒绝但用户无感知 (拒绝话术 + 审计)
+### C.12.8 护栏拒绝但用户无感知 (拒绝话术 + 审计)
 
 **症状**: `TOOL_GUARD_DENIALS` 指标持续增长, 但用户报"Bot 不办事", 不知道发生了什么.
 

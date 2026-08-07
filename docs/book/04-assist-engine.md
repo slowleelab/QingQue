@@ -568,18 +568,18 @@ Assist 引擎的 D/E 五阶段 (D1/D2/D3 + E1/E2/E3) 用 asyncio.gather 并行�
 
 ## 4.11 监控指标
 
-Assist 引擎发射 8 个核心指标 (assist_engine.py:47-120):
+Assist 引擎发射 8 个核心指标 (assist_engine.py:47-120) — 回答"坐席辅助用得怎么样、有没有推错、有没有拖慢通话"：
 
-| 指标 | 类型 | Labels |
-|---|---|---|
-| `lumio_assist_engine_decisions_total` | Counter | scene, decision (push/suppress) |
-| `lumio_assist_engine_latency_seconds` | Histogram | phase (classify/d1/d2/d3/e1/e2/e3/arbitrate) |
-| `lumio_assist_engine_degradation_total` | Counter | agent, reason (ai/risk/no_executor/breaker_open/timeout) |
-| `http_requests_total` / `http_request_duration_seconds` | 全局 | |
-| `session_transitions_total` | Counter | 5 labels |
-| `session_phase_duration_seconds` | Histogram | sub_phase |
-| `tool_guard_denials_total` | Counter | tool, reason |
-| `llm_call_duration_seconds` | Histogram | model, method |
+| 指标 | 类型 | 含义 | Labels |
+|---|---|---|---|
+| `lumio_assist_engine_decisions_total` | Counter | **每轮场景推/压制的次数** (push=推给坐席, suppress=被压制) | scene, decision (push/suppress) |
+| `lumio_assist_engine_latency_seconds` | Histogram | **每个阶段的耗时分布** (看哪一阶段慢: 分类/评估/执行/仲裁) | phase (classify/d1/d2/d3/e1/e2/e3/arbitrate) |
+| `lumio_assist_engine_degradation_total` | Counter | **降级触发次数** (AI 挂了/熔断开/超时, 按原因分) | agent, reason (ai/risk/no_executor/breaker_open/timeout) |
+| `http_requests_total` / `http_request_duration_seconds` | 全局 | 接口调用与耗时 | |
+| `session_transitions_total` | Counter | 会话状态转换 (复用第 6 章) | 5 labels |
+| `session_phase_duration_seconds` | Histogram | 各子阶段停留时长 (排队多久/通话多久) | sub_phase |
+| `tool_guard_denials_total` | Counter | 工具护栏拦截 (复用第 17 章) | tool, reason |
+| `llm_call_duration_seconds` | Histogram | 大模型调用耗时 | model, method |
 
 ## 4.12 测试覆盖
 

@@ -457,7 +457,7 @@ stateDiagram-v2
 
 ## 3.6 槽位追踪: `SlotTracker`
 
-> **本章保留摘要, 详细机制见 [第 15 章 上下文工程 §15.2 槽位注入](chapters/15-context-engineering.md)** + [附录 A.4.1 上下文工程术语](../book/appendix/A-glossary.md#a41-上下文工程术语-第-15-章).
+> **本章保留摘要, 槽位与上下文注入的联动见 [第 15 章 上下文工程](chapters/15-context-engineering.md)** + [附录 A.4.1 上下文工程术语](appendix/A-glossary.md#a41-上下文工程术语-第-15-章).
 
 `agent/lumio/services/bot/slot_tracker.py` 实现**多轮槽位填充**. 例如"调额到 5 万":
 
@@ -568,7 +568,7 @@ async def upload_document(file: UploadFile, request: Request):
 
 ## 3.9 客户画像 + 知识图谱
 
-> **本章保留摘要, 详细机制见 [第 16 章 客户记忆与知识图谱](chapters/16-customer-memory-and-kg.md)** + [附录 A.4.2 / A.4.3 术语](../book/appendix/A-glossary.md).
+> **本章保留摘要, 详细机制见 [第 16 章 客户记忆与知识图谱](chapters/16-customer-memory-and-kg.md)** + [附录 A.4.2 / A.4.3 术语](appendix/A-glossary.md).
 
 `bot/customer_memory.py` 与 `bot/knowledge_graph.py` 实现**跨会话增强**:
 
@@ -579,22 +579,22 @@ async def upload_document(file: UploadFile, request: Request):
 
 ## 3.10 监控指标
 
-`shared/metrics.py` 发射 12 个 Bot 专属指标:
+`shared/metrics.py` 发射 12 个 Bot 相关指标 (含 3 个全局复用) — 运维看这些指标就能回答"系统现在忙不忙、回答得好不好、有没有被拒"：
 
-| 指标 | 类型 | Labels | 位置 |
-|---|---|---|---|
-| `lumio_fast_reply_total` | Counter | - | router.py:393 |
-| `lumio_agent_responses_total` | Counter | source (llm/template/fallback/tool_*) | router.py:566 |
-| `lumio_bot_semaphore_utilization` | Gauge | - | router.py:811 (0~1) |
-| `lumio_active_workers` | Gauge | - | router.py:810 |
-| `lumio_stream_length` | Gauge | - | router.py:809 |
-| `lumio_stream_pending_total` | Gauge | - | router.py:808 (PEL pending) |
-| `tool_confirmations_total` | Counter | decision (pending/confirm/cancel/unclear/expired) | bot_agent.py:416/447/458/468 |
-| `tool_calls_total` | Counter | tool, status | tool_executor.py:298/309 |
-| `tool_guard_denials_total` | Counter | tool, reason | tool_executor.py:378 |
-| `http_requests_total` | Counter | method, endpoint, status | 全局 |
-| `http_request_duration_seconds` | Histogram | method, endpoint | 全局 |
-| `llm_call_duration_seconds` | Histogram | model, method | llm.py:174/250 |
+| 指标 | 类型 | 含义 | Labels | 位置 |
+|---|---|---|---|---|
+| `lumio_fast_reply_total` | Counter | **并发满载时走了几次快速兜底话术** (越高说明越忙) | - | router.py:393 |
+| `lumio_agent_responses_total` | Counter | **Bot 回答次数, 按来源分类** (llm=模型答/模板答/降级答/工具答) | source (llm/template/fallback/tool_*) | router.py:566 |
+| `lumio_bot_semaphore_utilization` | Gauge | **并发槽位占用率 0~1** (接近 1 = 快满载了) | - | router.py:811 (0~1) |
+| `lumio_active_workers` | Gauge | **当前活跃的会话处理员数** (高峰多、低谷少, 自动伸缩) | - | router.py:810 |
+| `lumio_stream_length` | Gauge | **消息池积压量** (持续上涨 = 消费跟不上) | - | router.py:809 |
+| `lumio_stream_pending_total` | Gauge | **待确认消息数** (挂起/崩溃的消息, 异常时上涨) | - | router.py:808 (PEL pending) |
+| `tool_confirmations_total` | Counter | **敏感操作确认各状态次数** (确认/取消/不明确/过期) | decision (pending/confirm/cancel/unclear/expired) | bot_agent.py:416/447/458/468 |
+| `tool_calls_total` | Counter | **工具调用次数与成败** | tool, status | tool_executor.py:298/309 |
+| `tool_guard_denials_total` | Counter | **工具被护栏拦截次数** (角色不够/金额超限) | tool, reason | tool_executor.py:378 |
+| `http_requests_total` | Counter | **接口调用次数** (按方法/路径/状态码) | method, endpoint, status | 全局 |
+| `http_request_duration_seconds` | Histogram | **接口响应耗时分布** (看 P99 是否超标) | method, endpoint | 全局 |
+| `llm_call_duration_seconds` | Histogram | **大模型调用耗时** (看是不是 LLM 拖慢了回答) | model, method | llm.py:174/250 |
 
 ## 3.11 测试覆盖
 

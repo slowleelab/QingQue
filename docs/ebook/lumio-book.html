@@ -101,7 +101,7 @@
 <h1 class="chapter-title">序言</h1>
 <h1 id="序言">序言</h1>
 <blockquote>
-<p>灵智 (Lumio) — 银行信用卡场景的智能客服平台, 用 Python 3.11 + FastAPI + PydanticAI 串起两个独立服务: Bot 自助问答 (:8000) 与坐席辅助 (:8001), 后接 PostgreSQL / Redis / Elasticsearch / Milvus / MinIO / Kafka 六大数据基础设施.</p>
+<p>灵智 (Lumio) — 银行信用卡场景的智能客服平台, 用 Python 3.11 + FastAPI + asyncio 串起两个独立服务: Bot 自助问答 (:8000) 与坐席辅助 (:8001), 后接 PostgreSQL / Redis / Elasticsearch / Milvus / MinIO / Kafka 六大数据基础设施.</p>
 </blockquote>
 <h2 id="项目定位">项目定位</h2>
 <p>Lumio 解决的是<strong>银行信用卡客服</strong>这一垂直场景:</p>
@@ -135,7 +135,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <h3 id="3.-mermaid-优先于-ASCII">3. mermaid 优先于 ASCII</h3>
 <p>时序图/状态图/流程图一律使用 mermaid 语法, 源码在 <code>diagrams/*.mmd</code>, 文档用 <code>\</code>``mermaid` 代码块引用.</p>
 <h3 id="4.-数字驱动">4. 数字驱动</h3>
-<p>所有结论配数字: 16 个 SubSettings / 22 个 MCP 工具 / 35 个错误码 / 367 个测试用例 / 19 张 PG 表 / 15+ Redis key / 24 个 Docker 服务 / 3 套 Grafana dashboard / 6 条告警规则.</p>
+<p>所有结论配数字: 16 个 SubSettings / 22 个 MCP 工具 / 35 个错误码 / 740+ 个测试用例 / 19 张 PG 表 / 15+ Redis key / 24 个 Docker 服务 / 3 套 Grafana dashboard / 6 条告警规则.</p>
 <h3 id="5.-命名严格统一">5. 命名严格统一</h3>
 <ul>
 <li>错误码形式: <code>3004: SessionNotFoundError</code></li>
@@ -753,7 +753,7 @@ class _SuppressExceptions:
 <tr>
 <td><code>audit_middleware.py</code></td>
 <td>218</td>
-<td>24 端点审计自动映射</td>
+<td>27 端点审计自动映射</td>
 </tr>
 <tr>
 <td><code>logger.py</code></td>
@@ -869,7 +869,7 @@ def hash_password(password: str) -&gt; str:
     dk = hashlib.pbkdf2_hmac(&quot;sha256&quot;, password.encode(), salt, ITERATIONS)
     return f&quot;{ALGORITHM}${ITERATIONS}${b64encode(salt).decode()}${b64encode(dk).decode()}&quot;
 </code></pre>
-<p><strong>代价</strong>: 600k 迭代每次 ~200ms, 比 bcrypt 慢但比 argon2 内存硬化弱. 对低 QPS 登录场景够用.</p>
+<p><strong>代价</strong>: 600k 迭代每次 ~350ms, 比 bcrypt 慢但比 argon2 内存硬化弱. 对低 QPS 登录场景够用.</p>
 <h3 id="决策-5:-父-子分块-(Parent-Child-Chunking)">决策 5: 父-子分块 (Parent-Child Chunking)</h3>
 <p><strong>背景</strong>: RAG 检索的经典问题是「检索粒度 vs 生成粒度」矛盾 — 检索要小 chunk (语义聚焦), 生成要大 chunk (上下文完整). 父-子分块同时解决两者.</p>
 <p><strong>实现</strong>: <code>agent/lumio/services/common/ingestion.py:344-366</code> 摄入时, 大块 (1500 字符) 是父, 切成小块 (300 字符) 是子. 子块进 Milvus 检索, 命中后 <code>parent_chunk_id</code> 回填, 生成阶段拿父块.</p>
@@ -904,7 +904,7 @@ for parent in [c for c in chunks if c.is_parent]:
     assist -.HTTP.-&gt; bot
 </code></pre>
 <p><strong>关键设计</strong>: <code>common/</code> 是 Bot 和 Assist 共享的「业务工具库」, 例如 RAG 检索 (<code>retrieval.py</code>) / 会话管理 (<code>session.py</code>) / MCP 客户端 (<code>mcp_client.py</code>) 都在 common. <strong>不通过 HTTP 互相调用</strong>, 而是直接 import — 因为它们是同一进程的 Python 模块.</p>
-<h2 id="1.7-本章小结">1.7 本章小结</h2>
+<h2 id="1.6-本章小结">1.6 本章小结</h2>
 <p>Lumio 的整体架构可以概括为:</p>
 <ul>
 <li><strong>两层编排 + AI 能力</strong>: 编排 (FastAPI) / AI 能力 (HTTP 直连 Ollama/TEI, Higress 网关治理) / 数据 (6 大中间件)</li>
@@ -914,7 +914,7 @@ for parent in [c for c in chunks if c.is_parent]:
 <hr />
 <blockquote>
 <p><strong>延伸阅读</strong>:
-- <a href="02-configuration-system.md">第 2 章 配置系统</a> — 12+ SubSettings 的完整体系
+- <a href="02-configuration-system.md">第 2 章 配置系统</a> — 16 个 SubSettings 的完整体系
 - <a href="03-bot-self-service.md">第 3 章 Bot 自助问答</a> — Bot :8000 内部细节
 - <a href="04-assist-engine.md">第 4 章 坐席辅助引擎</a> — Assist :8001 内部细节</p>
 </blockquote>
@@ -1401,7 +1401,7 @@ def test_settings_override(monkeypatch):
 <h2 id="2.9-本章小结">2.9 本章小结</h2>
 <p>Lumio 配置系统是项目"零硬编码"的关键:</p>
 <ul>
-<li><strong>16 个 SubSettings + 12 个独立 env_prefix</strong>: 业界标准 12-factor 风格</li>
+<li><strong>16 个 SubSettings + 16 个独立 env_prefix</strong>: 业界标准 12-factor 风格</li>
 <li><strong><code>__</code> 嵌套分隔符</strong>: 部署期差异化配置的统一入口</li>
 <li><strong><code>AliasChoices</code> 兼容模式</strong>: 接口兼容优先的稳定性策略</li>
 <li><strong><code>_validate_production_security</code></strong>: 启动期 fail-fast — 生产环境强制校验 JWT 密钥 (≥32 字符, 禁占位) + <strong>LLM_API_KEY / MINIO / ES / REDIS 五类外部凭据非默认值</strong></li>
@@ -1833,7 +1833,7 @@ async def _handle_pending_action(self, session_id, user_input, pending):
 <p><strong>关键设计</strong>: <code>pending_action</code> 存 Redis (<code>lumio:session:{id}:pending_action</code> Hash), 跨轮持久化. 客户这一轮说"调额到 5 万", 下一轮说"确认", 就能定位到原工具调用. <code>detect_confirmation</code> (tool_executor.py:75) 解析自然语言, <strong>cancel 关键词优先</strong> (规避"不确认"歧义).</p>
 <h2 id="3.6-槽位追踪:-SlotTracker">3.6 槽位追踪: <code>SlotTracker</code></h2>
 <blockquote>
-<p><strong>本章保留摘要, 详细机制见 <a href="chapters/15-context-engineering.md">第 15 章 上下文工程 §15.2 槽位注入</a></strong> + <a href="../book/appendix/A-glossary.md#a41-上下文工程术语-第-15-章">附录 A.4.1 上下文工程术语</a>.</p>
+<p><strong>本章保留摘要, 槽位与上下文注入的联动见 <a href="chapters/15-context-engineering.md">第 15 章 上下文工程</a></strong> + <a href="appendix/A-glossary.md#a41-上下文工程术语-第-15-章">附录 A.4.1 上下文工程术语</a>.</p>
 </blockquote>
 <p><code>agent/lumio/services/bot/slot_tracker.py</code> 实现<strong>多轮槽位填充</strong>. 例如"调额到 5 万":</p>
 <pre><code class="language-python"># 简化
@@ -1984,7 +1984,7 @@ async def upload_document(file: UploadFile, request: Request):
 <p><strong>设计动机</strong>: 入口不设限, 1MB 消息 / 1GB 文件都能进 Redis Stream + LLM, 引发 DoS 风险. 因此 message <code>max_length=2000</code> + 文件 50MB + 扩展名白名单三道关.</p>
 <h2 id="3.9-客户画像-+-知识图谱">3.9 客户画像 + 知识图谱</h2>
 <blockquote>
-<p><strong>本章保留摘要, 详细机制见 <a href="chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a></strong> + <a href="../book/appendix/A-glossary.md">附录 A.4.2 / A.4.3 术语</a>.</p>
+<p><strong>本章保留摘要, 详细机制见 <a href="chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a></strong> + <a href="appendix/A-glossary.md">附录 A.4.2 / A.4.3 术语</a>.</p>
 </blockquote>
 <p><code>bot/customer_memory.py</code> 与 <code>bot/knowledge_graph.py</code> 实现<strong>跨会话增强</strong>:</p>
 <ul>
@@ -1993,12 +1993,13 @@ async def upload_document(file: UploadFile, request: Request):
 </ul>
 <p>这些都是渐进增强, 当前不是核心路径. 触发时机 / 失败兜底 / 设计取舍 (正则 vs LLM / 90 天 window / 内存版 vs Neo4j) 见 <a href="chapters/16-customer-memory-and-kg.md">第 16 章</a>.</p>
 <h2 id="3.10-监控指标">3.10 监控指标</h2>
-<p><code>shared/metrics.py</code> 发射 12 个 Bot 专属指标:</p>
+<p><code>shared/metrics.py</code> 发射 12 个 Bot 相关指标 (含 3 个全局复用) — 运维看这些指标就能回答"系统现在忙不忙、回答得好不好、有没有被拒"：</p>
 <table>
 <thead>
 <tr>
 <th>指标</th>
 <th>类型</th>
+<th>含义</th>
 <th>Labels</th>
 <th>位置</th>
 </tr>
@@ -2007,72 +2008,84 @@ async def upload_document(file: UploadFile, request: Request):
 <tr>
 <td><code>lumio_fast_reply_total</code></td>
 <td>Counter</td>
+<td><strong>并发满载时走了几次快速兜底话术</strong> (越高说明越忙)</td>
 <td>-</td>
 <td>router.py:393</td>
 </tr>
 <tr>
 <td><code>lumio_agent_responses_total</code></td>
 <td>Counter</td>
+<td><strong>Bot 回答次数, 按来源分类</strong> (llm=模型答/模板答/降级答/工具答)</td>
 <td>source (llm/template/fallback/tool_*)</td>
 <td>router.py:566</td>
 </tr>
 <tr>
 <td><code>lumio_bot_semaphore_utilization</code></td>
 <td>Gauge</td>
+<td><strong>并发槽位占用率 0~1</strong> (接近 1 = 快满载了)</td>
 <td>-</td>
 <td>router.py:811 (0~1)</td>
 </tr>
 <tr>
 <td><code>lumio_active_workers</code></td>
 <td>Gauge</td>
+<td><strong>当前活跃的会话处理员数</strong> (高峰多、低谷少, 自动伸缩)</td>
 <td>-</td>
 <td>router.py:810</td>
 </tr>
 <tr>
 <td><code>lumio_stream_length</code></td>
 <td>Gauge</td>
+<td><strong>消息池积压量</strong> (持续上涨 = 消费跟不上)</td>
 <td>-</td>
 <td>router.py:809</td>
 </tr>
 <tr>
 <td><code>lumio_stream_pending_total</code></td>
 <td>Gauge</td>
+<td><strong>待确认消息数</strong> (挂起/崩溃的消息, 异常时上涨)</td>
 <td>-</td>
 <td>router.py:808 (PEL pending)</td>
 </tr>
 <tr>
 <td><code>tool_confirmations_total</code></td>
 <td>Counter</td>
+<td><strong>敏感操作确认各状态次数</strong> (确认/取消/不明确/过期)</td>
 <td>decision (pending/confirm/cancel/unclear/expired)</td>
 <td>bot_agent.py:416/447/458/468</td>
 </tr>
 <tr>
 <td><code>tool_calls_total</code></td>
 <td>Counter</td>
+<td><strong>工具调用次数与成败</strong></td>
 <td>tool, status</td>
 <td>tool_executor.py:298/309</td>
 </tr>
 <tr>
 <td><code>tool_guard_denials_total</code></td>
 <td>Counter</td>
+<td><strong>工具被护栏拦截次数</strong> (角色不够/金额超限)</td>
 <td>tool, reason</td>
 <td>tool_executor.py:378</td>
 </tr>
 <tr>
 <td><code>http_requests_total</code></td>
 <td>Counter</td>
+<td><strong>接口调用次数</strong> (按方法/路径/状态码)</td>
 <td>method, endpoint, status</td>
 <td>全局</td>
 </tr>
 <tr>
 <td><code>http_request_duration_seconds</code></td>
 <td>Histogram</td>
+<td><strong>接口响应耗时分布</strong> (看 P99 是否超标)</td>
 <td>method, endpoint</td>
 <td>全局</td>
 </tr>
 <tr>
 <td><code>llm_call_duration_seconds</code></td>
 <td>Histogram</td>
+<td><strong>大模型调用耗时</strong> (看是不是 LLM 拖慢了回答)</td>
 <td>model, method</td>
 <td>llm.py:174/250</td>
 </tr>
@@ -2661,12 +2674,13 @@ async def generate_call_summary(session_id, session_manager, llm):
 - 跨服务 trace 全在 Jaeger, 调试更直观
 - 代码量更小</p>
 <h2 id="4.11-监控指标">4.11 监控指标</h2>
-<p>Assist 引擎发射 8 个核心指标 (assist_engine.py:47-120):</p>
+<p>Assist 引擎发射 8 个核心指标 (assist_engine.py:47-120) — 回答"坐席辅助用得怎么样、有没有推错、有没有拖慢通话"：</p>
 <table>
 <thead>
 <tr>
 <th>指标</th>
 <th>类型</th>
+<th>含义</th>
 <th>Labels</th>
 </tr>
 </thead>
@@ -2674,41 +2688,49 @@ async def generate_call_summary(session_id, session_manager, llm):
 <tr>
 <td><code>lumio_assist_engine_decisions_total</code></td>
 <td>Counter</td>
+<td><strong>每轮场景推/压制的次数</strong> (push=推给坐席, suppress=被压制)</td>
 <td>scene, decision (push/suppress)</td>
 </tr>
 <tr>
 <td><code>lumio_assist_engine_latency_seconds</code></td>
 <td>Histogram</td>
+<td><strong>每个阶段的耗时分布</strong> (看哪一阶段慢: 分类/评估/执行/仲裁)</td>
 <td>phase (classify/d1/d2/d3/e1/e2/e3/arbitrate)</td>
 </tr>
 <tr>
 <td><code>lumio_assist_engine_degradation_total</code></td>
 <td>Counter</td>
+<td><strong>降级触发次数</strong> (AI 挂了/熔断开/超时, 按原因分)</td>
 <td>agent, reason (ai/risk/no_executor/breaker_open/timeout)</td>
 </tr>
 <tr>
 <td><code>http_requests_total</code> / <code>http_request_duration_seconds</code></td>
 <td>全局</td>
+<td>接口调用与耗时</td>
 <td></td>
 </tr>
 <tr>
 <td><code>session_transitions_total</code></td>
 <td>Counter</td>
+<td>会话状态转换 (复用第 6 章)</td>
 <td>5 labels</td>
 </tr>
 <tr>
 <td><code>session_phase_duration_seconds</code></td>
 <td>Histogram</td>
+<td>各子阶段停留时长 (排队多久/通话多久)</td>
 <td>sub_phase</td>
 </tr>
 <tr>
 <td><code>tool_guard_denials_total</code></td>
 <td>Counter</td>
+<td>工具护栏拦截 (复用第 17 章)</td>
 <td>tool, reason</td>
 </tr>
 <tr>
 <td><code>llm_call_duration_seconds</code></td>
 <td>Histogram</td>
+<td>大模型调用耗时</td>
 <td>model, method</td>
 </tr>
 </tbody>
@@ -3140,7 +3162,7 @@ if es_breaker.is_open and milvus_breaker.is_open:
 1. ES 写 N 成功 (<code>es_count == len(chunks)</code>) → 才继续
 2. Milvus 写 → 失败回滚 ES (<code>_rollback_es_docs</code> 逐个删)
 3. 全部成功 → 落 KbChunk 表 + 写 7 阶段流水日志</p>
-<h2 id="5.14-检索端到端流程图">5.14 检索端到端流程图</h2>
+<h2 id="5.12-检索端到端流程图">5.12 检索端到端流程图</h2>
 <pre><code class="language-mermaid">sequenceDiagram
     participant Client as Bot/Assist
     participant Retrieval as retrieve()
@@ -3173,13 +3195,14 @@ if es_breaker.is_open and milvus_breaker.is_open:
         Retrieval--&gt;&gt;Client: 5 chunks (200-500ms)
     end
 </code></pre>
-<h2 id="5.15-监控指标">5.15 监控指标</h2>
-<p>RAG 链路发射 4 个核心指标:</p>
+<h2 id="5.13-监控指标">5.13 监控指标</h2>
+<p>RAG 链路发射 4 个核心指标 — 回答"检索快不快、缓存命中高不高、嵌入服务健不健康"：</p>
 <table>
 <thead>
 <tr>
 <th>指标</th>
 <th>类型</th>
+<th>含义</th>
 <th>Labels</th>
 <th>位置</th>
 </tr>
@@ -3188,31 +3211,35 @@ if es_breaker.is_open and milvus_breaker.is_open:
 <tr>
 <td><code>lumio_retrieval_duration_seconds</code></td>
 <td>Histogram</td>
+<td><strong>检索耗时分布</strong> (看是 ES 慢还是 Milvus 慢)</td>
 <td>search_type (hybrid/bm25/vector)</td>
 <td>retrieval.py:607</td>
 </tr>
 <tr>
 <td><code>lumio_retrieval_cache_hit_total</code></td>
 <td>Counter</td>
+<td><strong>缓存命中/未命中次数</strong> (命中率高 = 重复问题多被复用)</td>
 <td>hit/miss</td>
 <td>retrieval.py:600</td>
 </tr>
 <tr>
 <td><code>lumio_embedding_unavailable_total</code></td>
 <td>Counter</td>
+<td><strong>嵌入服务不可用次数</strong> (触发降级到 BM25)</td>
 <td>-</td>
 <td>embedding.py:280</td>
 </tr>
 <tr>
 <td><code>http_requests_total</code></td>
 <td>Counter</td>
+<td>接口调用次数 (复用全局)</td>
 <td>method, endpoint, status</td>
 <td>全局</td>
 </tr>
 </tbody>
 </table>
 <p><strong>降级告警</strong>: Prometheus 规则 <code>EmbeddingUnavailabilityHigh</code> (&gt;5 次/分钟, 持续 5m) → warning.</p>
-<h2 id="5.16-测试覆盖">5.16 测试覆盖</h2>
+<h2 id="5.14-测试覆盖">5.14 测试覆盖</h2>
 <p><code>agent/tests/test_retrieval.py</code> (22 用例) 覆盖:</p>
 <ul>
 <li><code>test_hybrid_search_rrf_fusion</code> — RRF 公式正确性</li>
@@ -3224,7 +3251,7 @@ if es_breaker.is_open and milvus_breaker.is_open:
 <li><code>test_parent_child_chunk_relationship</code> — 父-子分块</li>
 <li><code>test_filter_by_keywords_array</code> — ARRAY_CONTAINS</li>
 </ul>
-<h2 id="5.17-本章小结">5.17 本章小结</h2>
+<h2 id="5.15-本章小结">5.15 本章小结</h2>
 <p>RAG 检索全链路是 Lumio 服务客户的核心:</p>
 <ul>
 <li><strong>三路召回互补</strong>: BM25 关键词精确 + 向量语义相似 + RRF 融合无需训练</li>
@@ -3244,14 +3271,14 @@ if es_breaker.is_open and milvus_breaker.is_open:
 - <a href="chapters/09-rag-ingestion.md">第 9 章 RAG 摄入管线</a> — 摄入端 5 阶段
 - <a href="chapters/12-data-layer.md">第 12 章 数据层</a> — ES + Milvus 索引设计
 - <a href="chapters/11-security-compliance.md">第 11 章 安全合规</a> — 银行合规字段
-- <a href="../appendix/A-glossary.md#a6-rag-检索术语">附录 A 术语表</a> — RAG 术语速查</p>
+- <a href="appendix/A-glossary.md#a6-rag-检索术语">附录 A 术语表</a> — RAG 术语速查</p>
 </blockquote>
 </section>
 <section class="chapter" id="06-会话状态机">
 <h1 class="chapter-title">06 会话状态机</h1>
 <h1 id="第-6-章:-会话状态机">第 6 章: 会话状态机</h1>
 <blockquote>
-<p>本章深入 Lumio 会话状态机. 银行客服一次通话从客户拨入到结束, 涉及 4 phase × 7 sub-state 21 种状态组合 — 怎么保证多实例并发下不丢转换, 怎么 5 秒检测超时, 怎么保证 5-7 年审计留存, 是本章核心. 看完本章你会理解: 状态机怎么设计才能既灵活又安全, CAS Lua 怎么原子控制并发, ZSET 怎么替代 asyncio.Task 做分布式超时, PostgreSQL 怎么异步落库.</p>
+<p>本章深入 Lumio 会话状态机. 银行客服一次通话从客户拨入到结束, 涉及 3 phase × 6 sub-state 的状态组合 — 怎么保证多实例并发下不丢转换, 怎么 5 秒检测超时, 怎么保证 5-7 年审计留存, 是本章核心. 看完本章你会理解: 状态机怎么设计才能既灵活又安全, CAS Lua 怎么原子控制并发, ZSET 怎么替代 asyncio.Task 做分布式超时, PostgreSQL 怎么异步落库.</p>
 </blockquote>
 <h2 id="6.1-状态机全景">6.1 状态机全景</h2>
 <p><strong>先讲个业务场景</strong>: 客户打进来说"我的卡丢了" — 系统要一路护送他走完整个旅程: Bot 先接待 → 识别到挂失 → 转人工 → 排队等坐席 → 坐席接听 → 通话 → 挂断 → 话后小结 → 归档. 任何一个环节, 系统都得<strong>准确知道"客户现在到哪一步了"</strong>: 排队超时了要不要回 Bot? 坐席 30 秒没接要不要提醒? 通话中客户还能不能插话? 这就是状态机存在的意义 — <strong>给每一次对话一个"当前进度", 让系统所有组件 (Bot、坐席端、超时器、审计) 对"现在是什么状态"有一致的认识</strong>.</p>
@@ -3681,7 +3708,7 @@ class SessionManager:
 - <strong>测试更简单</strong>: 测试可以 mock helper 函数
 - <strong>审计清晰</strong>: <code>session_meta_scan_pattern()</code> 给 SCAN 用, 避免散落</p>
 <h2 id="6.8-状态模型:-3×7-矩阵">6.8 状态模型: 3×7 矩阵</h2>
-<p>会话状态机采用 <strong>4 phase (顶层) × 7 sub-state (子)</strong> 的矩阵模型:</p>
+<p>会话状态机采用 <strong>3 phase (顶层) × 6 sub-state (子)</strong> 的矩阵模型:</p>
 <pre><code>PHASE:   BOT → AGENT → ENDED
 SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWING ...
 </code></pre>
@@ -3689,7 +3716,7 @@ SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWIN
 - 扁平状态互相转换规则复杂 (N×N 组合)
 - <code>WAITING_HUMAN</code> 需要表达"排队中 vs 已分配"区别
 - 终结态统一归 <code>ENDED</code>, 用 <code>reason</code> 字段区分 (abandoned / transferred / normal)
-- 21 种组合但只允许 11 种合法转换, 非法转换直接拒绝</p>
+- 状态组合由 VALID_TRANSITIONS 白名单严格约束 (合法转换共 16 条), 非法转换直接拒绝</p>
 <p>兼容策略:
 - <code>legacy</code> phase 兼容旧数据读取</p>
 <h2 id="6.9-会话复活与收尾-(多轮对话边界)">6.9 会话复活与收尾 (多轮对话边界)</h2>
@@ -3725,12 +3752,13 @@ if state.current_phase.value == &quot;ended&quot;:
 <p>会话进入 AGENT 阶段后客户发消息 → 返回"已为您记录"话术, <strong>同时真实写入 Redis 历史</strong>
 (<code>add_turn</code>), 供坐席摘要 / 转回 Bot 时保留上下文 — 话术与事实一致.</p>
 <h2 id="6.10-监控指标">6.10 监控指标</h2>
-<p>会话状态机发射 5 个核心指标:</p>
+<p>会话状态机发射 5 个核心指标 — 回答"会话流转健不健康、有没有卡死、有没有超时"：</p>
 <table>
 <thead>
 <tr>
 <th>指标</th>
 <th>类型</th>
+<th>含义</th>
 <th>Labels</th>
 <th>位置</th>
 </tr>
@@ -3739,36 +3767,41 @@ if state.current_phase.value == &quot;ended&quot;:
 <tr>
 <td><code>session_transitions_total</code></td>
 <td>Counter</td>
+<td><strong>状态转换次数</strong> (看客户从哪阶段流向哪阶段)</td>
 <td>from_phase, from_sub, to_phase, to_sub, reason</td>
 <td>session.py:403</td>
 </tr>
 <tr>
 <td><code>session_timeouts_total</code></td>
 <td>Counter</td>
+<td><strong>超时触发次数</strong> (哪个子阶段超时最多)</td>
 <td>sub_phase, reason</td>
 <td>session_timeout.py:155</td>
 </tr>
 <tr>
 <td><code>session_phase_duration_seconds</code></td>
 <td>Histogram</td>
+<td><strong>各子阶段停留时长</strong> (排队等多久/通话多久)</td>
 <td>sub_phase</td>
 <td>session.py:412 (5s-3600s buckets)</td>
 </tr>
 <tr>
 <td><code>state_conflict_retries_total</code></td>
 <td>Counter</td>
+<td><strong>CAS 并发冲突重试次数</strong> (高 = 并发写太激烈)</td>
 <td>-</td>
 <td>session.py:285 (CAS 冲突重试)</td>
 </tr>
 <tr>
 <td><code>dialogue_log_persist_total</code></td>
 <td>Counter</td>
+<td><strong>对话落库成败</strong> (error 高 = 审计留痕有缺口)</td>
 <td>status (success/error)</td>
 <td>session.py:395</td>
 </tr>
 </tbody>
 </table>
-<p><strong>6 类指标 0 冲突</strong>: 全部指标名 + label 在 Grafana dashboard 有对应 panel.</p>
+<p><strong>指标 0 冲突</strong>: 全部指标名 + label 在 Grafana dashboard 有对应 panel.</p>
 <h2 id="6.11-测试覆盖">6.11 测试覆盖</h2>
 <p><code>agent/tests/</code> 中会话相关:</p>
 <ul>
@@ -3812,7 +3845,7 @@ async def test_intent_stack_incremental_merge(redis):
 <p><strong>延伸阅读</strong>:
 - <a href="03-bot-self-service.md">第 3 章 Bot 自助问答</a> — pending_action 跨轮持久化
 - <a href="chapters/12-data-layer.md">第 12 章 数据层</a> — Redis ZSET + CAS Lua 详解
-- <a href="../appendix/A-glossary.md#a3-会话状态机">附录 A 术语表</a> — 状态机术语速查
+- <a href="appendix/A-glossary.md#a3-会话状态机">附录 A 术语表</a> — 状态机术语速查
 - <a href="chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a> — 跨会话画像学习 (vip_level / card_types / risk_tolerance CAS patch 写入 SessionState)</p>
 </blockquote>
 </section>
@@ -3923,13 +3956,13 @@ async def test_intent_stack_incremental_merge(redis):
 <td><strong>合计</strong></td>
 <td><strong>22</strong></td>
 <td></td>
-<td><strong>11 敏感 + 11 只读</strong></td>
+<td><strong>10 敏感 + 12 只读</strong></td>
 </tr>
 </tbody>
 </table>
 <p><strong>关键设计</strong>:
-- <strong>11 写操作 = 11 敏感</strong>: <code>destructiveHint=true</code> 自动标记
-- <strong>11 只读</strong>: <code>query_*</code> 前缀, 自动安全
+- <strong>10 写操作 = 10 敏感</strong>: <code>destructiveHint=true</code> 自动标记
+- <strong>12 只读</strong>: <code>query_*</code> 前缀, 自动安全
 - <strong>业务命名规范</strong>: <code>动作_对象</code>, 例如 <code>query_card_bill</code> / <code>report_card_lost</code></p>
 <h2 id="7.3-Python-端-MCPToolClient">7.3 Python 端 <code>MCPToolClient</code></h2>
 <p><code>agent/lumio/services/common/mcp_client.py:72-393</code> 是 Python 侧统一接口:</p>
@@ -4220,12 +4253,13 @@ async def list_tools(self) -&gt; list[ToolSpec]:
 - <code>LumioAgent._handle_tool</code> → <code>self.mcp_client.has_tool(...)</code> 返 False → 走 <code>_handle_knowledge</code> 兜底
 - 不影响主流程, 降级路径透明</p>
 <h2 id="7.10-监控指标">7.10 监控指标</h2>
-<p>MCP 链路发射 6 个核心指标:</p>
+<p>MCP 链路发射 6 个核心指标 — 回答"工具调用稳不稳、有没有被拒、连接健不健康"：</p>
 <table>
 <thead>
 <tr>
 <th>指标</th>
 <th>类型</th>
+<th>含义</th>
 <th>Labels</th>
 <th>位置</th>
 </tr>
@@ -4234,36 +4268,42 @@ async def list_tools(self) -&gt; list[ToolSpec]:
 <tr>
 <td><code>mcp_tool_calls_total</code></td>
 <td>Counter</td>
+<td><strong>MCP 工具调用次数与成败</strong></td>
 <td>tool, status (success/error)</td>
 <td>mcp_client.py:309</td>
 </tr>
 <tr>
 <td><code>tool_calls_total</code></td>
 <td>Counter</td>
+<td><strong>工具循环内调用次数</strong> (含 LLM 二次生成)</td>
 <td>tool, status</td>
 <td>tool_executor.py:298/309</td>
 </tr>
 <tr>
 <td><code>tool_confirmations_total</code></td>
 <td>Counter</td>
+<td><strong>敏感操作确认各状态</strong> (复用第 3 章)</td>
 <td>decision (pending/confirm/cancel/unclear/expired)</td>
 <td>tool_executor.py:261</td>
 </tr>
 <tr>
 <td><code>tool_guard_denials_total</code></td>
 <td>Counter</td>
+<td><strong>护栏拦截次数</strong> (角色不够/金额超限)</td>
 <td>tool, reason (role_denied/amount_exceeded)</td>
 <td>tool_executor.py:378</td>
 </tr>
 <tr>
 <td><code>mcp_connection_state</code></td>
 <td>Gauge</td>
+<td><strong>MCP 连接状态</strong> (1=连上, 0=断开)</td>
 <td>backend (default/card/loan/...)</td>
 <td>mcp_client.py:80</td>
 </tr>
 <tr>
 <td><code>http_requests_total</code></td>
 <td>Counter</td>
+<td>接口调用次数 (复用全局)</td>
 <td>method, endpoint, status</td>
 <td>全局</td>
 </tr>
@@ -4706,12 +4746,12 @@ if result.source in (&quot;template&quot;, &quot;fallback&quot;) and not should_
 </ul>
 <p><code>agent/tests/test_auth.py</code> 则覆盖了 1001 / 1003 两条认证线的具体路径:<code>test_decode_invalid_token_raises</code> / <code>test_decode_expired_token_raises</code> 触发 1001,<code>test_require_role_rejects_wrong_role</code> 触发 1003。<strong>全链路契约通过这两个文件钉住,任何重构改了映射或响应体都会立刻红灯</strong>。</p>
 <h2 id="小结与反思">小结与反思</h2>
-<p>Lumio 的错误处理经历了三个阶段:P0 设计 5 段码 + 异常类层次,P1 补上 request_id 与 PII 脱敏,P2/P3 收口合规与可观测性。这套体系的关键不是"错误码多",而是"错误码的语义稳定 + 响应体形态统一 + 全链路可追踪"。下一步值得讨论的是:错误码是否需要国际化和多语言?是否要把 5 段扩展到 6 段(增加 6xxx 表示"用户主动取消")?这些演进将在第 12 章"未来路线图"中展开。</p>
+<p>Lumio 的错误处理经历了三个阶段:P0 设计 5 段码 + 异常类层次,P1 补上 request_id 与 PII 脱敏,P2/P3 收口合规与可观测性。这套体系的关键不是"错误码多",而是"错误码的语义稳定 + 响应体形态统一 + 全链路可追踪"。下一步值得讨论的是:错误码是否需要国际化和多语言?是否要把 5 段扩展到 6 段(增加 6xxx 表示"用户主动取消")?这些演进将在附录 A 术语表与后续章节中展开。</p>
 <blockquote>
 <p><strong>延伸阅读</strong>:
 - <a href="11-security-compliance.md">第 11 章 安全合规</a> — JWT 错误 1001/1003 完整流程
 - <a href="../appendix/A-glossary.md#a2-错误码段">附录 A 术语表</a> — 35 错误码速查
-- <a href="06-session-state-machine.md">第 6 章 会话状态机</a> — <code>InvalidTransitionError</code> 3005 详解</p>
+- <a href="../06-session-state-machine.md">第 6 章 会话状态机</a> — <code>InvalidTransitionError</code> 3005 详解</p>
 </blockquote>
 </section>
 <section class="chapter" id="09-RAG-摄入管线">
@@ -4935,6 +4975,7 @@ Index(
 <tr>
 <th>指标名</th>
 <th>类型</th>
+<th>含义</th>
 <th>关键 labels</th>
 <th>来源</th>
 </tr>
@@ -4943,54 +4984,63 @@ Index(
 <tr>
 <td><code>http_requests_total</code></td>
 <td>Counter</td>
+<td><strong>接口调用次数</strong> (按方法/路径/状态码)</td>
 <td>method / endpoint / status</td>
 <td><code>metrics.py:18-22</code></td>
 </tr>
 <tr>
 <td><code>http_request_duration_seconds</code></td>
 <td>Histogram(9 buckets)</td>
+<td><strong>接口响应耗时分布</strong> (看 P99 是否超标)</td>
 <td>method / endpoint</td>
 <td><code>metrics.py:24-29</code></td>
 </tr>
 <tr>
 <td><code>session_transitions_total</code></td>
 <td>Counter</td>
+<td><strong>会话状态转换次数</strong></td>
 <td>from_phase / from_sub / to_phase / to_sub / reason</td>
 <td><code>metrics.py:33-37</code></td>
 </tr>
 <tr>
 <td><code>session_timeouts_total</code></td>
 <td>Counter</td>
+<td><strong>会话超时触发次数</strong></td>
 <td>sub_phase / reason</td>
 <td><code>metrics.py:39-43</code></td>
 </tr>
 <tr>
 <td><code>session_phase_duration_seconds</code></td>
 <td>Histogram</td>
+<td><strong>各子阶段停留时长</strong></td>
 <td>sub_phase</td>
 <td><code>metrics.py:45-50</code></td>
 </tr>
 <tr>
 <td><code>tool_calls_total</code></td>
 <td>Counter</td>
+<td><strong>工具调用次数与成败</strong></td>
 <td>tool / status</td>
 <td><code>metrics.py:54-58</code></td>
 </tr>
 <tr>
 <td><code>tool_confirmations_total</code></td>
 <td>Counter</td>
+<td><strong>敏感操作确认各状态</strong> (确认/取消/模糊/过期)</td>
 <td>decision</td>
 <td><code>metrics.py:60-64</code></td>
 </tr>
 <tr>
 <td><code>tool_guard_denials_total</code></td>
 <td>Counter</td>
+<td><strong>工具护栏拦截次数</strong> (角色不足/金额超限)</td>
 <td>tool / reason</td>
 <td><code>metrics.py:66-70</code></td>
 </tr>
 <tr>
 <td><code>llm_call_duration_seconds</code></td>
 <td>Histogram</td>
+<td><strong>大模型调用耗时</strong> (桶延伸到 60s, 推理天然慢)</td>
 <td>model / method</td>
 <td><code>metrics.py:74-79</code></td>
 </tr>
@@ -5184,7 +5234,7 @@ except Exception:
     logger.debug(&quot;审计日志创建任务失败: %s %s&quot;, request.method, path)
 </code></pre>
 <p><code>_write_audit_log</code>(<code>audit_middleware.py:58-111</code>)从 JWT 解出 <code>actor_id / actor_role</code>,再调 <code>_infer_action</code> 推断操作类型。<code>actor_id</code> 默认 <code>"anonymous"</code>,在开发环境下会用 <code>dev-user</code> 兜底,方便本地手测时不必每次都拿 token。<code>detail</code> 字段除了 <code>elapsed_ms</code>,还会记录脱敏后的 query params——这条细节在合规审计里很重要:如果某个 <code>DELETE</code> 出问题了,审计员需要能复现当时的过滤条件。</p>
-<p><strong>核心是 <code>_ENDPOINT_ACTION_MAP</code></strong>(<code>audit_middleware.py:174-206</code>):24 个端点函数名 → <code>(action, target_type)</code> 的精确映射表。<code>_infer_action</code> 的优先级是「<strong>先查路由元数据,再 fallback 到路径字符串</strong>」:</p>
+<p><strong>核心是 <code>_ENDPOINT_ACTION_MAP</code></strong>(<code>audit_middleware.py:174-206</code>):27 个端点函数名 → <code>(action, target_type)</code> 的精确映射表。<code>_infer_action</code> 的优先级是「<strong>先查路由元数据,再 fallback 到路径字符串</strong>」:</p>
 <pre><code class="language-python"># audit_middleware.py:124-132
 route = request.scope.get(&quot;route&quot;)
 if route is not None and hasattr(route, &quot;endpoint&quot;):
@@ -5486,7 +5536,7 @@ if safety_filter.is_crisis_input(user_input):
 <p>这个细节在 code review 时容易漏掉,所以写在函数 docstring 里钉死。</p>
 <h2 id="11.7-双重审计:DB-落库-+-stdout-JSON">11.7 双重审计:DB 落库 + stdout JSON</h2>
 <p><code>shared/audit_middleware.py</code> 实现<strong>双通道审计</strong>——同一操作既写 <code>audit_log</code> 表(供合规取证与查询),也通过结构化日志走 stdout(供 ELK/Loki 聚合)。两路并行,互不阻塞,任何一路故障不影响另一路。</p>
-<p>关键设计是 <code>_ENDPOINT_ACTION_MAP</code> (audit_middleware.py:174-206):21 条端点函数名到 <code>(action, target_type)</code> 的精确映射,优先级高于路径字符串推断。这是因为路径推断会因 <code>/api/v1/sessions/{id}/update</code> 与 <code>/api/v1/sessions/update</code> 在 <code>/update</code> 命中上歧义,而 FastAPI 路由匹配后 <code>request.scope["route"].endpoint.__name__</code> 是唯一确定的,这是"权威来源"。</p>
+<p>关键设计是 <code>_ENDPOINT_ACTION_MAP</code> (audit_middleware.py:174-206):27 条端点函数名到 <code>(action, target_type)</code> 的精确映射,优先级高于路径字符串推断。这是因为路径推断会因 <code>/api/v1/sessions/{id}/update</code> 与 <code>/api/v1/sessions/update</code> 在 <code>/update</code> 命中上歧义,而 FastAPI 路由匹配后 <code>request.scope["route"].endpoint.__name__</code> 是唯一确定的,这是"权威来源"。</p>
 <pre><code class="language-python"># 精确映射示例
 &quot;submit_review&quot;: (&quot;review.submit&quot;, &quot;review&quot;),
 &quot;approve_faq&quot;: (&quot;faq.approve&quot;, &quot;faq&quot;),
@@ -6016,13 +6066,13 @@ except Exception as e:
 <p><strong>延伸阅读</strong>:
 - <a href="../05-rag-pipeline.md">第 5 章 RAG 检索全链路</a> — 双写一致性细节
 - <a href="09-rag-ingestion.md">第 9 章 RAG 摄入</a> — 摄入端双写
-- <a href="06-session-state-machine.md">第 6 章 会话状态机</a> — Redis CAS 详解</p>
+- <a href="../06-session-state-machine.md">第 6 章 会话状态机</a> — Redis CAS 详解</p>
 </blockquote>
 </section>
 <section class="chapter" id="13-部署">
 <h1 class="chapter-title">13 部署</h1>
 <h1 id="第-13-章:-部署">第 13 章: 部署</h1>
-<p>Lumio 的部署设计遵循一个朴素的工程直觉: <strong>让本地开发与生产环境共享同一份容器编排, 只在 K8s 层做规模化</strong>。这意味着开发者日常用 <code>make demo</code> 启动的 24 个容器, 几乎就是 K8s 集群上跑的那一套——只是多了 HPA、Secret 和反代网关。这一章将围绕 docker-compose 拓扑、multi-stage 镜像、K8s manifests、Nginx 反代、opt-in gateway profile 与 33 个 Make target 这六条主线, 解释 Lumio 在部署上做出的一系列权衡。</p>
+<p>Lumio 的部署设计遵循一个朴素的工程直觉: <strong>让本地开发与生产环境共享同一份容器编排, 只在 K8s 层做规模化</strong>。这意味着开发者日常用 <code>make demo</code> 启动的 24 个容器, 几乎就是 K8s 集群上跑的那一套——只是多了 HPA、Secret 和反代网关。这一章将围绕 docker-compose 拓扑、multi-stage 镜像、K8s manifests、Nginx 反代、opt-in gateway profile 与 46 个 Make target 这六条主线, 解释 Lumio 在部署上做出的一系列权衡。</p>
 <h2 id="13.1-为什么是-24-个服务">13.1 为什么是 24 个服务</h2>
 <p>第一次看到 <code>deploy/docker-compose.yml</code> 的服务数量, 多数人会问同一个问题: 一个聊天+客服系统, 真的需要这么多中间件吗? 答案是肯定的, 但前提是<strong>这一切只服务于单机一键 Demo 场景</strong>——开发者不必在多个工具链之间切换, 也不必为某个组件单独写文档。把这 24 个服务按职责切分, 可以归为五类:</p>
 <table>
@@ -6358,7 +6408,7 @@ demo: ## 一键启动完整 Demo（中间件 + 初始化 + Bot:8000 + Assist:800
 <blockquote>
 <p><strong>延伸阅读</strong>:
 - <a href="../01-architecture-overview.md">第 1 章 整体架构</a> — 三层分层
-- <a href="../02-configuration-system.md">第 2 章 配置系统</a> — 12+ env_prefix
+- <a href="../02-configuration-system.md">第 2 章 配置系统</a> — 16 个 env_prefix
 - <a href="10-observability.md">第 10 章 可观测性</a> — Prometheus 抓取</p>
 </blockquote>
 </section>
@@ -6496,7 +6546,7 @@ ASSIST_PORT = 8766  # 避免与开发环境 :8001 冲突
   --cov=lumio --cov-report=term-missing --cov-fail-under=55 \
   -v --tb=short
 </code></pre>
-<p>为什么排除 3 个? 两个原因叠加: (1) <code>bot_client</code> / <code>assist_client</code> 需要 <code>bot_server</code> / <code>assist_server</code> session fixture 启子进程, 启停开销大, 挤占 unit 反馈循环; (2) 这些用例<strong>必须</strong>有真中间件, 缺一个就整片 SKIP, 反而掩盖真实失败; (3) e2e 抽到独立的 <code>e2e-tests</code> job (<code>.github/workflows/ci.yml</code>) 反而更干净 — 它在 main 分支、<code>build</code> job 之后跑, 先 <code>docker compose up demo</code> 再 <code>curl /api/chat/send</code> 烟测 (带认证 token, 第五轮修复 — 认证强制后无 token 必 401), 全链路黑盒验证。</p>
+<p>为什么排除 3 个? 三个原因叠加: (1) <code>bot_client</code> / <code>assist_client</code> 需要 <code>bot_server</code> / <code>assist_server</code> session fixture 启子进程, 启停开销大, 挤占 unit 反馈循环; (2) 这些用例<strong>必须</strong>有真中间件, 缺一个就整片 SKIP, 反而掩盖真实失败; (3) e2e 抽到独立的 <code>e2e-tests</code> job (<code>.github/workflows/ci.yml</code>) 反而更干净 — 它在 main 分支、<code>build</code> job 之后跑, 先 <code>docker compose up demo</code> 再 <code>curl /api/chat/send</code> 烟测 (带认证 token, 第五轮修复 — 认证强制后无 token 必 401), 全链路黑盒验证。</p>
 <pre><code class="language-mermaid">sequenceDiagram
     participant Dev as Developer
     participant PR as Pull Request
@@ -6601,7 +6651,7 @@ disallow_untyped_defs = false
 <h1 class="chapter-title">15 上下文工程</h1>
 <h1 id="第-15-章:-上下文工程-—-3-层上下文-+-token-预算-+-增量摘要">第 15 章: 上下文工程 — 3 层上下文 + token 预算 + 增量摘要</h1>
 <blockquote>
-<p>本章深入 Lumio Bot 区别于一般 LLM 应用的<strong>最关键设计</strong> — 上下文工程. 银行客服场景下, 客户对话常跨数十轮, 含敏感信息 (卡号/金额/挂失) 与关键承诺 (投诉/转人工), 简单地把全部历史塞进 LLM 会撞 token 上限且丢失关键实体. Lumio 设计了 <strong>3 层上下文架构</strong> + <strong>token 预算 LIFO 累加算法</strong> + <strong>17 关键词豁免</strong> + <strong>增量摘要 fire-and-forget</strong>, 既保证 LLM 总在预算内, 又保证关键信息永不丢失. 看完本章你会理解: 为何 Bot 能"记住"30 轮前客户说"我是白金卡"但又不会因为历史太长爆 token, 为何对话中途能"接着说"而不需要客户重复, 为何摘要生成失败也不会让对话中断.</p>
+<p>本章深入 Lumio Bot 区别于一般 LLM 应用的<strong>最关键设计</strong> — 上下文工程. 银行客服场景下, 客户对话常跨数十轮, 含敏感信息 (卡号/金额/挂失) 与关键承诺 (投诉/转人工), 简单地把全部历史塞进 LLM 会撞 token 上限且丢失关键实体. Lumio 设计了 <strong>3 层上下文架构</strong> + <strong>token 预算 LIFO 累加算法</strong> + <strong>19 关键词豁免</strong> + <strong>增量摘要 fire-and-forget</strong>, 既保证 LLM 总在预算内, 又保证关键信息永不丢失. 看完本章你会理解: 为何 Bot 能"记住"30 轮前客户说"我是白金卡"但又不会因为历史太长爆 token, 为何对话中途能"接着说"而不需要客户重复, 为何摘要生成失败也不会让对话中断.</p>
 </blockquote>
 <h2 id="15.1-3-层上下文模型">15.1 3 层上下文模型</h2>
 <p>Lumio Bot 每次 LLM 调用前, 在 <code>bot_agent._handle_*</code> (bot_agent.py:201-339) 中拼装 3 层上下文, 按<strong>作用范围 + 重要度</strong>分层注入:</p>
@@ -6641,9 +6691,9 @@ disallow_untyped_defs = false
 </table>
 <p><strong>核心约束</strong>:
 - Layer 1 永远在 <code>system_prompt</code> 头部注入, 永不进入 token 预算计算. 哪怕历史全被裁掉, 客户画像 + 实体池 + 意图栈仍可见.
-- Layer 2 token 预算 = <code>max(MaxContext - Reserved, 1024)</code>, 默认 <code>4096 - 2048 = 2048</code> token, 但最低 1024 (避免极小模型失效).
+- Layer 2 token 预算 = <code>max(MaxContext - Reserved, 1024)</code>, 默认 <code>8192 - 1024 = 7168</code> 可用, 历史层预算 <code>budget_history=1500</code>, 但最低 1024 (避免极小模型失效).
 - Layer 3 由调用方传入, RAG 检索本身已截断到 <code>top_k</code> (默认 5-8 块), 不参与裁剪.</p>
-<p><strong>为什么不只让 LLM "全部读"</strong>: 银行客户对话常 30+ 轮, 一轮 50-100 字, 累加可达 3000+ 字 ≈ 1500+ tokens. 而 LLM 上下文 (4096 tokens) 还要留给回答 (2048) + system_prompt (500) + RAG 上下文 (1000). 实际留给历史的预算只有 ~500 tokens ≈ 2-3 轮 — <strong>显然不够</strong>. 必须做主动上下文管理.</p>
+<p><strong>为什么不只让 LLM "全部读"</strong>: 银行客户对话常 30+ 轮, 一轮 50-100 字, 累加可达 3000+ 字 ≈ 1500+ tokens. 而 LLM 上下文 (8192 tokens) 还要留给回答 (1024) + system_prompt (500) + RAG 上下文 (1000). 实际留给历史的预算只有 ~500 tokens ≈ 2-3 轮 — <strong>显然不够</strong>. 必须做主动上下文管理.</p>
 <h2 id="15.2-Layer-1-—-_build_session_memory-5-段拼接">15.2 Layer 1 — <code>_build_session_memory</code> 5 段拼接</h2>
 <p><code>bot_agent.py:725-779</code> 在每次 <code>_handle_knowledge/biz/fallback</code> 开头调用, 永不抛出:</p>
 <pre><code class="language-python"># bot_agent.py:725
@@ -6762,7 +6812,7 @@ def _estimate_tokens(text: str) -&gt; int:
 - LLM 选型可能切换 (Ollama/OpenAI/Claude), 每个模型的 tokenizer 都不同
 - 银行客服 99% 是中文, CJK 系数 0.55 准确度 95%+</p>
 <p><strong>为何 +4</strong>: OpenAI ChatCompletion 每条 message 都要 <code>{"role": "...", "content": "..."}</code> JSON 包装, 实测约 4 tokens 开销.</p>
-<h3 id="15.3.2-关键轮次豁免-—-17-个-_IMPORTANT_KEYWORDS">15.3.2 关键轮次豁免 — 17 个 <code>_IMPORTANT_KEYWORDS</code></h3>
+<h3 id="15.3.2-关键轮次豁免-—-19-个-_IMPORTANT_KEYWORDS">15.3.2 关键轮次豁免 — 19 个 <code>_IMPORTANT_KEYWORDS</code></h3>
 <p><code>bot_agent.py:79-89</code> 定义了<strong>永远不会</strong>被裁剪的关键词, 这些轮次即便超出 token 预算也强制保留:</p>
 <pre><code class="language-python"># bot_agent.py:79
 _IMPORTANT_KEYWORDS = [
@@ -7074,7 +7124,7 @@ asyncio.create_task(self._ensure_summary(session_id, trimmed_turns))
 <p><code>bot_agent.py:223-225</code>:</p>
 <pre><code class="language-python">system_prompt = KNOWLEDGE_SYSTEM_PROMPT  # 静态 system_prompt (3 段: 角色/记忆使用规范/回复规范)
 system_prompt = f&quot;{KNOWLEDGE_SYSTEM_PROMPT}\n\n## 会话记忆\n{session_memory}&quot;  # Layer 1 注入
-system_prompt = f&quot;{system_prompt}\n\n{slot_prompt}&quot;  # 槽位 (第 16 章详谈)
+system_prompt = f&quot;{system_prompt}\n\n{slot_prompt}&quot;  # 槽位 (第 3 章 §3.6 详谈)
 </code></pre>
 <p><strong>注意 Layer 1 注入</strong>而非 Layer 2/3: Layer 2 (历史) 和 Layer 3 (RAG) 走 <code>messages=</code> 形参, 由 <code>build_layered_messages</code> 组装 (第五轮修复后). 这种设计:
 - <strong>system_prompt 干净</strong>: 不会被历史污染, 每次回答 system 部分稳定 → LLM 行为更可预测
@@ -7159,7 +7209,7 @@ system_prompt = f&quot;{system_prompt}\n\n{slot_prompt}&quot;  # 槽位 (第 16 
    - 当前意图: reward_query (本轮)</li>
 <li><strong>Layer 2</strong> (bot_agent.py:583-629):
    - limit=20 拉到最近 20 轮 (轮 11-30)
-   - token 预算 2048, 估算 20 轮 ≈ 1100 tokens
+   - 历史层预算 1500, 估算 20 轮 ≈ 1100 tokens
    - 全部装下, 不需要裁
    - 轮 6 "投诉" + 轮 16 "转人工" 必保留</li>
 <li><strong>Layer 3</strong>:
@@ -7963,7 +8013,7 @@ def query_entity_relations(entity: str, query_text: str) -&gt; list[dict]:
 <tbody>
 <tr>
 <td><code>lumio_customer_profile_applied_total</code></td>
-<td>客户画像写入次数 (待加)</td>
+<td>客户画像写入次数 (规划中, 尚未实现)</td>
 <td>画像学习命中率</td>
 </tr>
 <tr>
@@ -8902,7 +8952,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.2-错误码段">A.2 错误码段</h2>
 <blockquote>
-<p>完整异常层次见 <a href="chapters/08-error-handling.md">第 8 章 错误处理</a>.</p>
+<p>完整异常层次见 <a href="../chapters/08-error-handling.md">第 8 章 错误处理</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -8942,7 +8992,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.3-会话状态机">A.3 会话状态机</h2>
 <blockquote>
-<p>完整状态机见 <a href="06-session-state-machine.md">第 6 章 会话状态机</a>.</p>
+<p>完整状态机见 <a href="../06-session-state-machine.md">第 6 章 会话状态机</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9023,7 +9073,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.4.1-上下文工程术语-(第-15-章)">A.4.1 上下文工程术语 (第 15 章)</h2>
 <blockquote>
-<p>完整上下文工程见 <a href="chapters/15-context-engineering.md">第 15 章 上下文工程</a>.</p>
+<p>完整上下文工程见 <a href="../chapters/15-context-engineering.md">第 15 章 上下文工程</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9085,7 +9135,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.4.2-客户记忆术语-(第-16-章)">A.4.2 客户记忆术语 (第 16 章)</h2>
 <blockquote>
-<p>完整客户记忆见 <a href="chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a>.</p>
+<p>完整客户记忆见 <a href="../chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9147,7 +9197,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.4.3-知识图谱术语-(第-16-章)">A.4.3 知识图谱术语 (第 16 章)</h2>
 <blockquote>
-<p>完整知识图谱见 <a href="chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a>.</p>
+<p>完整知识图谱见 <a href="../chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9189,7 +9239,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.4.4-工具调用术语-(第-17-章)">A.4.4 工具调用术语 (第 17 章)</h2>
 <blockquote>
-<p>完整工具调用见 <a href="chapters/17-tool-calling-and-confirmation.md">第 17 章 工具调用与确认状态机</a>.</p>
+<p>完整工具调用见 <a href="../chapters/17-tool-calling-and-confirmation.md">第 17 章 工具调用与确认状态机</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9386,7 +9436,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.5-坐席辅助引擎术语">A.5 坐席辅助引擎术语</h2>
 <blockquote>
-<p>完整 5 阶段编排见 <a href="04-assist-engine.md">第 4 章 坐席辅助</a>.</p>
+<p>完整 5 阶段编排见 <a href="../04-assist-engine.md">第 4 章 坐席辅助</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9444,7 +9494,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.6-RAG-检索术语">A.6 RAG 检索术语</h2>
 <blockquote>
-<p>完整 RAG 链路见 <a href="05-rag-pipeline.md">第 5 章 RAG</a> + <a href="chapters/09-rag-ingestion.md">第 9 章 RAG 摄入</a>.</p>
+<p>完整 RAG 链路见 <a href="../05-rag-pipeline.md">第 5 章 RAG</a> + <a href="../chapters/09-rag-ingestion.md">第 9 章 RAG 摄入</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9502,7 +9552,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.7-MCP-工具集成术语">A.7 MCP 工具集成术语</h2>
 <blockquote>
-<p>完整 MCP 集成见 <a href="07-mcp-tool-integration.md">第 7 章 MCP 工具</a>.</p>
+<p>完整 MCP 集成见 <a href="../07-mcp-tool-integration.md">第 7 章 MCP 工具</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9548,7 +9598,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.8-可观测性术语">A.8 可观测性术语</h2>
 <blockquote>
-<p>完整可观测性见 <a href="chapters/10-observability.md">第 10 章 可观测性</a>.</p>
+<p>完整可观测性见 <a href="../chapters/10-observability.md">第 10 章 可观测性</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9610,7 +9660,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.9-安全合规术语">A.9 安全合规术语</h2>
 <blockquote>
-<p>完整安全合规见 <a href="chapters/11-security-compliance.md">第 11 章 安全合规</a>.</p>
+<p>完整安全合规见 <a href="../chapters/11-security-compliance.md">第 11 章 安全合规</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9664,7 +9714,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.10-数据层术语">A.10 数据层术语</h2>
 <blockquote>
-<p>完整数据层见 <a href="chapters/12-data-layer.md">第 12 章 数据层</a>.</p>
+<p>完整数据层见 <a href="../chapters/12-data-layer.md">第 12 章 数据层</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9718,7 +9768,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.11-部署与基础设施">A.11 部署与基础设施</h2>
 <blockquote>
-<p>完整部署见 <a href="chapters/13-deployment.md">第 13 章 部署</a>.</p>
+<p>完整部署见 <a href="../chapters/13-deployment.md">第 13 章 部署</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9772,7 +9822,7 @@ TOOL_GUARD_DENIALS = Counter(
 </table>
 <h2 id="A.12-测试术语">A.12 测试术语</h2>
 <blockquote>
-<p>完整测试见 <a href="chapters/14-testing-strategy.md">第 14 章 测试策略</a>.</p>
+<p>完整测试见 <a href="../chapters/14-testing-strategy.md">第 14 章 测试策略</a>.</p>
 </blockquote>
 <table>
 <thead>
@@ -9784,7 +9834,7 @@ TOOL_GUARD_DENIALS = Counter(
 <tbody>
 <tr>
 <td><strong>pytest-asyncio</strong></td>
-<td><code>asyncio_mode = "auto"</code>, 367 个 async 测试</td>
+<td><code>asyncio_mode = "auto"</code>, 740+ 个 async 测试</td>
 </tr>
 <tr>
 <td><strong>httpx.AsyncClient</strong></td>
@@ -10171,7 +10221,7 @@ make dev
 <h3 id="C.5.1-JWT-解码失败-(1001-AuthenticationError)">C.5.1 JWT 解码失败 (<code>1001 AuthenticationError</code>)</h3>
 <p><strong>症状</strong>: API 返 401, 客户端提示"未登录".</p>
 <p><strong>原因</strong>:
-- token 过期 (默认 24h)
+- token 过期 (默认 30 分钟)
 - token 签名错误 (secret 不一致)
 - dev bypass 没开</p>
 <p><strong>排查</strong>:</p>
@@ -10274,7 +10324,7 @@ print(VALID_TRANSITIONS)
 <pre><code class="language-bash"># 1. 检查 MCP 开关
 echo $MCP_ENABLED
 # 2. 直连 Java MCP
-curl http://localhost:8090/sse
+curl http://localhost:8090/mcp (streamable-http)
 # 3. 看 mcp_connection_state 指标
 curl http://localhost:8000/metrics | grep mcp_connection_state
 </code></pre>
@@ -10369,11 +10419,11 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 </tbody>
 </table>
 <hr />
-<h2 id="C.13-客服-Agent-场景-(第-15-17-章配套)">C.13 客服 Agent 场景 (第 15-17 章配套)</h2>
+<h2 id="C.12-客服-Agent-场景-(第-15-17-章配套)">C.12 客服 Agent 场景 (第 15-17 章配套)</h2>
 <blockquote>
 <p>以下 8 个问题来自第 15-17 章的客服 Agent 能力层实战, 配套深挖文档 <a href="../chapters/15-context-engineering.md">第 15 章 上下文工程</a> / <a href="../chapters/16-customer-memory-and-kg.md">第 16 章 客户记忆与知识图谱</a> / <a href="../chapters/17-tool-calling-and-confirmation.md">第 17 章 工具调用与确认状态机</a>.</p>
 </blockquote>
-<h3 id="C.13.1-客户说&quot;Bot-不知道我是白金卡&quot;">C.13.1 客户说"Bot 不知道我是白金卡"</h3>
+<h3 id="C.12.1-客户说&quot;Bot-不知道我是白金卡&quot;">C.12.1 客户说"Bot 不知道我是白金卡"</h3>
 <p><strong>症状</strong>: VIP 客户来电, Bot 仍问"您是什么卡?", 体验差.</p>
 <p><strong>根因排查</strong>:</p>
 <ol>
@@ -10398,7 +10448,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 </li>
 </ol>
 <p><strong>修复</strong>: 见 <a href="../chapters/16-customer-memory-and-kg.md#1610-已知问题与改进项">第 16.10 节 已知问题与改进项</a> — 缺 <code>ix_dialogue_log_customer_time</code> PARTIAL INDEX.</p>
-<h3 id="C.13.2-工具调用超过-5-轮-(RuntimeError)">C.13.2 工具调用超过 5 轮 (RuntimeError)</h3>
+<h3 id="C.12.2-工具调用超过-5-轮-(RuntimeError)">C.12.2 工具调用超过 5 轮 (RuntimeError)</h3>
 <p><strong>症状</strong>: Bot 偶发 <code>RuntimeError: 工具调用超过最大轮数 5</code>, 用户看到 500.</p>
 <p><strong>根因排查</strong>:</p>
 <ol>
@@ -10415,7 +10465,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 短期: 业务方加 LLM prompt "调同一个工具不要超过 2 次"
 - 中期: 把 <code>max_tool_iterations</code> 调到 3 + 加 LLM 提示
 - 长期: 引入"工具调用计划" — LLM 一次性规划所有工具调用, 不循环</p>
-<h3 id="C.13.3-5-态确认状态机卡在-unclear">C.13.3 5 态确认状态机卡在 unclear</h3>
+<h3 id="C.12.3-5-态确认状态机卡在-unclear">C.12.3 5 态确认状态机卡在 unclear</h3>
 <p><strong>症状</strong>: 客户回复"嗯" / "哦" / "好" → Bot 一直追问"请明确回复确认或取消", 体验差.</p>
 <p><strong>根因排查</strong>:</p>
 <ol>
@@ -10429,7 +10479,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 短期: 加关键词 "嗯" / "哦" / "行" / "中" / "妥" (确认类)
 - 中期: 用 LLM 二次判定 (50ms 延迟可接受)
 - 长期: 引入"模糊确认"识别 — 客户说"行吧"虽含"吧"但语义是 confirm</p>
-<h3 id="C.13.4-知识图谱注入失效-(无-##-知识图谱补充信息-段)">C.13.4 知识图谱注入失效 (无 <code>## 知识图谱补充信息</code> 段)</h3>
+<h3 id="C.12.4-知识图谱注入失效-(无-##-知识图谱补充信息-段)">C.12.4 知识图谱注入失效 (无 <code>## 知识图谱补充信息</code> 段)</h3>
 <p><strong>症状</strong>: LLM 答客户问"信用卡额度"时没看到 KG 关系补充.</p>
 <p><strong>根因排查</strong>:</p>
 <ol>
@@ -10446,7 +10496,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
    - 客户说"提额" → 5 实体都不在 query_text (因"额度" 不在"提额"中) → <strong>0 命中</strong></li>
 </ol>
 <p><strong>修复</strong>: 见 16.7.2 潜在改进 — <code>if entity_name in query_text or query_text in entity_name</code> 捕获"提额"→"额度"近义.</p>
-<h3 id="C.13.5-对话摘要没生成-(LLM-不可用)">C.13.5 对话摘要没生成 (LLM 不可用)</h3>
+<h3 id="C.12.5-对话摘要没生成-(LLM-不可用)">C.12.5 对话摘要没生成 (LLM 不可用)</h3>
 <p><strong>症状</strong>: <code>_load_history</code> 触发 <code>_ensure_summary</code> 但摘要始终为空, <code>_build_session_memory</code> 没 <code>[对话摘要]</code> 段.</p>
 <p><strong>根因排查</strong>:</p>
 <ol>
@@ -10459,7 +10509,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 检查 LLM 服务 (<code>make verify</code>)
 - 检查 session_meta 写权限 (Redis ping)
 - 长期: 摘要失败时记录到 <code>lumio:summary_failed:{session_id}</code> 计数, 累积 3 次触发告警</p>
-<h3 id="C.13.6-槽位追踪器意图切换时清空-(高优先级体验问题)">C.13.6 槽位追踪器意图切换时清空 (高优先级体验问题)</h3>
+<h3 id="C.12.6-槽位追踪器意图切换时清空-(高优先级体验问题)">C.12.6 槽位追踪器意图切换时清空 (高优先级体验问题)</h3>
 <p><strong>症状</strong>: 客户从"问账单"切换到"问积分", Bot 重新问"卡号后四位"等已收集过的信息.</p>
 <p><strong>根因排查</strong> (<code>bot_agent.py:799-802</code>):</p>
 <pre><code class="language-python">if raw:
@@ -10473,7 +10523,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 短期: entity_pool 跨意图保留, Bot 通过 entity_pool 自动填充
 - 中期: 槽位追踪器改为"全局槽位"模式 (L65 <code>_ENTITY_TO_SLOT</code> 已有基础)
 - 长期: 槽位 + entity_pool 合并, 消除双层数据</p>
-<h3 id="C.13.7-渐进式暴露不生效-(开关/阈值/映射-三重检查)">C.13.7 渐进式暴露不生效 (开关/阈值/映射 三重检查)</h3>
+<h3 id="C.12.7-渐进式暴露不生效-(开关/阈值/映射-三重检查)">C.12.7 渐进式暴露不生效 (开关/阈值/映射 三重检查)</h3>
 <p><strong>症状</strong>: 配置了 <code>intent_tool_map</code> 也开了 <code>progressive_disclosure_enabled=True</code>, 但 LLM 仍收到 22 个工具.</p>
 <p><strong>根因排查</strong> (按顺序):</p>
 <ol>
@@ -10486,7 +10536,7 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 <li><strong>是否有 bot_agent 路径问题</strong>: 业务类 (<code>_handle_business</code>) 直接调 MCP, <strong>不经过 <code>select_tools_for_intent</code></strong>, 所以全量工具仍可用</li>
 </ol>
 <p><strong>修复</strong>: 上述任一命中即按需调整.</p>
-<h3 id="C.13.8-护栏拒绝但用户无感知-(拒绝话术-+-审计)">C.13.8 护栏拒绝但用户无感知 (拒绝话术 + 审计)</h3>
+<h3 id="C.12.8-护栏拒绝但用户无感知-(拒绝话术-+-审计)">C.12.8 护栏拒绝但用户无感知 (拒绝话术 + 审计)</h3>
 <p><strong>症状</strong>: <code>TOOL_GUARD_DENIALS</code> 指标持续增长, 但用户报"Bot 不办事", 不知道发生了什么.</p>
 <p><strong>根因排查</strong>:</p>
 <ol>

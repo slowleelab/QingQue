@@ -275,9 +275,9 @@ if result.source in ("template", "fallback") and not should_transfer:
 
 ## 小结与反思
 
-Lumio 的错误处理经历了三个阶段:P0 设计 5 段码 + 异常类层次,P1 补上 request_id 与 PII 脱敏,P2/P3 收口合规与可观测性。这套体系的关键不是"错误码多",而是"错误码的语义稳定 + 响应体形态统一 + 全链路可追踪"。下一步值得讨论的是:错误码是否需要国际化和多语言?是否要把 5 段扩展到 6 段(增加 6xxx 表示"用户主动取消")?这些演进将在第 12 章"未来路线图"中展开。
+Lumio 的错误处理经历了三个阶段:P0 设计 5 段码 + 异常类层次,P1 补上 request_id 与 PII 脱敏,P2/P3 收口合规与可观测性。这套体系的关键不是"错误码多",而是"错误码的语义稳定 + 响应体形态统一 + 全链路可追踪"。下一步值得讨论的是:错误码是否需要国际化和多语言?是否要把 5 段扩展到 6 段(增加 6xxx 表示"用户主动取消")?这些演进将在附录 A 术语表与后续章节中展开。
 
 > **延伸阅读**:
 > - [第 11 章 安全合规](11-security-compliance.md) — JWT 错误 1001/1003 完整流程
 > - [附录 A 术语表](../appendix/A-glossary.md#a2-错误码段) — 35 错误码速查
-> - [第 6 章 会话状态机](06-session-state-machine.md) — `InvalidTransitionError` 3005 详解
+> - [第 6 章 会话状态机](../06-session-state-machine.md) — `InvalidTransitionError` 3005 详解

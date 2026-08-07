@@ -17,7 +17,7 @@ tags: ["状态机", "cas", "lua", "zset", "redis", "会话"]
 
 # 第 6 章: 会话状态机
 
-> 本章深入 Lumio 会话状态机. 银行客服一次通话从客户拨入到结束, 涉及 4 phase × 7 sub-state 21 种状态组合 — 怎么保证多实例并发下不丢转换, 怎么 5 秒检测超时, 怎么保证 5-7 年审计留存, 是本章核心. 看完本章你会理解: 状态机怎么设计才能既灵活又安全, CAS Lua 怎么原子控制并发, ZSET 怎么替代 asyncio.Task 做分布式超时, PostgreSQL 怎么异步落库.
+> 本章深入 Lumio 会话状态机. 银行客服一次通话从客户拨入到结束, 涉及 3 phase × 6 sub-state 的状态组合 — 怎么保证多实例并发下不丢转换, 怎么 5 秒检测超时, 怎么保证 5-7 年审计留存, 是本章核心. 看完本章你会理解: 状态机怎么设计才能既灵活又安全, CAS Lua 怎么原子控制并发, ZSET 怎么替代 asyncio.Task 做分布式超时, PostgreSQL 怎么异步落库.
 
 ## 6.1 状态机全景
 
@@ -382,7 +382,7 @@ class SessionManager:
 
 ## 6.8 状态模型: 3×7 矩阵
 
-会话状态机采用 **4 phase (顶层) × 7 sub-state (子)** 的矩阵模型:
+会话状态机采用 **3 phase (顶层) × 6 sub-state (子)** 的矩阵模型:
 
 ```
 PHASE:   BOT → AGENT → ENDED
@@ -393,7 +393,7 @@ SUB:     IDLE / ACTIVE / WAITING_HUMAN / QUEUING / ASSIGNED / ON_HOLD / REVIEWIN
 - 扁平状态互相转换规则复杂 (N×N 组合)
 - `WAITING_HUMAN` 需要表达"排队中 vs 已分配"区别
 - 终结态统一归 `ENDED`, 用 `reason` 字段区分 (abandoned / transferred / normal)
-- 21 种组合但只允许 11 种合法转换, 非法转换直接拒绝
+- 状态组合由 VALID_TRANSITIONS 白名单严格约束 (合法转换共 16 条), 非法转换直接拒绝
 
 兼容策略:
 - `legacy` phase 兼容旧数据读取
@@ -442,17 +442,17 @@ if state.current_phase.value == "ended":
 
 ## 6.10 监控指标
 
-会话状态机发射 5 个核心指标:
+会话状态机发射 5 个核心指标 — 回答"会话流转健不健康、有没有卡死、有没有超时"：
 
-| 指标 | 类型 | Labels | 位置 |
-|---|---|---|---|
-| `session_transitions_total` | Counter | from_phase, from_sub, to_phase, to_sub, reason | session.py:403 |
-| `session_timeouts_total` | Counter | sub_phase, reason | session_timeout.py:155 |
-| `session_phase_duration_seconds` | Histogram | sub_phase | session.py:412 (5s-3600s buckets) |
-| `state_conflict_retries_total` | Counter | - | session.py:285 (CAS 冲突重试) |
-| `dialogue_log_persist_total` | Counter | status (success/error) | session.py:395 |
+| 指标 | 类型 | 含义 | Labels | 位置 |
+|---|---|---|---|---|
+| `session_transitions_total` | Counter | **状态转换次数** (看客户从哪阶段流向哪阶段) | from_phase, from_sub, to_phase, to_sub, reason | session.py:403 |
+| `session_timeouts_total` | Counter | **超时触发次数** (哪个子阶段超时最多) | sub_phase, reason | session_timeout.py:155 |
+| `session_phase_duration_seconds` | Histogram | **各子阶段停留时长** (排队等多久/通话多久) | sub_phase | session.py:412 (5s-3600s buckets) |
+| `state_conflict_retries_total` | Counter | **CAS 并发冲突重试次数** (高 = 并发写太激烈) | - | session.py:285 (CAS 冲突重试) |
+| `dialogue_log_persist_total` | Counter | **对话落库成败** (error 高 = 审计留痕有缺口) | status (success/error) | session.py:395 |
 
-**6 类指标 0 冲突**: 全部指标名 + label 在 Grafana dashboard 有对应 panel.
+**指标 0 冲突**: 全部指标名 + label 在 Grafana dashboard 有对应 panel.
 
 ## 6.11 测试覆盖
 
@@ -501,5 +501,5 @@ async def test_intent_stack_incremental_merge(redis):
 > **延伸阅读**:
 > - [第 3 章 Bot 自助问答](03-bot-self-service.md) — pending_action 跨轮持久化
 > - [第 12 章 数据层](chapters/12-data-layer.md) — Redis ZSET + CAS Lua 详解
-> - [附录 A 术语表](../appendix/A-glossary.md#a3-会话状态机) — 状态机术语速查
+> - [附录 A 术语表](appendix/A-glossary.md#a3-会话状态机) — 状态机术语速查
 > - [第 16 章 客户记忆与知识图谱](chapters/16-customer-memory-and-kg.md) — 跨会话画像学习 (vip_level / card_types / risk_tolerance CAS patch 写入 SessionState)

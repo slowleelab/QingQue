@@ -406,7 +406,7 @@ def test_settings_override(monkeypatch):
 
 Lumio 配置系统是项目"零硬编码"的关键:
 
-- **16 个 SubSettings + 12 个独立 env_prefix**: 业界标准 12-factor 风格
+- **16 个 SubSettings + 16 个独立 env_prefix**: 业界标准 12-factor 风格
 - **`__` 嵌套分隔符**: 部署期差异化配置的统一入口
 - **`AliasChoices` 兼容模式**: 接口兼容优先的稳定性策略
 - **`_validate_production_security`**: 启动期 fail-fast — 生产环境强制校验 JWT 密钥 (≥32 字符, 禁占位) + **LLM_API_KEY / MINIO / ES / REDIS 五类外部凭据非默认值**

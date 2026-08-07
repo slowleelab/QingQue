@@ -26,7 +26,7 @@ tags: ["glossary", "术语"]
 
 ## A.2 错误码段
 
-> 完整异常层次见 [第 8 章 错误处理](chapters/08-error-handling.md).
+> 完整异常层次见 [第 8 章 错误处理](../chapters/08-error-handling.md).
 
 | 段 | 含义 | HTTP 默认 |
 |---|---|---|
@@ -38,7 +38,7 @@ tags: ["glossary", "术语"]
 
 ## A.3 会话状态机
 
-> 完整状态机见 [第 6 章 会话状态机](06-session-state-machine.md).
+> 完整状态机见 [第 6 章 会话状态机](../06-session-state-machine.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -64,7 +64,7 @@ tags: ["glossary", "术语"]
 
 ## A.4.1 上下文工程术语 (第 15 章)
 
-> 完整上下文工程见 [第 15 章 上下文工程](chapters/15-context-engineering.md).
+> 完整上下文工程见 [第 15 章 上下文工程](../chapters/15-context-engineering.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -83,7 +83,7 @@ tags: ["glossary", "术语"]
 
 ## A.4.2 客户记忆术语 (第 16 章)
 
-> 完整客户记忆见 [第 16 章 客户记忆与知识图谱](chapters/16-customer-memory-and-kg.md).
+> 完整客户记忆见 [第 16 章 客户记忆与知识图谱](../chapters/16-customer-memory-and-kg.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -102,7 +102,7 @@ tags: ["glossary", "术语"]
 
 ## A.4.3 知识图谱术语 (第 16 章)
 
-> 完整知识图谱见 [第 16 章 客户记忆与知识图谱](chapters/16-customer-memory-and-kg.md).
+> 完整知识图谱见 [第 16 章 客户记忆与知识图谱](../chapters/16-customer-memory-and-kg.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -116,7 +116,7 @@ tags: ["glossary", "术语"]
 
 ## A.4.4 工具调用术语 (第 17 章)
 
-> 完整工具调用见 [第 17 章 工具调用与确认状态机](chapters/17-tool-calling-and-confirmation.md).
+> 完整工具调用见 [第 17 章 工具调用与确认状态机](../chapters/17-tool-calling-and-confirmation.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -174,7 +174,7 @@ tags: ["glossary", "术语"]
 
 ## A.5 坐席辅助引擎术语
 
-> 完整 5 阶段编排见 [第 4 章 坐席辅助](04-assist-engine.md).
+> 完整 5 阶段编排见 [第 4 章 坐席辅助](../04-assist-engine.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -192,7 +192,7 @@ tags: ["glossary", "术语"]
 
 ## A.6 RAG 检索术语
 
-> 完整 RAG 链路见 [第 5 章 RAG](05-rag-pipeline.md) + [第 9 章 RAG 摄入](chapters/09-rag-ingestion.md).
+> 完整 RAG 链路见 [第 5 章 RAG](../05-rag-pipeline.md) + [第 9 章 RAG 摄入](../chapters/09-rag-ingestion.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -210,7 +210,7 @@ tags: ["glossary", "术语"]
 
 ## A.7 MCP 工具集成术语
 
-> 完整 MCP 集成见 [第 7 章 MCP 工具](07-mcp-tool-integration.md).
+> 完整 MCP 集成见 [第 7 章 MCP 工具](../07-mcp-tool-integration.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -225,7 +225,7 @@ tags: ["glossary", "术语"]
 
 ## A.8 可观测性术语
 
-> 完整可观测性见 [第 10 章 可观测性](chapters/10-observability.md).
+> 完整可观测性见 [第 10 章 可观测性](../chapters/10-observability.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -244,7 +244,7 @@ tags: ["glossary", "术语"]
 
 ## A.9 安全合规术语
 
-> 完整安全合规见 [第 11 章 安全合规](chapters/11-security-compliance.md).
+> 完整安全合规见 [第 11 章 安全合规](../chapters/11-security-compliance.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -261,7 +261,7 @@ tags: ["glossary", "术语"]
 
 ## A.10 数据层术语
 
-> 完整数据层见 [第 12 章 数据层](chapters/12-data-layer.md).
+> 完整数据层见 [第 12 章 数据层](../chapters/12-data-layer.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -278,7 +278,7 @@ tags: ["glossary", "术语"]
 
 ## A.11 部署与基础设施
 
-> 完整部署见 [第 13 章 部署](chapters/13-deployment.md).
+> 完整部署见 [第 13 章 部署](../chapters/13-deployment.md).
 
 | 名称 | 含义 |
 |---|---|
@@ -295,11 +295,11 @@ tags: ["glossary", "术语"]
 
 ## A.12 测试术语
 
-> 完整测试见 [第 14 章 测试策略](chapters/14-testing-strategy.md).
+> 完整测试见 [第 14 章 测试策略](../chapters/14-testing-strategy.md).
 
 | 名称 | 含义 |
 |---|---|
-| **pytest-asyncio** | `asyncio_mode = "auto"`, 367 个 async 测试 |
+| **pytest-asyncio** | `asyncio_mode = "auto"`, 740+ 个 async 测试 |
 | **httpx.AsyncClient** | 异步 HTTP 客户端, 5 个 e2e fixture |
 | **subprocess.Popen** | uvicorn 子进程拉起, 端口 8765/8766 避免冲突 |
 | **e2e (end-to-end)** | 端到端测试, 真实中间件 + 真实子进程 |
