@@ -45,9 +45,9 @@ services:
     # 覆盖 entrypoint，避免触发应用 lifespan
     entrypoint: ["/bin/sh", "-c"]
     command: >
-      "echo '==> 数据库迁移' && alembic upgrade head &&
-       echo '==> 灌入种子知识库' && python scripts/seed_knowledge.py &&
-       echo '==> Demo 初始化完成'"
+      echo '==> 数据库迁移' && alembic upgrade head &&
+      echo '==> 灌入种子知识库' && python scripts/seed_knowledge.py &&
+      echo '==> Demo 初始化完成' 
     networks:
       - lumio-net
     restart: "no"
