@@ -95,6 +95,16 @@ def _safe_init_global_factory() -> None:
         logging.getLogger("lumio.main").warning("全局 session factory 初始化失败 (决策日志降级为 Redis-only): %s", exc)
 
 
+async def init_global_factory_step(_app: FastAPI) -> None:
+    """启动步骤包装: 同步初始化全局 session factory (决策日志 PG 落库)."""
+    _safe_init_global_factory()
+
+
+async def init_global_redis_step(_app: FastAPI) -> None:
+    """启动步骤包装: 同步初始化全局 Redis 客户端 (tool_robustness/budget)."""
+    _safe_init_global_redis()
+
+
 def _safe_init_global_redis() -> None:
     """P0-2 第三轮修复: 启动时初始化全局 Redis 客户端 (配额/预算后台组件用).
 
@@ -147,9 +157,9 @@ _COMMON_INIT_STEPS = [
     init_session_manager,
     init_classifier,
     # P1-7 决策日志 PG 落库: 启动时初始化全局 session factory
-    lambda _app: _safe_init_global_factory(),
+    init_global_factory_step,
     # P0-2 第三轮修复: 启动时初始化全局 Redis 客户端 (tool_robustness/budget 后台组件)
-    lambda _app: _safe_init_global_redis(),
+    init_global_redis_step,
 ]
 
 _COMMON_CLOSE_STEPS = [
