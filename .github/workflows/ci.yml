@@ -172,9 +172,11 @@ jobs:
       - name: Smoke test — send message
         # 第五轮修复: chat/send 已强制认证, 先 login 拿 token 再带 Authorization
         run: |
-          TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+          LOGIN_RESP=$(curl -s -X POST http://localhost:8000/api/auth/login \
             -H 'Content-Type: application/json' \
-            -d '{"username":"admin","password":"admin123"}' | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))")
+            -d '{"username":"admin","password":"admin123"}')
+          echo "LOGIN_RESP: $LOGIN_RESP"
+          TOKEN=$(echo "$LOGIN_RESP" | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))")
           if [ -z "$TOKEN" ]; then
             # login 失败时尝试 dev bypass 环境变量 (demo 默认 admin 凭据)
             TOKEN=$(LUMIO_DEV_AUTH_BYPASS=true curl -s http://localhost:8000/api/health 2>/dev/null || true)
