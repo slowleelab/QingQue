@@ -11,7 +11,7 @@ code_references:
   - ".github/workflows/ci.yml"
   - ".pre-commit-config.yaml"
 last_updated: "2026-08-05"
-summary: "70+ 文件 / 969 用例通过 / 真实中间件 + 真实子进程哲学 + 覆盖率 60% + mypy advisory + 8 步 pre-commit."
+summary: "70+ 文件 / 1371 用例通过 / 真实中间件 + 真实子进程哲学 + 覆盖率 84% + mypy advisory + 8 步 pre-commit."
 tags: ["测试", "pytest", "e2e", "覆盖率", "CI"]
 ---
 
@@ -142,6 +142,18 @@ sequenceDiagram
 
 这就是**渐进式门槛**的工程意义: 让 CI 立刻 fail 在新写的代码上, 但不要 fail 在**已经知道、还没修**的问题上。
 
+门槛从 60% 提到 80% 的过程: 以 60% 为基线, 分批补齐测试 (每批补完先 lint + commit + 全量回归确认不回归, 再进入下一批):
+
+| 批次 | 补齐内容 | 覆盖率 |
+|---|---|---|
+| 62%→71.9% | faq_service/session/retrieval/assist_engine/ingestion/auth_router/bot_agent/embedding/safety 等 127+ 测试 | 1129 passed |
+| 71.9%→75.5% | ws_router 消息流/assist notify/analyze/kb 端点 | 1217 passed |
+| 75.5%→77% | bot router 内部 (`_session_worker` 队列合并/幂等/快速兜底/死信, `_run_agent` 转人工桥接) | 1240 passed |
+| 77%→81% | `_wait_for_response`/upload_document 全链路/get_session_messages/assist 反馈缓冲与坐席 WS/ws_router 排队 | 1318 passed |
+| 81%→84% | bot_agent 待确认状态机/增量摘要, deps init/close 全家, main lifespan 失败清理 | 1371 passed |
+
+最终 `agent/pyproject.toml` 与 `.github/workflows/ci.yml` 的 `fail_under` / `--cov-fail-under` 同步提到 80%。
+
 ## 14.7 已知 35 errors 的根因
 
 当前 pytest 全量跑会有 35 个 errors, 这不是 bug, 是 e2e 排除策略的副产品。
@@ -191,7 +203,7 @@ disallow_untyped_defs = false
 **push / PR 触发 (3 个)**:
 
 - `lint` — ruff check + ruff format check + mypy advisory + `make verify-observability`
-- `unit-tests` — service container 启 Redis/PG + pytest + 60% 覆盖率门槛
+- `unit-tests` — service container 启 Redis/PG + pytest + 80% 覆盖率门槛
 - `mcp-server` — JDK 21 + `mvn verify` (Java 端 mcp-server 独立构建)
 
 **仅 main 分支触发 (2 个)**:
@@ -252,7 +264,7 @@ disallow_untyped_defs = false
 
 ## 14.13 小结
 
-Lumio 的测试策略是把"CI 时间"当稀缺资源分配: **快反馈 (lint + unit + 60% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main**。真实中间件 + 真实子进程的哲学让测试信号更有价值; 补足单元测试后覆盖率实测 62%, E2E 在 main 分支全链路通过 (迁移→seed→启动→登录→对话)。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。
+Lumio 的测试策略是把"CI 时间"当稀缺资源分配: **快反馈 (lint + unit + 80% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main**。真实中间件 + 真实子进程的哲学让测试信号更有价值; 补足单元测试后覆盖率实测 84%, E2E 在 main 分支全链路通过 (迁移→seed→启动→登录→对话)。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。
 
 > **延伸阅读**:
 > - [第 8 章 错误处理](08-error-handling.md) — `test_middleware.py` 覆盖

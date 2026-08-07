@@ -21,7 +21,7 @@ Three-layer architecture:
 make install        # Install dependencies (Poetry)
 make dev            # Start both services (bot :8000 + assist :8001) with --reload
 make test           # Run pytest
-make test-cov       # Run pytest with coverage (60% minimum)
+make test-cov       # Run pytest with coverage (80% minimum)
 make lint           # Ruff check + fix
 make format         # Ruff format
 make type-check     # mypy on src/
@@ -102,7 +102,7 @@ agent/tests/              # pytest with httpx AsyncClient fixtures
 
 - **Framework**: pytest + pytest-asyncio (asyncio_mode = "auto")
 - **Fixtures**: `bot_client` and `assist_client` httpx.AsyncClient fixtures in `tests/conftest.py`
-- **Coverage**: 60% minimum, branch coverage enabled, source = `lumio`
+- **Coverage**: 80% minimum, branch coverage enabled, source = `lumio`
 - **CI**: GitHub Actions — lint, type-check, test on every push
 
 ## Sprint Status

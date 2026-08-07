@@ -454,8 +454,8 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 启动超时
 
 **修复**:
-- 短期: 接受现实, 60% 覆盖率门槛
-- 长期: 修掉 RecursionError 后, 提到 60% 门槛
+- 短期: 接受现实, 60% 覆盖率门槛 (历史)
+- 长期: 修掉 RecursionError 后, 提到 60% 门槛 (历史); 当前已到 80% 门槛
 
 ### C.9.2 mypy 错误累积
 

@@ -177,10 +177,10 @@ async def test_bot_lifespan_init_failure_cleans_up(monkeypatch):
         patch.object(main, "_BOT_INIT_STEPS", init_steps),
         patch.object(main, "_BOT_CLOSE_STEPS", [_close("stop_failing")]),
         patch.object(main, "get_settings", return_value=MagicMock(log_level="DEBUG", environment="development")),
+        pytest.raises(RuntimeError),
     ):
-        with pytest.raises(RuntimeError):
-            async with main.bot_lifespan(app):
-                pass
+        async with main.bot_lifespan(app):
+            pass
     # 失败时清理路径被执行 (close 名匹配不上时走 suppress 分支, 不抛)
 
 
@@ -222,10 +222,10 @@ async def test_assist_lifespan_failure_cleanup():
         patch.object(main, "_ASSIST_INIT_STEPS", [_init_ok, _init_fail]),
         patch.object(main, "_ASSIST_CLOSE_STEPS", []),
         patch.object(main, "get_settings", return_value=MagicMock(log_level="DEBUG", environment="development")),
+        pytest.raises(RuntimeError),
     ):
-        with pytest.raises(RuntimeError):
-            async with main.assist_lifespan(app):
-                pass
+        async with main.assist_lifespan(app):
+            pass
 
 
 async def test_assist_lifespan_success():

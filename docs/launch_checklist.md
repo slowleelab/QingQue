@@ -162,7 +162,7 @@ curl http://lumio-bot:8000/api/health
 
 ### 5.1 测试 (必过)
 
-- [x] 单元测试覆盖率 >= 60% (branch coverage)
+- [x] 单元测试覆盖率 >= 80% (branch coverage)
 - [x] 集成测试 30 项 P0 全通过 (`tests/eval/integration_tests.py`)
 - [x] 红队测试 0 漏报 (`services/bot/eval/red_team.py`)
 - [x] 压测 1000 RPS P99 < 5s 错误率 < 1% (`scripts/load_test.py --ramp`)

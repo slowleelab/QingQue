@@ -38,7 +38,7 @@ make pre-commit
 | `make install` | 安装依赖（Poetry） |
 | `make dev` | 启动 Bot(:8000) + Assist(:8001)，--reload |
 | `make test` | 运行 pytest |
-| `make test-cov` | 覆盖率测试（≥60%，source = `lumio`） |
+| `make test-cov` | 覆盖率测试（≥80%，source = `lumio`） |
 | `make lint` | Ruff 检查并自动修复 |
 | `make format` | Ruff 格式化 |
 | `make type-check` | mypy 类型检查（src = `lumio`） |
@@ -77,7 +77,7 @@ make pre-commit
 
 - **框架**：pytest + pytest-asyncio（`asyncio_mode = "auto"`）
 - **Fixtures**：`bot_client` / `assist_client`（httpx.AsyncClient），见 `agent/tests/conftest.py`
-- **覆盖率**：≥60%，启用分支覆盖，source = `lumio`
+- **覆盖率**：≥80%，启用分支覆盖，source = `lumio`
 - **测试规模**：当前 728 条测试（其中 688 通过、40 跳过）
 
 ```bash

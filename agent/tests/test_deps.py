@@ -511,7 +511,7 @@ async def test_init_assist_orchestrator():
         patch("lumio.services.assist.script_service.ScriptService") as ss_cls,
         patch("lumio.services.assist.alert_engine.AlertEngine") as ae_cls,
         patch("lumio.services.assist.product_catalog.ProductCatalog"),
-        patch("lumio.services.assist.ai_executor.AIExecutor") as ai_cls,
+        patch("lumio.services.assist.ai_executor.AIExecutor"),
     ):
         await deps.init_assist_orchestrator(app)
     ss_cls.assert_called_once()
