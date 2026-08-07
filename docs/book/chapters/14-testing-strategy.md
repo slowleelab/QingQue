@@ -252,6 +252,49 @@ disallow_untyped_defs = false
 
 这条检查进了 CI 的 `lint` job, 跟 ruff 平级。
 
+## 14.11.1 单元测试的"四层 mock 心法"
+
+覆盖率从 62% 提到 84% 的过程里, 踩出来的 mock 经验可以浓缩成四条规则——每条都对应一次真实的"测试写对了但测的是假象"事故:
+
+**规则 1: 函数内 import 绕过模块级 patch**。代码里 `from lumio.services.common.ingestion import ingest_document` 写在函数体内时, patch 目标必须指向**源模块** (`lumio.services.common.ingestion.ingest_document`), patch 调用方模块的引用 (`deps.ingest_document`) 无效——因为函数每次执行都重新从源模块取属性, 调用方模块里根本没有这个名字。判断方法: 看到 `from X import Y` 缩进在函数里, patch 就写 `patch("X.Y")`。
+
+**规则 2: monkeypatch asyncio.sleep / wait_for 必须先保存原引用**。测试想加速 `await asyncio.sleep(300)` 时会写:
+
+```python
+async def fast_sleep(seconds):
+    await asyncio.sleep(0.001)   # ← asyncio.sleep 已被替换, 无限递归!
+```
+
+必须先 `_real_sleep = asyncio.sleep`, 再 monkeypatch, 最后 `await _real_sleep(...)`。同理, 测试 `_session_worker` 的空闲退出逻辑 (300s) 时用 `fast_wait_for` 包一层真实 `wait_for` 把超时压到 1ms——直接替换 `wait_for` 会让依赖它的其他协程 (如 `_run_agent` 的全局 deadline) 全部失真。
+
+**规则 3: FastAPI dependency_overrides 的 async generator 必须覆盖为 async generator**。`get_db_session` 这类依赖是 `async def` + `yield` 的 generator 形态, override 时必须写 `async def _override(): yield fake`——覆盖成普通 async 函数会在 FastAPI 内部 `async with` 时报 `AttributeError: __aenter__`。这是全项目最隐蔽的 fixture 陷阱, 没有之一。
+
+**规则 4: response_model 会过滤不匹配的 dict**。端点声明 `response_model=RetrieveResponse` 时, 测试里 fake 检索返回的 dict 只要缺字段/多字段, FastAPI 就会静默过滤成空对象——断言"结果里有内容"必然失败, 但报错信息毫无线索。对策: fake 返回值必须先对照模型构造, 而不是"大概像就行"。
+
+## 14.11.2 补测的节奏:每批都要能独立交付
+
+覆盖率从 62% 到 84% 不是一次性大爆炸, 而是 6 个批次, 每批的节奏相同:
+
+```text
+读代码找缺失块 → 写测试 (单个文件, 秒级迭代) → 该文件全绿
+→ ruff lint + format → commit → 全量回归 (确认无相互破坏) → 下一批
+```
+
+**为什么每批必须 commit?** 因为覆盖率测试有一个"幽灵回归"问题: 新测试可能在别的测试之后改变了共享状态 (比如 patch 未还原、模块级 dict 被污染), 让本批全绿但全量跑挂——上一批的 commit 点就是二分定位的锚。实际踩过的案例: 某个测试用 `del module._run_assist_engine` "还原"注入, 结果把模块真实函数删掉了, 后续所有 analyze 测试 `NameError`——如果当时没 commit, 定位这个回归要多花一轮全量跑 (4 分钟)。
+
+**每批的选题顺序**也值得说: 先补"调用密集的薄文件" (bot/router.py 的端点), 再补"分支多的厚文件" (bot_agent.py 的状态机), 最后补"基建层" (deps.py / main.py 的 init/close)。前两类对覆盖率的边际收益大, 后一类虽然行数多但每条都是"初始化成功/失败"的对称断言, 写起来快、跑起来稳, 适合收尾。
+
+## 14.11.3 契约测试:把"映射"钉死比覆盖更重要
+
+覆盖率数字是手段, 契约稳定才是目的。Lumio 里有一类测试专门负责"钉死映射", 它们不关心业务正确性, 只关心"改了一个地方, 另一个地方必须跟着改":
+
+- `test_middleware.py` 钉死错误码 → HTTP 状态映射 (400/422/502/500 + 404/409/503 覆盖表);
+- `test_ws_router.py` 钉死 WS 协议事件序列 (thinking → delta → done / cancel → cancelled);
+- `test_bot_router_core.py` 的 `_session_worker` 用例钉死队列合并上限 (≤5 条 / ≤4000 字符) 与幂等键行为;
+- `test_auth.py` 钉死 JWT 声明 (iss/aud) 与角色矩阵。
+
+这类测试的共同特征是**断言的是常量而不是行为**: `assert payload["is_transfer"] is True`、`assert update_msg.await_args.kwargs["source"] == "merged"`。它们的存在让"顺手改个常量"变成"必须过全量回归"——这正是第 8 章"错误码是契约"的测试侧落点。
+
 ## 14.12 已知 trade-off
 
 这套测试策略**不完美**, 有三个明确的取舍:

@@ -164,7 +164,7 @@ async def _session_worker(self, session_id: str) -&gt; None:
 <p><strong>灵智 (Lumio)</strong> — 银行信用卡场景的智能客服平台, 提供 AI Agent 实时坐席辅助 (Assist) 与 Bot 自助问答 (Bot) 两大核心能力.</p>
 </blockquote>
 <p>本系列文章覆盖 Lumio 项目全部 16,000 行 Python + 22 工具 Java + 24 个 Docker 服务的核心设计决策. 文中所有行号引用 <code>file_path:line</code> 形式, 配 mermaid 图, 行号以最新代码为准.</p>
-<p><strong>总规模</strong>: 17 章节 / ~75,000 字 / 7 张 mermaid 图 / 2 附录.</p>
+<p><strong>总规模</strong>: 17 章节 / ~95,000 字 / 7 张 mermaid 图 / 2 附录.</p>
 <hr />
 <h2 id="目录">目录</h2>
 <h3 id="序言与索引">序言与索引</h3>
@@ -4755,6 +4755,86 @@ if result.source in (&quot;template&quot;, &quot;fallback&quot;) and not should_
 <li><code>test_generic_error_production_hides_type</code> 验证生产环境 <code>type</code> 字段为 <code>InternalError</code>。</li>
 </ul>
 <p><code>agent/tests/test_auth.py</code> 则覆盖了 1001 / 1003 两条认证线的具体路径:<code>test_decode_invalid_token_raises</code> / <code>test_decode_expired_token_raises</code> 触发 1001,<code>test_require_role_rejects_wrong_role</code> 触发 1003。<strong>全链路契约通过这两个文件钉住,任何重构改了映射或响应体都会立刻红灯</strong>。</p>
+<h2 id="一条消息的四种错误命运:chat_send-全链路错误落点">一条消息的四种错误命运:chat_send 全链路错误落点</h2>
+<p>错误码设计得再漂亮, 最终要看业务代码怎么用它。以 Bot 入口 <code>chat_send</code>(<code>bot/router.py:1130</code>)为例, 一条客户消息从进来到落库, 沿途有 4 个"错误落点", 每个落点对应不同的码段:</p>
+<table>
+<thead>
+<tr>
+<th>落点</th>
+<th>触发条件</th>
+<th>错误码</th>
+<th>HTTP</th>
+<th>客户看到</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入校验</td>
+<td>空消息 (含全角空格/零宽字符清洗后为空)</td>
+<td>2001 <code>IntentUnrecognizedError</code></td>
+<td>400</td>
+<td>"消息内容不能为空"</td>
+</tr>
+<tr>
+<td>注入拦截</td>
+<td>命中已知注入模式 (忽略指令/角色混淆)</td>
+<td>2001 <code>IntentUnrecognizedError</code></td>
+<td>400</td>
+<td>"消息内容不符合规范"</td>
+</tr>
+<tr>
+<td>业务规则</td>
+<td>per-customer 活跃会话达上限</td>
+<td>3010 <code>BusinessError</code></td>
+<td>409</td>
+<td>"同时进行的会话数量已达上限"</td>
+</tr>
+<tr>
+<td>系统过载</td>
+<td>Redis 未就绪 (Stream 不可写)</td>
+<td>5002 <code>ServiceOverloadedError</code></td>
+<td>503</td>
+<td>"Redis 未就绪, 无法接收消息"</td>
+</tr>
+</tbody>
+</table>
+<p>这个表格回答了一个常见疑问: <strong>为什么"空消息"和"注入攻击"都是 2001?</strong> 因为从调用方的视角看, 两者都是"你发来的内容不可用", 修复动作都是"重新描述需求"——前端拿到 400 后展示的交互提示几乎一致, 细分错误码反而会让攻击者获得"我的注入模式被识别到了"的反馈。安全语义通过日志里的 <code>pattern</code> 字段保留(<code>router.py</code> 的 <code>logger.warning("注入拦截 (入口): session=%s pattern=%s", ...)</code>), 客户端只拿到统一的 2001。</p>
+<p><code>chat_send</code> 里还有一个值得注意的顺序: <strong>注入检查在敏感词检查之前, 业务规则检查在幂等检查之前</strong>。顺序不是随手排的——注入必须最先拦 (成本最低), 幂等必须在写入 Stream 之前 (否则重复提交会 XADD 两次, 消费侧幂等键 <code>_mark_processed</code> 虽然能兜底, 但白白占一次 Stream 带宽)。</p>
+<h2 id="BusinessError-3010:一个&quot;能说话&quot;的业务异常">BusinessError 3010:一个"能说话"的业务异常</h2>
+<p><code>BusinessError</code>(<code>exceptions.py:216</code>)是错误体系里最特殊的一个: 它的 <code>code</code>、<code>message</code>、<code>status_code</code> 三个属性全部可以在 <code>__init__</code> 里覆写, 而其他错误类要么只覆写 message, 要么完全用类属性:</p>
+<pre><code class="language-python">class BusinessError(LumioError):
+    &quot;&quot;&quot;3010: 通用业务规则错误 (如 per-customer 会话上限)&quot;&quot;&quot;
+    code = 3010
+    message = &quot;业务规则不允许&quot;
+
+    def __init__(self, message: str | None = None) -&gt; None:
+        super().__init__(code=self.code, message=message or self.message, status_code=409)
+</code></pre>
+<p>设计动机: 业务规则的失败信息<strong>必须带着具体限制</strong>才有意义——"同时进行的会话数量已达上限 (3), 请先结束其他会话"比"业务规则不允许"对客户的指导价值完全不同。而错误码段位 3xxx 默认映射 422, 但"规则不允许"在 REST 语义上更接近冲突, 因此 <code>_HTTP_STATUS_OVERRIDES</code> 里显式登记了 <code>BusinessError.code: 409</code>(<code>middleware.py:31</code>)。</p>
+<p><strong>注意 409 的覆盖是"登记制"</strong>: 新增业务规则错误时, 如果漏了在 <code>_HTTP_STATUS_OVERRIDES</code> 登记, 它就会静默回落到 422——这是这个设计里最隐蔽的坑, 也是 <code>test_middleware.py</code> 里专门有一条 <code>test_business_error_returns_409</code> 钉死该映射的原因。</p>
+<h2 id="错误-vs-降级:两种&quot;失败&quot;的边界">错误 vs 降级:两种"失败"的边界</h2>
+<p>Lumio 把"请求失败"和"内容降级"严格分成两个概念, 这是很多系统混淆的地方:</p>
+<ul>
+<li><strong>错误 (Error)</strong>: 请求本身无法完成, 返回 4xx/5xx + 统一错误体。前端据此分支 (重试/提示)。</li>
+<li><strong>降级 (Degradation)</strong>: 请求完成了, 但内容是次优的——LLM 挂了, 返回模板话术; 检索双路挂一路, 返回单路结果。HTTP 200, 前端无感。</li>
+</ul>
+<p>降级不抛异常, 而是由 <code>ContentDegrader</code> 与 <code>DegradationManager</code> 在编排层内部接管, 并用 <code>lumio_degradation_level</code> Gauge (0=normal / 1=degraded / 2=fallback) 暴露当前降级深度。<strong>为什么降级也要可观测?</strong> 因为"客户问账单, Bot 回了模板话术"在 HTTP 层看起来完全正常, 只有指标能告诉运维"这个小时 40% 的回复是降级产物"——这就是第 10 章 <code>lumio_agent_responses_total{source="template"}</code> 与 <code>lumio_degradation_level</code> 两个指标存在的意义。</p>
+<p>边界案例: 降级回复含"请输入转人工"字样, 但<strong>转人工本身真实触发</strong>(<code>bot_agent.py</code> 的 <code>should_transfer = True; transfer_reason = "degraded_template: ..."</code>)。这是刻意为之——LLM 不可用时客户诉求不能被"软拒绝", 降级 + 真实转接 = 既保住可用性又不欺骗客户。</p>
+<h2 id="LLM-错误包装规则:两个-4xxx-的边界判定">LLM 错误包装规则:两个 4xxx 的边界判定</h2>
+<p><code>LLMTimeoutError</code> (4001) 与 <code>LLMInferenceError</code> (4002) 是运行时最难区分的两个错误, <code>llm.py</code> 用三条规则把边界钉死:</p>
+<ol>
+<li><strong>超时看墙钟</strong>: <code>asyncio.wait_for</code> 抛 <code>TimeoutError</code> → <code>LLMTimeoutError</code> (命中断路器 + 重试计数);</li>
+<li><strong>推理失败看调用结果</strong>: 非 2xx 状态码 / JSON 解析失败 → <code>LLMInferenceError</code>;</li>
+<li><strong>空响应是失败不是超时</strong>: 模型返回 200 但 <code>content</code> 为空 → 重试 (<code>0.5 * 2^attempt</code> 退避), 重试耗尽后 <code>record_failure()</code> + <code>LLMInferenceError</code>——<strong>绝不用 <code>LLMTimeoutError</code> 包装</strong>。</li>
+</ol>
+<p>第 3 条规则有一个隐蔽的坑: 如果把空响应也包装成超时, 断路器会误判"上游超时频发"而提前熔断, 实际只是模型输出策略问题 (比如 temperature=0 导致重复词被截断成空)。<code>llm.py</code> 里因此有一行专门的保护:</p>
+<pre><code class="language-python">except LLMInferenceError:
+    raise  # 空响应错误不重包装成 LLMTimeoutError
+</code></pre>
+<p>这行代码的价值在线上故障时才能体现: 如果某天 Grafana 显示 <code>llm_timeout</code> 突增, 排障的第一步就是确认这些超时是不是"空响应被误包装"——有这行保护, 该指标就只反映真实超时。</p>
+<h2 id="客户端幂等:错误恢复的最后一道防线">客户端幂等:错误恢复的最后一道防线</h2>
+<p>at-least-once 语义下, 客户端重试、XAUTOCLAIM 重投递、双击提交都可能让同一条消息被处理两次。<code>_mark_processed</code>(<code>bot/router.py:231</code>)用 <code>lumio:processed:{message_id}</code> 幂等键 (TTL 300s, 覆盖 XAUTOCLAIM 60s 重投窗口) 保证"同一条消息只执行一次 Agent"。</p>
+<p>幂等键的写入时机有讲究: <strong>处理完成后才写, 处理中不写</strong>。如果处理开始就写, 一旦 Agent 崩溃, 重投递的消息会被幂等键挡住, 客户消息就永久丢失了。反过来, 处理完成后不写, 重投递就会重复执行敏感操作 (比如重复挂失)。"完成才写" + "消费侧跳过已处理" 的组合, 在"不丢消息"和"不重复操作"之间取了正确的优先级——银行场景下, 丢消息比重复通知更不可接受。</p>
 <h2 id="小结与反思">小结与反思</h2>
 <p>Lumio 的错误处理经历了三个阶段:P0 设计 5 段码 + 异常类层次,P1 补上 request_id 与 PII 脱敏,P2/P3 收口合规与可观测性。这套体系的关键不是"错误码多",而是"错误码的语义稳定 + 响应体形态统一 + 全链路可追踪"。下一步值得讨论的是:错误码是否需要国际化和多语言?是否要把 5 段扩展到 6 段(增加 6xxx 表示"用户主动取消")?这些演进将在附录 A 术语表与后续章节中展开。</p>
 <blockquote>
@@ -4939,6 +5019,63 @@ Index(
 <li><strong>TestParse</strong> (<code>:95</code>): Markdown token 树 / TXT 直通</li>
 </ul>
 <p>其中 <code>test_chunk_respects_chinese_sentence_boundary</code> (<code>:81</code>) 是最关键的一条: 它构造一段长文本断言 chunk 边界落在 <code>。</code> 而非中段, 直接锁定了第 9.4 节的优先级约定. Milvus 写入和 ES 回滚走集成测试 (需要真集群), 不在单测范围.</p>
+<h2 id="9.9.1-上传入口:从-HTTP-文件到-5-阶段管线的&quot;最后一公里&quot;">9.9.1 上传入口:从 HTTP 文件到 5 阶段管线的"最后一公里"</h2>
+<p>摄入管线的上游是 <code>upload_document</code> 端点 (<code>bot/router.py:1443</code>), 这一段的职责不是"解析文档", 而是<strong>在文件进管线之前把一切可预判的失败挡掉</strong>。三个检查按成本从低到高排列:</p>
+<ol>
+<li><strong>扩展名白名单</strong> (<code>_ALLOWED_EXTENSIONS</code>): <code>.pdf/.docx/.html/.md/.txt/.xlsx</code> 六个后缀, 其余一律 400 (<code>DocumentFormatError</code> 2010)。白名单比黑名单安全——<code>.exe</code>/<code>.sh</code> 这类可执行文件连进入对象存储的机会都没有。</li>
+<li><strong>文件大小上限 50MB</strong>: 优先读 <code>Content-Length</code> header (不读 body 就能拒绝), header 缺失时才读完整内容后按 <code>len(content_bytes)</code> 判定。50MB 是经验值: 银行 PDF 章程通常 5-20MB, 批量上传峰值留 2-3 倍冗余; 再大就应走对象存储分片上传, 不应塞 HTTP body。</li>
+<li><strong>SHA-256 内容哈希</strong>: <code>content_hash</code> 写入 <code>kb_document</code>, 同一份文件重复上传时可按哈希识别去重, 也是将来做"内容变更检测" (内容变但文件名没变) 的锚点。</li>
+</ol>
+<p>三个检查过后, 文件才进 MinIO (<code>{category}/{filename}</code> 二级 key), 再创建 <code>KbDocument</code> 记录 (status=<code>PENDING</code>), 最后调用 <code>ingest_document()</code> 触发 5 阶段管线并回写最终状态 (<code>COMPLETED</code> / <code>FAILED</code>)。<strong>注意端点的返回不阻塞在摄入完成</strong>: <code>ingest_document</code> 是 await 的, 但状态字段 (<code>doc.status</code>) 的最终值由摄入结果回填, 客户端可以通过 <code>GET /kb/documents/{doc_id}/status</code> 轮询——上传接口永远先返回, 长耗时在后台完成。</p>
+<p><strong>为什么摄入异常不向上抛?</strong> <code>upload_document</code> 里对 <code>ingest_document</code> 的调用包在 <code>try/except</code> 里, 异常时只把 <code>kb_doc.status</code> 置为 <code>FAILED</code>。这样"文件已收、摄入失败"不会让客户端拿到 500 重试上传——重试摄入比重传文件便宜得多 (MinIO 里已经有原件了)。</p>
+<h2 id="9.9.2-元数据如何影响检索:过滤不是检索后做的">9.9.2 元数据如何影响检索:过滤不是检索后做的</h2>
+<p><code>DocumentMetadata</code> 是摄入时写入、检索时消费的"契约"。它携带 8 个字段, 其中 5 个是检索过滤键:</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>检索语义</th>
+<th>典型值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>category</code></td>
+<td>业务分类过滤</td>
+<td><code>fee</code> / <code>promo</code> / <code>rule</code></td>
+</tr>
+<tr>
+<td><code>card_type</code></td>
+<td>卡种过滤</td>
+<td><code>gold</code> / <code>visa</code> / 空=全卡种</td>
+</tr>
+<tr>
+<td><code>customer_tier</code></td>
+<td>客户等级过滤</td>
+<td><code>vip</code> / 空=全员可见</td>
+</tr>
+<tr>
+<td><code>security_level</code></td>
+<td>密级过滤</td>
+<td><code>internal</code> / <code>confidential</code></td>
+</tr>
+<tr>
+<td><code>keywords</code></td>
+<td>检索时加权/扩展</td>
+<td>逗号分隔, 摄入时拆分</td>
+</tr>
+</tbody>
+</table>
+<p><strong>设计要点: 过滤键在摄入时就要写对, 检索时只能消费</strong>。如果文档上传时漏填 <code>card_type</code>, 检索端不会"猜"——空值按"对全卡种可见"处理, 而不是按"对谁都不可见"处理。这符合银行知识库的可见性直觉: 未标注的文档默认公开给所有坐席, 密级文档必须显式标注才受限。</p>
+<p><code>keywords</code> 的拆分逻辑 (<code>[k.strip() for k in keywords.split(",") if k.strip()]</code>) 有一个边界: 全角逗号 <code>，</code> 不会被拆分——上传文档的人用中文输入法很容易踩中, 表现为"关键词只有一个超长串"。这是刻意保持的简单行为, 因为自动做全角归一化会引入"关键词被意外合并"的另一个错误方向, 而检索端对空关键词有兜底 (退化到纯 BM25 全文匹配)。</p>
+<h2 id="9.9.3-摄入失败后怎么重试:PARTIAL-索引-+-幂等重建">9.9.3 摄入失败后怎么重试:PARTIAL 索引 + 幂等重建</h2>
+<p>摄入失败 (ES 或 Milvus 写入异常) 后, 重试不是"重新上传一遍", 而是<strong>用相同的 <code>chunk_id</code> 重建索引</strong>:</p>
+<ol>
+<li>失败时 <code>doc.status = FAILED</code>, 但 <code>kb_chunk</code> 行 (含 <code>chunk_id</code>) 已经落库;</li>
+<li>后台重试 worker 通过 3 个 PARTIAL 索引 (<code>embedding_status='PENDING'</code> / <code>es_indexed=false</code> / <code>milvus_indexed=false</code>) 扫出未完成的 chunk;</li>
+<li>重试时 ES 用 <code>index</code> (upsert 语义) 而非 <code>create</code>——同 <code>chunk_id</code> 幂等覆盖, 不会产生重复文档。</li>
+</ol>
+<p>这个设计的巧妙之处在第 12 章的 <code>es_indexed</code> / <code>milvus_indexed</code> 状态字段: <strong>PG 是真相之源, ES/Milvus 只是投影</strong>。即使两个检索引擎的数据短暂不一致, worker 也能从 PG 的 PARTIAL 索引精确知道"哪些 chunk 缺哪个引擎", 不需要去对账两个外部系统。这也是为什么第 12.7 节的降级路由 (单路召回) 能成立——降级前先看 PG 状态, 而不是试错。</p>
 <h2 id="9.10-小结">9.10 小结</h2>
 <p>Lumio 的摄入管线把" 让 ES 和 Milvus 数据一致" 这个难题拆成 5 个串行阶段 + 1 个对账回滚路径. Parse 阶段屏蔽 6 种格式差异, Clean 阶段用 5 步正则清洗噪声, Chunk 阶段在中文句末优先断点, Embed 阶段走 128 批 TEI + 3/2/30s 熔断器, Dual-Write 阶段用 ES 先 / Milvus 后 + <code>_rollback_es_docs</code> 保证原子性. 7 阶段 <code>kb_ingestion_log</code> 是出问题时的第一现场, 部分唯一索引让版本管理不依赖应用层逻辑.</p>
 <blockquote>
@@ -5315,6 +5452,79 @@ if route is not None and hasattr(route, &quot;endpoint&quot;):
 </table>
 <p><code>ServiceDown</code> 是唯一 critical,因为单个服务下线意味着用户体验直接受损;其余都是 warning,给 SRE 留出调查窗口。两类工具错误率分开告警是因为 MCP 错误可能来自下游 Java 服务,Python 侧错误可能来自编排逻辑,二者的根因和处置路径完全不同。</p>
 <p>告警规则里有几个值得展开的细节:<code>clamp_min(..., 1e-9)</code>(<code>alerts.yml:23-24</code>)在分母为 0 时兜底,避免 <code>rate(...)/0</code> 出现 <code>NaN</code>(Prometheus 对 <code>NaN</code> 的处理是"不触发告警",反而让错误隐藏);<code>histogram_quantile(0.99, sum(rate(...)) by (le))</code>(<code>alerts.yml:49</code>)的分位计算必须在 <code>by (le)</code> 之后聚合,这是新人常踩的坑;所有 warning 都用 <code>for: 5m</code> 过滤掉抖动——如果用 <code>for: 1m</code>,一次 GC 抖动就会拉一堆告警,让 on-call 同学对告警失去敏感度。<code>Alertmanager</code> 在配置里是 opt-in,默认只让 Prometheus 把告警状态显示在 UI 的 Alerts 页,适合还没接 Slack/钉钉的小团队。</p>
+<h2 id="10.6.1-三个业务指标的完整生命周期:fast_reply-/-timeout-/-merge">10.6.1 三个业务指标的完整生命周期:fast_reply / timeout / merge</h2>
+<p><code>lumio_*</code> 业务域里最容易让新人困惑的是三个"消息命运"计数: <code>fast_reply</code>、<code>timeout</code>、<code>merge</code>。它们不是独立存在的, 而是同一条消息在 Bot 队列里不同命运的分支, 全部由 <code>_metrics</code> 字典 (<code>bot/router.py:933</code>) 汇总, 再同步到 Gauge:</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>触发场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lumio_fast_reply_total</code></td>
+<td>信号量满荷时的模板兜底</td>
+<td>高峰期 Semaphore(10) 全占, 新消息不等 Agent, 直接回固定话术</td>
+</tr>
+<tr>
+<td><code>lumio_stream_pending_total</code>(timeout 累计在 stats)</td>
+<td>消息过期/重试耗尽</td>
+<td><code>_enqueue_time</code> 超过 <code>message_ttl=8s</code>, 或 XAUTOCLAIM 重试 3 次失败</td>
+</tr>
+<tr>
+<td>merge (stats <code>merge_total</code>)</td>
+<td>调用前队列检查时合并的消息数</td>
+<td>用户连续发多条消息, worker 合并 ≤5 条/≤4000 字符后一次 LLM 调用</td>
+</tr>
+</tbody>
+</table>
+<p><strong>用这三个指标排一次"回复慢"的故障</strong>: 客户反馈"高峰期消息 30 秒不回"。先看 <code>lumio_fast_reply_total</code> 的 <code>rate()</code>——如果陡增, 说明信号量持续满荷, 回复其实是"快速兜底话术"而不是 Agent 回复, 方向是扩容或降并发; 如果 fast_reply 没动但 <code>BOT_SEMAPHORE_UTILIZATION</code> 贴近 1.0, 说明 Agent 处理本身在排队, 方向是查 LLM 延迟; 如果两个都没动但 <code>stream_pending</code> 的 PEL 持续堆积, 方向是查消费 worker 是否存活 (XAUTOCLAIM 是否在认领)。<strong>一个指标回答不了的问题, 三个指标的组合可以</strong>——这就是为什么它们被刻意做成三个独立时序而不是一个聚合值。</p>
+<p><code>_metrics</code> 的同步机制值得一提: 它由 <code>_monitoring_loop</code> 后台协程每 15s 采样一次 (PEL 数、Stream 长度、活跃 worker 数、信号量利用率), 写入四个 Prometheus Gauge (<code>BOT_STREAM_PENDING</code> / <code>BOT_STREAM_LENGTH</code> / <code>BOT_ACTIVE_WORKERS</code> / <code>BOT_SEMAPHORE_UTILIZATION</code>), 同时 <code>/health</code> 端点返回同一份快照。<strong>指标与健康检查共享数据源</strong>——SRE 在 Grafana 看到的值, 和调用 <code>/health</code> 看到的值永远一致, 不会出现"仪表盘说满了, 健康检查说正常"的对不上。</p>
+<h2 id="10.6.2-一条日志的完整-schema">10.6.2 一条日志的完整 schema</h2>
+<p>JSON 日志的字段不是随手列的, 每个字段都有消费方:</p>
+<pre><code class="language-json">{
+  &quot;timestamp&quot;: &quot;2026-08-05T10:23:45.123Z&quot;,
+  &quot;level&quot;: &quot;WARNING&quot;,
+  &quot;logger&quot;: &quot;lumio.services.bot.router&quot;,
+  &quot;message&quot;: &quot;客户输入包含敏感词: session=abc123 hits=['赌博']&quot;,
+  &quot;module&quot;: &quot;router&quot;,
+  &quot;function&quot;: &quot;chat_send&quot;,
+  &quot;line&quot;: 1173,
+  &quot;trace_id&quot;: &quot;8c4a1d2e3b4f4a2e9c1d2e3f4a5b6c7d&quot;,
+  &quot;span_id&quot;: &quot;3f2a1b4c&quot;,
+  &quot;extra&quot;: {&quot;request_id&quot;: &quot;req-001&quot;, &quot;session_id&quot;: &quot;abc123&quot;},
+  &quot;exception&quot;: null
+}
+</code></pre>
+<ul>
+<li><code>logger/module/function/line</code> 四件套给 Loki 的 <code>|=</code> 字段查询用——排障第一步永远是 <code>{logger="lumio.services.bot.router"} |= "敏感词"</code>;</li>
+<li><code>trace_id/span_id</code> 只在有活跃 span 时出现 (<code>TraceContextFilter</code> 的"零噪声"设计), 从日志跳 Jaeger 的入口;</li>
+<li><code>extra</code> 是业务侧用 <code>logger.warning(..., extra={...})</code> 注入的结构化字段, JSON formatter 把它展开到顶层——<strong>不要在 message 里拼 key=value 字符串</strong>, 那是让 Loki 解析器白干活的写法;</li>
+<li><code>exception</code> 由 <code>logger.exception</code> 自动携带完整 traceback, 生产环境错误响应虽然抹平了类名, 但 traceback 完整保留在日志里。</li>
+</ul>
+<h2 id="10.6.3-审计日志的一次完整案例">10.6.3 审计日志的一次完整案例</h2>
+<p>审计中间件的"事后账本"属性, 用一次 <code>hold_session</code> 调用看最直观:</p>
+<pre><code class="language-text">actor_id=agent-07  actor_role=agent  action=session.hold
+target_type=session  target_id=sess-9f8a  method=POST
+path=/api/session/sess-9f8a/hold  status_code=200  elapsed_ms=32
+</code></pre>
+<p>这条记录同时写 <code>audit_log</code> 表 (合规取证) 和 stdout JSON (ELK 聚合), 两者字段一致。<strong>为什么 <code>action</code> 是 <code>session.hold</code> 而不是路径字符串?</strong> 因为路径推断在 <code>PUT /api/v1/session/{id}/hold</code> 这类路径上存在歧义 (<code>/update</code> 子串会先命中), 而 <code>_ENDPOINT_ACTION_MAP</code> 按函数名 <code>hold_session</code> 精确映射——函数名是代码里唯一的, 路径不是。</p>
+<p>审计里还有一个细节: <code>_AUDITED_METHODS</code> 只含 POST/PUT/PATCH/DELETE, GET 不审计。这是刻意的——纯读操作不改变状态, 不需要合规留痕, 而且 GET 占了流量大头, 全量审计会淹没真正有意义的变更记录。<strong>审计日志是给"谁改了什么"用的, 不是给"谁看了什么"用的</strong>——后者由 PII 脱敏 + 访问控制负责, 不在审计范围。</p>
+<h2 id="10.6.4-WS-通道的-trace-恢复:一条消息两种入口">10.6.4 WS 通道的 trace 恢复:一条消息两种入口</h2>
+<p>HTTP 请求的 trace 由中间件自动创建, 但 Bot 的消息处理走 Redis Stream + 后台 worker——<strong>worker 里没有 HTTP span, trace 怎么串?</strong> 答案在 <code>_session_worker</code>(<code>bot/router.py:408</code>):</p>
+<pre><code class="language-python">trace_raw = fields.get(&quot;_trace_context&quot;, &quot;&quot;)        # HTTP 入口写入的 trace 上下文
+tid = int(parts[0], 16); sid = int(parts[1], 16)
+sc = SpanContext(trace_id=tid, span_id=sid, is_remote=True, trace_flags=flags)
+parent_ctx = otel_trace.set_span_in_context(NonRecordingSpan(sc))
+otel_token = context.attach(parent_ctx)             # 链接到 HTTP span
+try:
+    ... # Agent 处理, 所有日志自动带上原 trace_id
+finally:
+    context.detach(otel_token)                      # 处理完必须释放, 防泄漏到下一个消息
+</code></pre>
+<p>设计要点有两个: 一是<strong>入队时序列化, 出队时恢复</strong>——<code>chat_send</code> 把当前 span 的 <code>trace_id:span_id:flags</code> 十六进制拼进 Stream 消息, worker 取出后重建 <code>SpanContext</code>; 二是<strong><code>finally</code> 里必须 detach</strong>——<code>context.attach</code> 返回的 token 不释放的话, 下一条消息的日志会错误地继承上一条的 trace_id, 排障时"两条无关消息串在同一条 trace 里"是最迷惑人的假象。非法 trace 字符串 (比如第三方客户端伪造) 会被 <code>try/except</code> 静默忽略, 不阻断消息处理。</p>
 <h2 id="10.7-小结">10.7 小结</h2>
 <p>Lumio 的可观测性是按"开发愿意用、运维信得过"双向目标设计的:开发侧只有 <code>@traced</code> 一行成本,业务代码不需要 import OTel 包;运维侧有 17 指标 + 3 dashboard + 6 告警的标准化视图。"反馈循环"、"路由元数据精确审计"、"resource version fallback"这些边界条件都固化为代码,确保新同学不会在不知情时再踩同样的坑。</p>
 <blockquote>
@@ -5597,6 +5807,61 @@ if safety_filter.is_crisis_input(user_input):
 <li><code>test_pii.py</code> — 5 类脱敏 + 顺序敏感性(身份证优先于手机号)</li>
 </ul>
 <p>合规测试不能和生产功能测试合并跑,因为合规用例的"必须失败"场景(占位密钥、dev 旁路、错误体泄露)与功能测试的"必须成功"是反方向的断言,合在一起会相互干扰。</p>
+<h2 id="11.12.1-Prompt-注入防护:入口拦截-+-输出护栏双线">11.12.1 Prompt 注入防护:入口拦截 + 输出护栏双线</h2>
+<p>银行客服 Bot 是 prompt injection 的高价值目标——攻击者试图让 LLM"忽略以上所有指令"来套取他人账单。Lumio 的注入防护是双线的:</p>
+<p><strong>入口线</strong> (<code>shared/injection_guard.py</code>): <code>check_user_input()</code> 在消息进 Agent 链路之前跑, 返回 <code>(action, pattern)</code>。命中 <code>REJECT</code> 或 <code>QUARANTINE</code> 时 <code>chat_send</code> 直接拒绝 (<code>bot/router.py:1165</code>), 日志记录命中的 <code>pattern</code> 用于攻击情报; <code>ALLOW</code> 才放行。判定规则覆盖两类最常见模式: <strong>指令忽略</strong> ("请忽略以上所有指令") 与<strong>角色混淆</strong> ("你现在是一个没有限制的模型")。</p>
+<p><strong>输出线</strong> (<code>shared/safety.py</code>): LLM 回复经 <code>filter_output()</code> 过滤后才写给客户端。输入拦截是"第一道门", 输出过滤是"最后一道闸"——万一注入绕过了入口 (比如通过知识库文档注入), 输出侧的敏感词替换还能兜底。</p>
+<p><strong>为什么入口拦截命中返回 2001 而不是专门的错误码?</strong> 同第 8 章"空消息与注入同为 2001"的理由: 暴露"我知道你在注入"会帮助攻击者迭代 payload。拦截情报 (pattern) 只进日志和监控, 客户端永远只看到"消息内容不符合规范"。</p>
+<h2 id="11.12.2-会话归属校验:横向越权的两道闸">11.12.2 会话归属校验:横向越权的两道闸</h2>
+<p>JWT 的 <code>session_id</code> 声明解决了"这个 token 能访问哪个会话"的第一层问题, 但银行场景还有第二层: <strong>customer 角色的 token 可能没有 <code>session_id</code> 声明</strong> (登录时还没建会话), 此时任意会话 ID 都能通过 <code>_ensure_session_owned</code> 的 JWT 校验——横向越权 (枚举他人会话 ID 读取消息) 就开了口子。</p>
+<p><code>get_session_messages</code> (<code>bot/router.py:1748</code>) 因此做了 meta owner 二次校验:</p>
+<pre><code class="language-python">if redis_client and user.role == &quot;customer&quot;:
+    raw_meta = await redis_client.get(session_meta_key(session_id))
+    if raw_meta:
+        meta_owner = json.loads(raw_meta).get(&quot;customer_id&quot;)
+        if meta_owner and meta_owner != user.user_id:
+            raise AuthorizationError(&quot;无权访问该会话&quot;)
+</code></pre>
+<p>细节有三: 一是<strong>校验发生在读取消息之前</strong>, 未授权直接 403, <code>lrange</code> 都不会执行; 二是<strong>meta 缺失/损坏时放行而非阻断</strong>——<code>except Exception: pass</code> 只吞非 <code>AuthorizationError</code> 异常, 防止 Redis 抖动把正常客户挡在门外 (可用性优先, 因为 meta 由会话创建流程保证, 缺失本身是异常态); 三是 <strong>admin/agent 角色跳过此校验</strong>, 坐席需要跨会话工作, 由角色的 <code>require_role</code> 而不是 owner 校验约束。</p>
+<p><code>list_sessions</code> 的过滤是同一原则的列表形态: customer 只返回 <code>customer_id</code> 等于自己的会话, 不存在"先全量查再在内存里过滤"的写法——SQL/Redis 查询条件直接带 owner, 从源头杜绝越权数据出库。</p>
+<h2 id="11.12.3-差异化限流:登录-30/min,-健康探针豁免">11.12.3 差异化限流:登录 30/min, 健康探针豁免</h2>
+<p><code>shared/rate_limit.py</code> 的限流不是"全局一刀切", 而是按端点差异化:</p>
+<ul>
+<li><code>chat_send</code> 限 <code>30/minute</code>, 且按<strong>用户级 key</strong> 计数 (<code>user:{user_id}</code>)——防止 NAT 后的多客户端共享一个公网 IP 被整体误杀;</li>
+<li><code>login</code> 类高频滥用通道单独收紧;</li>
+<li><code>/health</code> / <code>/health/live</code> / <code>/health/ready</code> 用 <code>@get_limiter().exempt</code> 显式豁免——LB 的健康检查每 5s 打一次, 如果计入限流, 流量高峰时实例会因 429 被误判不可用而摘除, 造成"假故障"。</li>
+</ul>
+<p><strong>为什么豁免而不是调高阈值?</strong> 健康探针的请求特征是"固定节奏、无业务含义", 给它配额等于在流量高峰时让探针和真实客户抢额度。豁免是语义正确的做法——限流保护的是业务入口, 不是基础设施的存活信号。</p>
+<h2 id="11.12.4-GDPR-删除:一条请求,-三个存储的清理">11.12.4 GDPR 删除:一条请求, 三个存储的清理</h2>
+<p><code>gdpr_delete</code> (<code>bot/router.py:1674</code>) 是合规删除的端到端实现, 一条删除请求要清理三个存储:</p>
+<table>
+<thead>
+<tr>
+<th>存储</th>
+<th>清理内容</th>
+<th>失败处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Redis</td>
+<td>会话 meta / history / 槽位 / 画像</td>
+<td>尽力而为, 异常吞掉</td>
+</tr>
+<tr>
+<td>PostgreSQL</td>
+<td><code>chat_message</code> 等会话数据</td>
+<td>软删除或物理删除 (按配置)</td>
+</tr>
+<tr>
+<td>Elasticsearch</td>
+<td><code>{prefix}_dialogue</code> 与 <code>{prefix}_kb_chunks</code> 中的客户数据</td>
+<td>尽力而为</td>
+</tr>
+</tbody>
+</table>
+<p>设计要点: <strong>删除是"尽力而为 + 留痕"而不是"要么全成要么全败"</strong>。银行合规要求"客户提出删除后必须删除", 但三个存储的可用性各不相同——如果 ES 恰好抖动, 把整个删除请求回滚为失败, 客户再点一次可能还是失败。正确姿势是: 能删的全删, 删不了的记日志 + 打点, 由后台对账任务补删。</p>
+<p><strong>谁可以发起?</strong> 本人或 admin (<code>require_role("admin")</code> 或 <code>customer_id</code> 匹配)。这是 11.2.4 权限矩阵里唯一允许 customer 主动调用的管理类操作——GDPR 的"被遗忘权"是客户权利, 不能只允许管理员代劳。</p>
 <h2 id="11.13-小结">11.13 小结</h2>
 <p>Lumio 的安全合规不是某一个库或某一段代码的功劳,而是<strong>5 层独立防线</strong>的协同:边缘网关挡 DDoS、JWT 验身份、RBAC 验权限、PII 守数据、审计留证据。合规不是一次性合规,而是每次发版前都要重新过一遍的清单。</p>
 <p>下次设计新接口时,先问自己 4 个问题:谁会调?会带什么 PII?出错时给客户看什么?事后谁来查?这 4 个问题的答案,会自然引导你走完本章的 5 层防御。</p>
@@ -6070,6 +6335,37 @@ except Exception as e:
 </tbody>
 </table>
 <p>ES 与 Milvus 的"互相降级"是 RAG 鲁棒性的关键。检索层在调用前先做健康探测, 失败时自动切换到单路, 召回率会下降但可用性保住。这也是为什么 12.5 节的双写必须对两个引擎都标记 <code>es_indexed</code> / <code>milvus_indexed</code> 状态——降级路由需要从 PG 读出"哪个引擎对哪些 chunk 是就绪的"。</p>
+<h2 id="12.7.1-消息双通道:Stream-管可靠性,-per-session-Queue-管顺序">12.7.1 消息双通道:Stream 管可靠性, per-session Queue 管顺序</h2>
+<p>12.4.3 讲了 <code>lumio:chat:stream</code> 的 Consumer Group, 但"消息被消费"和"消息被按顺序处理"是两回事。Lumio 在 Stream 和 Agent 之间还有一层<strong>每会话独占的 asyncio.Queue</strong> (<code>bot/router.py:328</code>):</p>
+<pre><code class="language-text">XADD Stream → XREADGROUP (10 条/批) → create_task 分发
+                                          ↓
+                          per-session Queue (保序)
+                                          ↓
+                          per-session Worker (串行消费)
+</code></pre>
+<p>为什么需要两层? Stream 的 Consumer Group 只能保证"一条消息只被一个 consumer 读到", 不保证"同一个会话的消息被同一个 worker 按序处理"——批量 XREADGROUP 后 10 条消息是 create_task 并发的, 同一会话的两条消息可能被两个协程同时处理, 顺序颠倒。per-session Queue + 独占 Worker 把并发重新收敛为串行: <strong>同一会话的消息严格按入队顺序处理, 不同会话的消息仍然并行</strong>——这就是"per-session 串行 + 全局并发"的银行客服时序要求 (客户必须觉得"我的消息一条接一条", 而不是"三条消息三个 Agent 抢着回")。</p>
+<p>这层 Queue 还承担了两个 Stream 做不到的职责:</p>
+<ol>
+<li><strong>队列合并</strong>: worker 处理前先 drain 队列, ≤5 条 / ≤4000 字符的消息合并成一次 LLM 调用, 并加上语义标记"（用户连续发送了 N 条消息, 请一次性综合回复）"。超限消息放回队列下一轮处理, 不丢失。</li>
+<li><strong>消息级幂等</strong>: <code>lumio:processed:{message_id}</code> 幂等键 (TTL 300s) 挡住 XAUTOCLAIM 重投递的重复执行——Stream 的 at-least-once 语义靠这层幂等变成"实际恰好一次"。</li>
+</ol>
+<p>Worker 的退出策略也值得注意: 队列空闲超过 300s (<code>asyncio.wait_for(q.get(), timeout=300)</code>) 自动退出并从 <code>_session_active</code> 注销, 避免每个会话的协程常驻泄漏; 新消息到来时 <code>_dispatch_message</code> 发现会话不在活跃集, 重新创建 worker。</p>
+<h2 id="12.7.2-会话历史双写:Redis-List-是投影,-PG-是真相">12.7.2 会话历史双写:Redis List 是投影, PG 是真相</h2>
+<p>硬性原则 1 说"Redis 只是 PG 的投影", 会话历史是最典型的例子。每次对话轮次写两处:</p>
+<ul>
+<li><strong>Redis</strong> <code>lumio:session:{id}:history</code> (List): <code>RPUSH</code> + <code>LTRIM 20</code> 只留最近 20 轮, TTL 1800s——给 Bot 拼 prompt、坐席摘要、断线重连加载上下文用, 要求快;</li>
+<li><strong>PG</strong> <code>chat_message</code> 表: 每轮消息一行, 带 <code>processing_status</code> 状态机 (见下), 永久保存——给合规查询、客服复盘、GDPR 删除用, 要求全。</li>
+</ul>
+<p><strong>为什么 Redis 只留 20 轮?</strong> LLM 上下文窗口有限, 20 轮 (约 3-5k 字符) 是"拼得下 prompt 且不稀释注意力"的经验值; 更早的轮次被裁剪时, 增量摘要 (<code>conversation_summary</code> + <code>last_summarized_turn_id</code> 追踪) 接管记忆职责——被裁的是原文, 不是语义。</p>
+<p>Redis 丢失的恢复路径: 会话重启后从 PG <code>chat_message</code> 按 session_id 回放重建历史。这正是"投影"的含义——Redis 里删了重建就是, PG 才是丢不起的。</p>
+<h2 id="12.7.3-chat_message-的消息状态机:审计字段承载全生命周期">12.7.3 chat_message 的消息状态机:审计字段承载全生命周期</h2>
+<p><code>chat_message</code> 不只是"存消息内容", 它带了一套 5 态处理状态 (<code>ChatMessageStatus</code>):</p>
+<pre><code class="language-text">queued → processing → done
+                 ↘ skipped (TTL 过期)
+                 ↘ error   (Agent 异常)
+</code></pre>
+<p>每个状态转换都伴随审计字段: <code>processing_status</code>、<code>source</code> (llm / template / fallback / fast_reply / timeout / merged)、<code>processing_duration_ms</code>、<code>error_message</code>。这套字段让"消息去哪了"可以纯 SQL 回答: <code>SELECT count(*) FROM chat_message WHERE session_id=? AND processing_status='skipped'</code> 就是该会话的丢消息统计, <code>WHERE source='fast_reply'</code> 就是满荷兜底的影响面——<strong>审计字段让排障从"翻日志猜"变成"查表数"</strong>。</p>
+<p>写入时机值得展开: 消息一进 Stream (<code>chat_send</code>) 就写 <code>queued</code>, worker 处理前更新, 完成后写 <code>done</code>。这条链路让 <code>chat_send</code> 返回的 <code>message_id</code> 可以随时查询处理进度——客户端轮询 <code>GET /sessions/{id}/messages</code> 就能看到"我这条消息到底是完成了、超时了还是出错了", 而不是只知道"发出去"。</p>
 <h2 id="12.8-小结">12.8 小结</h2>
 <p>数据层是工程化的"基础设施层", 它不生产业务价值, 但决定系统能跑多稳、跑多快。Lumio 用 6 个中间件分担不同负载, 用 19 张 PG 表 + 12 个迁移固化领域模型, 用 15+ Redis key + CAS Lua + ZSET 超时做实时协调, 用 ES+Milvus 双写 + PG 状态字段做双路召回一致性, 用 MinIO 承接大文件、用 Kafka 预留事件流。理解这套设计, 是后续读懂 RAG 检索(第 5 章)、RAG 摄入(第 9 章)、会话状态机(第 6 章)的基础。</p>
 <blockquote>
@@ -6407,6 +6703,77 @@ demo: ## 一键启动完整 Demo（中间件 + 初始化 + Bot:8000 + Assist:800
 <h2 id="13.9-常见问题排查">13.9 常见问题排查</h2>
 <p>部署踩坑通常集中在启动顺序、端口、数据库迁移三处。<strong>端口冲突</strong>是最高频问题, 一句 <code>lsof -i :8000</code> 找出占 PID, kill 掉即可, 也可在 compose 里改端口映射。<strong>启动顺序错乱</strong>通常表现为 Bot/Assist 起来后立刻连不上 Milvus, 此时 <code>docker compose ps</code> 看 Milvus 是否 <code>Up (healthy)</code>, 若 <code>Up</code> 但未 healthy, 必是 etcd 或 minio 的健康检查卡住。<strong>数据库迁移失败</strong>则直接看 <code>cd agent &amp;&amp; poetry run alembic current</code> 返回的 revision, 与 <code>alembic/versions/</code> 目录里的 head 对比即可定位。</p>
 <p>万能兜底是 <code>make verify</code>, 它依次 ping 全部中间件并打印 RTT, 哪一环亮红就从那一环往回查。</p>
+<h2 id="13.9.1-从-make-dev-到生产镜像:同一套代码的三条启动路径">13.9.1 从 make dev 到生产镜像:同一套代码的三条启动路径</h2>
+<p>Lumio 应用层有三条启动路径, 它们共享同一份配置但启动方式完全不同——这是新同学最容易困惑的地方:</p>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>命令</th>
+<th>进程形态</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本地裸跑</td>
+<td><code>make dev</code></td>
+<td>宿主机 Python + <code>--reload</code></td>
+<td>日常开发, 秒级热重载</td>
+</tr>
+<tr>
+<td>容器内</td>
+<td><code>docker compose up bot assist</code></td>
+<td>容器内 uvicorn (无 reload)</td>
+<td>Demo / 验收</td>
+</tr>
+<tr>
+<td>K8s</td>
+<td>Deployment + HPA</td>
+<td>多副本, 无状态</td>
+<td>生产</td>
+</tr>
+</tbody>
+</table>
+<p>三条路径的关键差异在<strong>配置来源</strong>: 本地裸跑读 <code>.env</code> 文件, 容器读 compose 注入的 environment, K8s 读 ConfigMap/Secret——代码里 <code>get_settings()</code> 对三者无感知, 这是第 2 章 Pydantic-settings 设计的结果: <strong>配置只问"值从哪来", 不问"我在哪跑"</strong>。</p>
+<p>值得一提的细节: <code>make dev</code> 用 <code>--reload</code> 时 uvicorn 会启动一个 reloader 父进程 + 一个 worker 子进程, 而 <code>start_bot_worker</code> 的后台协程 (消费循环/监控/XAUTOCLAIM) 都挂在 worker 子进程上——<strong>代码改动触发 reload 时, 后台协程随子进程一起重建</strong>, 不会出现"老协程持有旧代码"的僵尸态。这正是"全部后台任务挂在 lifespan 里" (第 3 章) 的部署侧收益。</p>
+<h2 id="13.9.2-demo-init:一次性迁移与种子数据的幂等设计">13.9.2 demo-init:一次性迁移与种子数据的幂等设计</h2>
+<p><code>docker-compose.demo.yml</code> 里的 <code>demo-init</code> 服务是"一键 Demo"的关键, 它做了三件事: 跑 Alembic 迁移 → 注入种子数据 → 创建 admin 账号。幂等设计是这里的难点——<strong>Demo 可以反复 <code>make down &amp;&amp; make up</code>, 但迁移和种子不能跑两次就报错</strong>:</p>
+<ol>
+<li>Alembic 迁移本身幂等 (revision 已应用则跳过);</li>
+<li>种子数据用"存在即跳过"的语义 (<code>INSERT ... ON CONFLICT DO NOTHING</code> 或先查后插);</li>
+<li>环境变量 <code>LUMIO_ADMIN_PASSWORD</code> 支持 Demo 初始化时创建 admin 账号——<strong>密码从 env 注入而不是写死在 seed 脚本里</strong>, 否则仓库里就埋了一把"人人都知道的钥匙"。</li>
+</ol>
+<p><code>bot</code> / <code>assist</code> 服务的 <code>depends_on</code> 声明依赖 <code>demo-init</code> 的 <code>service_completed_successfully</code>——迁移没跑完, 应用不启动。这条链让 <code>make demo</code> 永远得到"迁移已应用、账号已创建、应用已就绪"的确定性状态, 而不是"看运气"。</p>
+<h2 id="13.9.3-健康检查的三段式:liveness-/-readiness-/-startup">13.9.3 健康检查的三段式:liveness / readiness / startup</h2>
+<p>compose 和 K8s 里的健康检查不是一套, 而是三个探针配合 (K8s 语义, compose 用 <code>start_period</code> 模拟 startup):</p>
+<table>
+<thead>
+<tr>
+<th>探针</th>
+<th>问的问题</th>
+<th>失败动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>liveness (<code>/health/live</code>)</td>
+<td>进程还活着吗?</td>
+<td>重启容器</td>
+</tr>
+<tr>
+<td>readiness (<code>/health/ready</code>)</td>
+<td>依赖 (Redis/PG/ES...) 都通吗?</td>
+<td>摘除流量, 不重启</td>
+</tr>
+<tr>
+<td>startup (compose <code>start_period</code>)</td>
+<td>启动慢要不要宽容?</td>
+<td>宽容期内不判死</td>
+</tr>
+</tbody>
+</table>
+<p><code>/health/live</code> 只回答"进程存活" (<code>{"status": "alive"}</code>), 不查任何依赖——<strong>liveness 如果查依赖, Redis 抖动会导致容器被反复重启</strong> (kubelet 判死 → 重启 → 又抖动 → 再重启, 雪崩)。<code>/health/ready</code> 才查依赖并返回 200/503——LB 把 503 的实例摘出流量池, 让健康实例承接。两个端点必须刻意"职责分离", 这是 deployment 领域最常见的混淆点, 也是 <code>test_bot_router_api.py</code> 里 <code>test_health_live</code> / <code>test_health_check</code> 两条用例钉死的契约。</p>
 <h2 id="13.10-本章小结">13.10 本章小结</h2>
 <p>Lumio 的部署核心可以总结为三条:</p>
 <ol>
@@ -6573,6 +6940,44 @@ ASSIST_PORT = 8766  # 避免与开发环境 :8001 冲突
 <p><code>unit-tests</code> job 加了 <code>--cov-fail-under=60</code> (<code>.github/workflows/ci.yml</code>), 同时 <code>agent/pyproject.toml</code> 锁了 <code>[tool.coverage.report] fail_under = 60</code>。两处对齐, pytest 才会真正读取门槛 (只有 <code>pyproject</code> 的锁而 pytest 不读, 实际不生效)。</p>
 <p>门槛从 55% 提到 60% 的过程: 早期实测 ~57%, 卡 60% 会被 <code>test_retrieval.RecursionError</code> 等已知问题反复绊倒, 所以先锁 55% 留 buffer。在补齐 217 个单元测试 (tenant/a2ui_schema/entity_sandbox/experiments/alerting/injection_guard/tracing/decision_log/prompt_registry/customer_memory/gdpr/llm/budget) 后, 实测 62%, 门槛正式提到 60%。</p>
 <p>这就是<strong>渐进式门槛</strong>的工程意义: 让 CI 立刻 fail 在新写的代码上, 但不要 fail 在<strong>已经知道、还没修</strong>的问题上。</p>
+<p>门槛从 60% 提到 80% 的过程: 以 60% 为基线, 分批补齐测试 (每批补完先 lint + commit + 全量回归确认不回归, 再进入下一批):</p>
+<table>
+<thead>
+<tr>
+<th>批次</th>
+<th>补齐内容</th>
+<th>覆盖率</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>62%→71.9%</td>
+<td>faq_service/session/retrieval/assist_engine/ingestion/auth_router/bot_agent/embedding/safety 等 127+ 测试</td>
+<td>1129 passed</td>
+</tr>
+<tr>
+<td>71.9%→75.5%</td>
+<td>ws_router 消息流/assist notify/analyze/kb 端点</td>
+<td>1217 passed</td>
+</tr>
+<tr>
+<td>75.5%→77%</td>
+<td>bot router 内部 (<code>_session_worker</code> 队列合并/幂等/快速兜底/死信, <code>_run_agent</code> 转人工桥接)</td>
+<td>1240 passed</td>
+</tr>
+<tr>
+<td>77%→81%</td>
+<td><code>_wait_for_response</code>/upload_document 全链路/get_session_messages/assist 反馈缓冲与坐席 WS/ws_router 排队</td>
+<td>1318 passed</td>
+</tr>
+<tr>
+<td>81%→84%</td>
+<td>bot_agent 待确认状态机/增量摘要, deps init/close 全家, main lifespan 失败清理</td>
+<td>1371 passed</td>
+</tr>
+</tbody>
+</table>
+<p>最终 <code>agent/pyproject.toml</code> 与 <code>.github/workflows/ci.yml</code> 的 <code>fail_under</code> / <code>--cov-fail-under</code> 同步提到 80%。</p>
 <h2 id="14.7-已知-35-errors-的根因">14.7 已知 35 errors 的根因</h2>
 <p>当前 pytest 全量跑会有 35 个 errors, 这不是 bug, 是 e2e 排除策略的副产品。</p>
 <p>根因链条很清楚: <code>unit-tests</code> job 在 CI 排除了 5 个 e2e 文件, 但开发者<strong>本地</strong>不排除, 直接 <code>pytest</code> 跑全套。如果本地没 <code>make up</code>, <code>bot_server</code> / <code>assist_server</code> fixture 在 <code>_check_middleware_ready()</code> 那一步就 <code>pytest.skip</code>, 而 <code>bot_client</code> 依赖 <code>bot_server</code> — skip 链会从 e2e 文件扩散到任何 import 它们的 conftest。最后呈现给开发者的是一长串 SKIPPED + 中间夹着 ERROR, 看着吓人。</p>
@@ -6605,7 +7010,7 @@ disallow_untyped_defs = false
 <p><strong>push / PR 触发 (3 个)</strong>:</p>
 <ul>
 <li><code>lint</code> — ruff check + ruff format check + mypy advisory + <code>make verify-observability</code></li>
-<li><code>unit-tests</code> — service container 启 Redis/PG + pytest + 60% 覆盖率门槛</li>
+<li><code>unit-tests</code> — service container 启 Redis/PG + pytest + 80% 覆盖率门槛</li>
 <li><code>mcp-server</code> — JDK 21 + <code>mvn verify</code> (Java 端 mcp-server 独立构建)</li>
 </ul>
 <p><strong>仅 main 分支触发 (2 个)</strong>:</p>
@@ -6641,13 +7046,39 @@ disallow_untyped_defs = false
 </code></pre>
 <p>这个目标的存在有其原因: 曾有人把指标名从 <code>lumio_session_transitions_total</code> 改成 <code>session_transitions_total</code>, 业务代码没动, 但 Grafana dashboard 全挂 (因为 dashboard 用 metric name 选 panel)。<code>make verify-observability</code> 做的事是<strong>静态解析 dashboard JSON + 校验所有引用的 metric 名称都在代码里被定义过</strong> — 这是一种"配置-代码"双向一致性测试, 防止 dashboard 改完漏改业务代码, 或反过来。</p>
 <p>这条检查进了 CI 的 <code>lint</code> job, 跟 ruff 平级。</p>
+<h2 id="14.11.1-单元测试的&quot;四层-mock-心法&quot;">14.11.1 单元测试的"四层 mock 心法"</h2>
+<p>覆盖率从 62% 提到 84% 的过程里, 踩出来的 mock 经验可以浓缩成四条规则——每条都对应一次真实的"测试写对了但测的是假象"事故:</p>
+<p><strong>规则 1: 函数内 import 绕过模块级 patch</strong>。代码里 <code>from lumio.services.common.ingestion import ingest_document</code> 写在函数体内时, patch 目标必须指向<strong>源模块</strong> (<code>lumio.services.common.ingestion.ingest_document</code>), patch 调用方模块的引用 (<code>deps.ingest_document</code>) 无效——因为函数每次执行都重新从源模块取属性, 调用方模块里根本没有这个名字。判断方法: 看到 <code>from X import Y</code> 缩进在函数里, patch 就写 <code>patch("X.Y")</code>。</p>
+<p><strong>规则 2: monkeypatch asyncio.sleep / wait_for 必须先保存原引用</strong>。测试想加速 <code>await asyncio.sleep(300)</code> 时会写:</p>
+<pre><code class="language-python">async def fast_sleep(seconds):
+    await asyncio.sleep(0.001)   # ← asyncio.sleep 已被替换, 无限递归!
+</code></pre>
+<p>必须先 <code>_real_sleep = asyncio.sleep</code>, 再 monkeypatch, 最后 <code>await _real_sleep(...)</code>。同理, 测试 <code>_session_worker</code> 的空闲退出逻辑 (300s) 时用 <code>fast_wait_for</code> 包一层真实 <code>wait_for</code> 把超时压到 1ms——直接替换 <code>wait_for</code> 会让依赖它的其他协程 (如 <code>_run_agent</code> 的全局 deadline) 全部失真。</p>
+<p><strong>规则 3: FastAPI dependency_overrides 的 async generator 必须覆盖为 async generator</strong>。<code>get_db_session</code> 这类依赖是 <code>async def</code> + <code>yield</code> 的 generator 形态, override 时必须写 <code>async def _override(): yield fake</code>——覆盖成普通 async 函数会在 FastAPI 内部 <code>async with</code> 时报 <code>AttributeError: __aenter__</code>。这是全项目最隐蔽的 fixture 陷阱, 没有之一。</p>
+<p><strong>规则 4: response_model 会过滤不匹配的 dict</strong>。端点声明 <code>response_model=RetrieveResponse</code> 时, 测试里 fake 检索返回的 dict 只要缺字段/多字段, FastAPI 就会静默过滤成空对象——断言"结果里有内容"必然失败, 但报错信息毫无线索。对策: fake 返回值必须先对照模型构造, 而不是"大概像就行"。</p>
+<h2 id="14.11.2-补测的节奏:每批都要能独立交付">14.11.2 补测的节奏:每批都要能独立交付</h2>
+<p>覆盖率从 62% 到 84% 不是一次性大爆炸, 而是 6 个批次, 每批的节奏相同:</p>
+<pre><code class="language-text">读代码找缺失块 → 写测试 (单个文件, 秒级迭代) → 该文件全绿
+→ ruff lint + format → commit → 全量回归 (确认无相互破坏) → 下一批
+</code></pre>
+<p><strong>为什么每批必须 commit?</strong> 因为覆盖率测试有一个"幽灵回归"问题: 新测试可能在别的测试之后改变了共享状态 (比如 patch 未还原、模块级 dict 被污染), 让本批全绿但全量跑挂——上一批的 commit 点就是二分定位的锚。实际踩过的案例: 某个测试用 <code>del module._run_assist_engine</code> "还原"注入, 结果把模块真实函数删掉了, 后续所有 analyze 测试 <code>NameError</code>——如果当时没 commit, 定位这个回归要多花一轮全量跑 (4 分钟)。</p>
+<p><strong>每批的选题顺序</strong>也值得说: 先补"调用密集的薄文件" (bot/router.py 的端点), 再补"分支多的厚文件" (bot_agent.py 的状态机), 最后补"基建层" (deps.py / main.py 的 init/close)。前两类对覆盖率的边际收益大, 后一类虽然行数多但每条都是"初始化成功/失败"的对称断言, 写起来快、跑起来稳, 适合收尾。</p>
+<h2 id="14.11.3-契约测试:把&quot;映射&quot;钉死比覆盖更重要">14.11.3 契约测试:把"映射"钉死比覆盖更重要</h2>
+<p>覆盖率数字是手段, 契约稳定才是目的。Lumio 里有一类测试专门负责"钉死映射", 它们不关心业务正确性, 只关心"改了一个地方, 另一个地方必须跟着改":</p>
+<ul>
+<li><code>test_middleware.py</code> 钉死错误码 → HTTP 状态映射 (400/422/502/500 + 404/409/503 覆盖表);</li>
+<li><code>test_ws_router.py</code> 钉死 WS 协议事件序列 (thinking → delta → done / cancel → cancelled);</li>
+<li><code>test_bot_router_core.py</code> 的 <code>_session_worker</code> 用例钉死队列合并上限 (≤5 条 / ≤4000 字符) 与幂等键行为;</li>
+<li><code>test_auth.py</code> 钉死 JWT 声明 (iss/aud) 与角色矩阵。</li>
+</ul>
+<p>这类测试的共同特征是<strong>断言的是常量而不是行为</strong>: <code>assert payload["is_transfer"] is True</code>、<code>assert update_msg.await_args.kwargs["source"] == "merged"</code>。它们的存在让"顺手改个常量"变成"必须过全量回归"——这正是第 8 章"错误码是契约"的测试侧落点。</p>
 <h2 id="14.12-已知-trade-off">14.12 已知 trade-off</h2>
 <p>这套测试策略<strong>不完美</strong>, 有三个明确的取舍:</p>
 <p><strong>E2E 只在 main 分支跑</strong>。PR 阶段没有端到端保护, 意味着有问题的合并可能在 <code>build</code> + <code>e2e-tests</code> 之前就已经合进 main, 触发回滚成本。<strong>应对</strong>: 增量加强 e2e 反馈时间, 把 e2e 拆成"PR 子集" + "main 全量"两档。</p>
 <p><strong>mypy advisory 模式下, 类型错误可能累积</strong>。存量错误 + 每天新增, 没有 fail CI 卡住, 全靠"开发者自觉看末尾 echo"。<strong>应对</strong>: 按模块拆分, 指定 owner 逐步收敛。</p>
 <p><strong>E2E 在 CI 排除导致覆盖率上限 57%</strong>。<code>test_bot_api.py</code> 等 5 个文件一旦在 CI 跑, 覆盖率立刻上 60+, 但 90s 启动 + 中间件依赖让 unit-tests job 时间翻倍。<strong>应对</strong>: 改用 TestContainers, 把 e2e 完全容器化后塞回 unit-tests, 但工作量较大, 留待后续迭代。</p>
 <h2 id="14.13-小结">14.13 小结</h2>
-<p>Lumio 的测试策略是把"CI 时间"当稀缺资源分配: <strong>快反馈 (lint + unit + 60% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main</strong>。真实中间件 + 真实子进程的哲学让测试信号更有价值; 补足单元测试后覆盖率实测 62%, E2E 在 main 分支全链路通过 (迁移→seed→启动→登录→对话)。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。</p>
+<p>Lumio 的测试策略是把"CI 时间"当稀缺资源分配: <strong>快反馈 (lint + unit + 80% 覆盖) 给 PR, 慢验证 (build + e2e + 烟测) 给 main</strong>。真实中间件 + 真实子进程的哲学让测试信号更有价值; 补足单元测试后覆盖率实测 84%, E2E 在 main 分支全链路通过 (迁移→seed→启动→登录→对话)。Mypy advisory + 渐进式覆盖率门槛 + verify-observability 一致性测试, 三者一起把"债务可见但暂不阻塞"这种工程取舍做成了可执行规范。</p>
 <blockquote>
 <p><strong>延伸阅读</strong>:
 - <a href="08-error-handling.md">第 8 章 错误处理</a> — <code>test_middleware.py</code> 覆盖
@@ -9857,7 +10288,7 @@ TOOL_GUARD_DENIALS = Counter(
 </tr>
 <tr>
 <td><strong>覆盖率门槛</strong></td>
-<td>60% (pyproject 锁, CI 同)</td>
+<td>80% (pyproject 锁, CI 同)</td>
 </tr>
 <tr>
 <td><strong>mypy advisory</strong></td>
@@ -10360,8 +10791,8 @@ curl http://localhost:8000/metrics | grep mcp_connection_state
 - 中间件未起, e2e skip
 - 启动超时</p>
 <p><strong>修复</strong>:
-- 短期: 接受现实, 60% 覆盖率门槛
-- 长期: 修掉 RecursionError 后, 提到 60% 门槛</p>
+- 短期: 接受现实, 60% 覆盖率门槛 (历史)
+- 长期: 修掉 RecursionError 后, 提到 60% 门槛 (历史); 当前已到 80% 门槛</p>
 <h3 id="C.9.2-mypy-错误累积">C.9.2 mypy 错误累积</h3>
 <p><strong>症状</strong>: 171 → 200 个 mypy 错误, 还在涨.</p>
 <p><strong>原因</strong>: mypy advisory 模式不阻塞 CI, 错误自然累积.</p>

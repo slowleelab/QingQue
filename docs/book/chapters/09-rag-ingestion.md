@@ -206,6 +206,44 @@ ES 和 Milvus 在检索时会带上 `approval_status=PUBLISHED AND is_current_ve
 
 其中 `test_chunk_respects_chinese_sentence_boundary` (`:81`) 是最关键的一条: 它构造一段长文本断言 chunk 边界落在 `。` 而非中段, 直接锁定了第 9.4 节的优先级约定. Milvus 写入和 ES 回滚走集成测试 (需要真集群), 不在单测范围.
 
+## 9.9.1 上传入口:从 HTTP 文件到 5 阶段管线的"最后一公里"
+
+摄入管线的上游是 `upload_document` 端点 (`bot/router.py:1443`), 这一段的职责不是"解析文档", 而是**在文件进管线之前把一切可预判的失败挡掉**。三个检查按成本从低到高排列:
+
+1. **扩展名白名单** (`_ALLOWED_EXTENSIONS`): `.pdf/.docx/.html/.md/.txt/.xlsx` 六个后缀, 其余一律 400 (`DocumentFormatError` 2010)。白名单比黑名单安全——`.exe`/`.sh` 这类可执行文件连进入对象存储的机会都没有。
+2. **文件大小上限 50MB**: 优先读 `Content-Length` header (不读 body 就能拒绝), header 缺失时才读完整内容后按 `len(content_bytes)` 判定。50MB 是经验值: 银行 PDF 章程通常 5-20MB, 批量上传峰值留 2-3 倍冗余; 再大就应走对象存储分片上传, 不应塞 HTTP body。
+3. **SHA-256 内容哈希**: `content_hash` 写入 `kb_document`, 同一份文件重复上传时可按哈希识别去重, 也是将来做"内容变更检测" (内容变但文件名没变) 的锚点。
+
+三个检查过后, 文件才进 MinIO (`{category}/{filename}` 二级 key), 再创建 `KbDocument` 记录 (status=`PENDING`), 最后调用 `ingest_document()` 触发 5 阶段管线并回写最终状态 (`COMPLETED` / `FAILED`)。**注意端点的返回不阻塞在摄入完成**: `ingest_document` 是 await 的, 但状态字段 (`doc.status`) 的最终值由摄入结果回填, 客户端可以通过 `GET /kb/documents/{doc_id}/status` 轮询——上传接口永远先返回, 长耗时在后台完成。
+
+**为什么摄入异常不向上抛?** `upload_document` 里对 `ingest_document` 的调用包在 `try/except` 里, 异常时只把 `kb_doc.status` 置为 `FAILED`。这样"文件已收、摄入失败"不会让客户端拿到 500 重试上传——重试摄入比重传文件便宜得多 (MinIO 里已经有原件了)。
+
+## 9.9.2 元数据如何影响检索:过滤不是检索后做的
+
+`DocumentMetadata` 是摄入时写入、检索时消费的"契约"。它携带 8 个字段, 其中 5 个是检索过滤键:
+
+| 字段 | 检索语义 | 典型值 |
+|------|----------|--------|
+| `category` | 业务分类过滤 | `fee` / `promo` / `rule` |
+| `card_type` | 卡种过滤 | `gold` / `visa` / 空=全卡种 |
+| `customer_tier` | 客户等级过滤 | `vip` / 空=全员可见 |
+| `security_level` | 密级过滤 | `internal` / `confidential` |
+| `keywords` | 检索时加权/扩展 | 逗号分隔, 摄入时拆分 |
+
+**设计要点: 过滤键在摄入时就要写对, 检索时只能消费**。如果文档上传时漏填 `card_type`, 检索端不会"猜"——空值按"对全卡种可见"处理, 而不是按"对谁都不可见"处理。这符合银行知识库的可见性直觉: 未标注的文档默认公开给所有坐席, 密级文档必须显式标注才受限。
+
+`keywords` 的拆分逻辑 (`[k.strip() for k in keywords.split(",") if k.strip()]`) 有一个边界: 全角逗号 `，` 不会被拆分——上传文档的人用中文输入法很容易踩中, 表现为"关键词只有一个超长串"。这是刻意保持的简单行为, 因为自动做全角归一化会引入"关键词被意外合并"的另一个错误方向, 而检索端对空关键词有兜底 (退化到纯 BM25 全文匹配)。
+
+## 9.9.3 摄入失败后怎么重试:PARTIAL 索引 + 幂等重建
+
+摄入失败 (ES 或 Milvus 写入异常) 后, 重试不是"重新上传一遍", 而是**用相同的 `chunk_id` 重建索引**:
+
+1. 失败时 `doc.status = FAILED`, 但 `kb_chunk` 行 (含 `chunk_id`) 已经落库;
+2. 后台重试 worker 通过 3 个 PARTIAL 索引 (`embedding_status='PENDING'` / `es_indexed=false` / `milvus_indexed=false`) 扫出未完成的 chunk;
+3. 重试时 ES 用 `index` (upsert 语义) 而非 `create`——同 `chunk_id` 幂等覆盖, 不会产生重复文档。
+
+这个设计的巧妙之处在第 12 章的 `es_indexed` / `milvus_indexed` 状态字段: **PG 是真相之源, ES/Milvus 只是投影**。即使两个检索引擎的数据短暂不一致, worker 也能从 PG 的 PARTIAL 索引精确知道"哪些 chunk 缺哪个引擎", 不需要去对账两个外部系统。这也是为什么第 12.7 节的降级路由 (单路召回) 能成立——降级前先看 PG 状态, 而不是试错。
+
 ## 9.10 小结
 
 Lumio 的摄入管线把" 让 ES 和 Milvus 数据一致" 这个难题拆成 5 个串行阶段 + 1 个对账回滚路径. Parse 阶段屏蔽 6 种格式差异, Clean 阶段用 5 步正则清洗噪声, Chunk 阶段在中文句末优先断点, Embed 阶段走 128 批 TEI + 3/2/30s 熔断器, Dual-Write 阶段用 ES 先 / Milvus 后 + `_rollback_es_docs` 保证原子性. 7 阶段 `kb_ingestion_log` 是出问题时的第一现场, 部分唯一索引让版本管理不依赖应用层逻辑.

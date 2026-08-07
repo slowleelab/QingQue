@@ -273,6 +273,73 @@ if result.source in ("template", "fallback") and not should_transfer:
 
 `agent/tests/test_auth.py` 则覆盖了 1001 / 1003 两条认证线的具体路径:`test_decode_invalid_token_raises` / `test_decode_expired_token_raises` 触发 1001,`test_require_role_rejects_wrong_role` 触发 1003。**全链路契约通过这两个文件钉住,任何重构改了映射或响应体都会立刻红灯**。
 
+## 一条消息的四种错误命运:chat_send 全链路错误落点
+
+错误码设计得再漂亮, 最终要看业务代码怎么用它。以 Bot 入口 `chat_send`(`bot/router.py:1130`)为例, 一条客户消息从进来到落库, 沿途有 4 个"错误落点", 每个落点对应不同的码段:
+
+| 落点 | 触发条件 | 错误码 | HTTP | 客户看到 |
+|------|----------|--------|------|----------|
+| 输入校验 | 空消息 (含全角空格/零宽字符清洗后为空) | 2001 `IntentUnrecognizedError` | 400 | "消息内容不能为空" |
+| 注入拦截 | 命中已知注入模式 (忽略指令/角色混淆) | 2001 `IntentUnrecognizedError` | 400 | "消息内容不符合规范" |
+| 业务规则 | per-customer 活跃会话达上限 | 3010 `BusinessError` | 409 | "同时进行的会话数量已达上限" |
+| 系统过载 | Redis 未就绪 (Stream 不可写) | 5002 `ServiceOverloadedError` | 503 | "Redis 未就绪, 无法接收消息" |
+
+这个表格回答了一个常见疑问: **为什么"空消息"和"注入攻击"都是 2001?** 因为从调用方的视角看, 两者都是"你发来的内容不可用", 修复动作都是"重新描述需求"——前端拿到 400 后展示的交互提示几乎一致, 细分错误码反而会让攻击者获得"我的注入模式被识别到了"的反馈。安全语义通过日志里的 `pattern` 字段保留(`router.py` 的 `logger.warning("注入拦截 (入口): session=%s pattern=%s", ...)`), 客户端只拿到统一的 2001。
+
+`chat_send` 里还有一个值得注意的顺序: **注入检查在敏感词检查之前, 业务规则检查在幂等检查之前**。顺序不是随手排的——注入必须最先拦 (成本最低), 幂等必须在写入 Stream 之前 (否则重复提交会 XADD 两次, 消费侧幂等键 `_mark_processed` 虽然能兜底, 但白白占一次 Stream 带宽)。
+
+## BusinessError 3010:一个"能说话"的业务异常
+
+`BusinessError`(`exceptions.py:216`)是错误体系里最特殊的一个: 它的 `code`、`message`、`status_code` 三个属性全部可以在 `__init__` 里覆写, 而其他错误类要么只覆写 message, 要么完全用类属性:
+
+```python
+class BusinessError(LumioError):
+    """3010: 通用业务规则错误 (如 per-customer 会话上限)"""
+    code = 3010
+    message = "业务规则不允许"
+
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__(code=self.code, message=message or self.message, status_code=409)
+```
+
+设计动机: 业务规则的失败信息**必须带着具体限制**才有意义——"同时进行的会话数量已达上限 (3), 请先结束其他会话"比"业务规则不允许"对客户的指导价值完全不同。而错误码段位 3xxx 默认映射 422, 但"规则不允许"在 REST 语义上更接近冲突, 因此 `_HTTP_STATUS_OVERRIDES` 里显式登记了 `BusinessError.code: 409`(`middleware.py:31`)。
+
+**注意 409 的覆盖是"登记制"**: 新增业务规则错误时, 如果漏了在 `_HTTP_STATUS_OVERRIDES` 登记, 它就会静默回落到 422——这是这个设计里最隐蔽的坑, 也是 `test_middleware.py` 里专门有一条 `test_business_error_returns_409` 钉死该映射的原因。
+
+## 错误 vs 降级:两种"失败"的边界
+
+Lumio 把"请求失败"和"内容降级"严格分成两个概念, 这是很多系统混淆的地方:
+
+- **错误 (Error)**: 请求本身无法完成, 返回 4xx/5xx + 统一错误体。前端据此分支 (重试/提示)。
+- **降级 (Degradation)**: 请求完成了, 但内容是次优的——LLM 挂了, 返回模板话术; 检索双路挂一路, 返回单路结果。HTTP 200, 前端无感。
+
+降级不抛异常, 而是由 `ContentDegrader` 与 `DegradationManager` 在编排层内部接管, 并用 `lumio_degradation_level` Gauge (0=normal / 1=degraded / 2=fallback) 暴露当前降级深度。**为什么降级也要可观测?** 因为"客户问账单, Bot 回了模板话术"在 HTTP 层看起来完全正常, 只有指标能告诉运维"这个小时 40% 的回复是降级产物"——这就是第 10 章 `lumio_agent_responses_total{source="template"}` 与 `lumio_degradation_level` 两个指标存在的意义。
+
+边界案例: 降级回复含"请输入转人工"字样, 但**转人工本身真实触发**(`bot_agent.py` 的 `should_transfer = True; transfer_reason = "degraded_template: ..."`)。这是刻意为之——LLM 不可用时客户诉求不能被"软拒绝", 降级 + 真实转接 = 既保住可用性又不欺骗客户。
+
+## LLM 错误包装规则:两个 4xxx 的边界判定
+
+`LLMTimeoutError` (4001) 与 `LLMInferenceError` (4002) 是运行时最难区分的两个错误, `llm.py` 用三条规则把边界钉死:
+
+1. **超时看墙钟**: `asyncio.wait_for` 抛 `TimeoutError` → `LLMTimeoutError` (命中断路器 + 重试计数);
+2. **推理失败看调用结果**: 非 2xx 状态码 / JSON 解析失败 → `LLMInferenceError`;
+3. **空响应是失败不是超时**: 模型返回 200 但 `content` 为空 → 重试 (`0.5 * 2^attempt` 退避), 重试耗尽后 `record_failure()` + `LLMInferenceError`——**绝不用 `LLMTimeoutError` 包装**。
+
+第 3 条规则有一个隐蔽的坑: 如果把空响应也包装成超时, 断路器会误判"上游超时频发"而提前熔断, 实际只是模型输出策略问题 (比如 temperature=0 导致重复词被截断成空)。`llm.py` 里因此有一行专门的保护:
+
+```python
+except LLMInferenceError:
+    raise  # 空响应错误不重包装成 LLMTimeoutError
+```
+
+这行代码的价值在线上故障时才能体现: 如果某天 Grafana 显示 `llm_timeout` 突增, 排障的第一步就是确认这些超时是不是"空响应被误包装"——有这行保护, 该指标就只反映真实超时。
+
+## 客户端幂等:错误恢复的最后一道防线
+
+at-least-once 语义下, 客户端重试、XAUTOCLAIM 重投递、双击提交都可能让同一条消息被处理两次。`_mark_processed`(`bot/router.py:231`)用 `lumio:processed:{message_id}` 幂等键 (TTL 300s, 覆盖 XAUTOCLAIM 60s 重投窗口) 保证"同一条消息只执行一次 Agent"。
+
+幂等键的写入时机有讲究: **处理完成后才写, 处理中不写**。如果处理开始就写, 一旦 Agent 崩溃, 重投递的消息会被幂等键挡住, 客户消息就永久丢失了。反过来, 处理完成后不写, 重投递就会重复执行敏感操作 (比如重复挂失)。"完成才写" + "消费侧跳过已处理" 的组合, 在"不丢消息"和"不重复操作"之间取了正确的优先级——银行场景下, 丢消息比重复通知更不可接受。
+
 ## 小结与反思
 
 Lumio 的错误处理经历了三个阶段:P0 设计 5 段码 + 异常类层次,P1 补上 request_id 与 PII 脱敏,P2/P3 收口合规与可观测性。这套体系的关键不是"错误码多",而是"错误码的语义稳定 + 响应体形态统一 + 全链路可追踪"。下一步值得讨论的是:错误码是否需要国际化和多语言?是否要把 5 段扩展到 6 段(增加 6xxx 表示"用户主动取消")?这些演进将在附录 A 术语表与后续章节中展开。

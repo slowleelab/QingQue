@@ -263,6 +263,42 @@ Lumio 的配置分层在第 2 章已展开, 这里只重申部署侧的差异:
 
 万能兜底是 `make verify`, 它依次 ping 全部中间件并打印 RTT, 哪一环亮红就从那一环往回查。
 
+## 13.9.1 从 make dev 到生产镜像:同一套代码的三条启动路径
+
+Lumio 应用层有三条启动路径, 它们共享同一份配置但启动方式完全不同——这是新同学最容易困惑的地方:
+
+| 路径 | 命令 | 进程形态 | 适用 |
+|------|------|----------|------|
+| 本地裸跑 | `make dev` | 宿主机 Python + `--reload` | 日常开发, 秒级热重载 |
+| 容器内 | `docker compose up bot assist` | 容器内 uvicorn (无 reload) | Demo / 验收 |
+| K8s | Deployment + HPA | 多副本, 无状态 | 生产 |
+
+三条路径的关键差异在**配置来源**: 本地裸跑读 `.env` 文件, 容器读 compose 注入的 environment, K8s 读 ConfigMap/Secret——代码里 `get_settings()` 对三者无感知, 这是第 2 章 Pydantic-settings 设计的结果: **配置只问"值从哪来", 不问"我在哪跑"**。
+
+值得一提的细节: `make dev` 用 `--reload` 时 uvicorn 会启动一个 reloader 父进程 + 一个 worker 子进程, 而 `start_bot_worker` 的后台协程 (消费循环/监控/XAUTOCLAIM) 都挂在 worker 子进程上——**代码改动触发 reload 时, 后台协程随子进程一起重建**, 不会出现"老协程持有旧代码"的僵尸态。这正是"全部后台任务挂在 lifespan 里" (第 3 章) 的部署侧收益。
+
+## 13.9.2 demo-init:一次性迁移与种子数据的幂等设计
+
+`docker-compose.demo.yml` 里的 `demo-init` 服务是"一键 Demo"的关键, 它做了三件事: 跑 Alembic 迁移 → 注入种子数据 → 创建 admin 账号。幂等设计是这里的难点——**Demo 可以反复 `make down && make up`, 但迁移和种子不能跑两次就报错**:
+
+1. Alembic 迁移本身幂等 (revision 已应用则跳过);
+2. 种子数据用"存在即跳过"的语义 (`INSERT ... ON CONFLICT DO NOTHING` 或先查后插);
+3. 环境变量 `LUMIO_ADMIN_PASSWORD` 支持 Demo 初始化时创建 admin 账号——**密码从 env 注入而不是写死在 seed 脚本里**, 否则仓库里就埋了一把"人人都知道的钥匙"。
+
+`bot` / `assist` 服务的 `depends_on` 声明依赖 `demo-init` 的 `service_completed_successfully`——迁移没跑完, 应用不启动。这条链让 `make demo` 永远得到"迁移已应用、账号已创建、应用已就绪"的确定性状态, 而不是"看运气"。
+
+## 13.9.3 健康检查的三段式:liveness / readiness / startup
+
+compose 和 K8s 里的健康检查不是一套, 而是三个探针配合 (K8s 语义, compose 用 `start_period` 模拟 startup):
+
+| 探针 | 问的问题 | 失败动作 |
+|------|----------|----------|
+| liveness (`/health/live`) | 进程还活着吗? | 重启容器 |
+| readiness (`/health/ready`) | 依赖 (Redis/PG/ES...) 都通吗? | 摘除流量, 不重启 |
+| startup (compose `start_period`) | 启动慢要不要宽容? | 宽容期内不判死 |
+
+`/health/live` 只回答"进程存活" (`{"status": "alive"}`), 不查任何依赖——**liveness 如果查依赖, Redis 抖动会导致容器被反复重启** (kubelet 判死 → 重启 → 又抖动 → 再重启, 雪崩)。`/health/ready` 才查依赖并返回 200/503——LB 把 503 的实例摘出流量池, 让健康实例承接。两个端点必须刻意"职责分离", 这是 deployment 领域最常见的混淆点, 也是 `test_bot_router_api.py` 里 `test_health_live` / `test_health_check` 两条用例钉死的契约。
+
 ## 13.10 本章小结
 
 Lumio 的部署核心可以总结为三条:

@@ -269,6 +269,77 @@ if route is not None and hasattr(route, "endpoint"):
 
 告警规则里有几个值得展开的细节:`clamp_min(..., 1e-9)`(`alerts.yml:23-24`)在分母为 0 时兜底,避免 `rate(...)/0` 出现 `NaN`(Prometheus 对 `NaN` 的处理是"不触发告警",反而让错误隐藏);`histogram_quantile(0.99, sum(rate(...)) by (le))`(`alerts.yml:49`)的分位计算必须在 `by (le)` 之后聚合,这是新人常踩的坑;所有 warning 都用 `for: 5m` 过滤掉抖动——如果用 `for: 1m`,一次 GC 抖动就会拉一堆告警,让 on-call 同学对告警失去敏感度。`Alertmanager` 在配置里是 opt-in,默认只让 Prometheus 把告警状态显示在 UI 的 Alerts 页,适合还没接 Slack/钉钉的小团队。
 
+## 10.6.1 三个业务指标的完整生命周期:fast_reply / timeout / merge
+
+`lumio_*` 业务域里最容易让新人困惑的是三个"消息命运"计数: `fast_reply`、`timeout`、`merge`。它们不是独立存在的, 而是同一条消息在 Bot 队列里不同命运的分支, 全部由 `_metrics` 字典 (`bot/router.py:933`) 汇总, 再同步到 Gauge:
+
+| 指标 | 含义 | 触发场景 |
+|------|------|----------|
+| `lumio_fast_reply_total` | 信号量满荷时的模板兜底 | 高峰期 Semaphore(10) 全占, 新消息不等 Agent, 直接回固定话术 |
+| `lumio_stream_pending_total`(timeout 累计在 stats) | 消息过期/重试耗尽 | `_enqueue_time` 超过 `message_ttl=8s`, 或 XAUTOCLAIM 重试 3 次失败 |
+| merge (stats `merge_total`) | 调用前队列检查时合并的消息数 | 用户连续发多条消息, worker 合并 ≤5 条/≤4000 字符后一次 LLM 调用 |
+
+**用这三个指标排一次"回复慢"的故障**: 客户反馈"高峰期消息 30 秒不回"。先看 `lumio_fast_reply_total` 的 `rate()`——如果陡增, 说明信号量持续满荷, 回复其实是"快速兜底话术"而不是 Agent 回复, 方向是扩容或降并发; 如果 fast_reply 没动但 `BOT_SEMAPHORE_UTILIZATION` 贴近 1.0, 说明 Agent 处理本身在排队, 方向是查 LLM 延迟; 如果两个都没动但 `stream_pending` 的 PEL 持续堆积, 方向是查消费 worker 是否存活 (XAUTOCLAIM 是否在认领)。**一个指标回答不了的问题, 三个指标的组合可以**——这就是为什么它们被刻意做成三个独立时序而不是一个聚合值。
+
+`_metrics` 的同步机制值得一提: 它由 `_monitoring_loop` 后台协程每 15s 采样一次 (PEL 数、Stream 长度、活跃 worker 数、信号量利用率), 写入四个 Prometheus Gauge (`BOT_STREAM_PENDING` / `BOT_STREAM_LENGTH` / `BOT_ACTIVE_WORKERS` / `BOT_SEMAPHORE_UTILIZATION`), 同时 `/health` 端点返回同一份快照。**指标与健康检查共享数据源**——SRE 在 Grafana 看到的值, 和调用 `/health` 看到的值永远一致, 不会出现"仪表盘说满了, 健康检查说正常"的对不上。
+
+## 10.6.2 一条日志的完整 schema
+
+JSON 日志的字段不是随手列的, 每个字段都有消费方:
+
+```json
+{
+  "timestamp": "2026-08-05T10:23:45.123Z",
+  "level": "WARNING",
+  "logger": "lumio.services.bot.router",
+  "message": "客户输入包含敏感词: session=abc123 hits=['赌博']",
+  "module": "router",
+  "function": "chat_send",
+  "line": 1173,
+  "trace_id": "8c4a1d2e3b4f4a2e9c1d2e3f4a5b6c7d",
+  "span_id": "3f2a1b4c",
+  "extra": {"request_id": "req-001", "session_id": "abc123"},
+  "exception": null
+}
+```
+
+- `logger/module/function/line` 四件套给 Loki 的 `|=` 字段查询用——排障第一步永远是 `{logger="lumio.services.bot.router"} |= "敏感词"`;
+- `trace_id/span_id` 只在有活跃 span 时出现 (`TraceContextFilter` 的"零噪声"设计), 从日志跳 Jaeger 的入口;
+- `extra` 是业务侧用 `logger.warning(..., extra={...})` 注入的结构化字段, JSON formatter 把它展开到顶层——**不要在 message 里拼 key=value 字符串**, 那是让 Loki 解析器白干活的写法;
+- `exception` 由 `logger.exception` 自动携带完整 traceback, 生产环境错误响应虽然抹平了类名, 但 traceback 完整保留在日志里。
+
+## 10.6.3 审计日志的一次完整案例
+
+审计中间件的"事后账本"属性, 用一次 `hold_session` 调用看最直观:
+
+```text
+actor_id=agent-07  actor_role=agent  action=session.hold
+target_type=session  target_id=sess-9f8a  method=POST
+path=/api/session/sess-9f8a/hold  status_code=200  elapsed_ms=32
+```
+
+这条记录同时写 `audit_log` 表 (合规取证) 和 stdout JSON (ELK 聚合), 两者字段一致。**为什么 `action` 是 `session.hold` 而不是路径字符串?** 因为路径推断在 `PUT /api/v1/session/{id}/hold` 这类路径上存在歧义 (`/update` 子串会先命中), 而 `_ENDPOINT_ACTION_MAP` 按函数名 `hold_session` 精确映射——函数名是代码里唯一的, 路径不是。
+
+审计里还有一个细节: `_AUDITED_METHODS` 只含 POST/PUT/PATCH/DELETE, GET 不审计。这是刻意的——纯读操作不改变状态, 不需要合规留痕, 而且 GET 占了流量大头, 全量审计会淹没真正有意义的变更记录。**审计日志是给"谁改了什么"用的, 不是给"谁看了什么"用的**——后者由 PII 脱敏 + 访问控制负责, 不在审计范围。
+
+## 10.6.4 WS 通道的 trace 恢复:一条消息两种入口
+
+HTTP 请求的 trace 由中间件自动创建, 但 Bot 的消息处理走 Redis Stream + 后台 worker——**worker 里没有 HTTP span, trace 怎么串?** 答案在 `_session_worker`(`bot/router.py:408`):
+
+```python
+trace_raw = fields.get("_trace_context", "")        # HTTP 入口写入的 trace 上下文
+tid = int(parts[0], 16); sid = int(parts[1], 16)
+sc = SpanContext(trace_id=tid, span_id=sid, is_remote=True, trace_flags=flags)
+parent_ctx = otel_trace.set_span_in_context(NonRecordingSpan(sc))
+otel_token = context.attach(parent_ctx)             # 链接到 HTTP span
+try:
+    ... # Agent 处理, 所有日志自动带上原 trace_id
+finally:
+    context.detach(otel_token)                      # 处理完必须释放, 防泄漏到下一个消息
+```
+
+设计要点有两个: 一是**入队时序列化, 出队时恢复**——`chat_send` 把当前 span 的 `trace_id:span_id:flags` 十六进制拼进 Stream 消息, worker 取出后重建 `SpanContext`; 二是**`finally` 里必须 detach**——`context.attach` 返回的 token 不释放的话, 下一条消息的日志会错误地继承上一条的 trace_id, 排障时"两条无关消息串在同一条 trace 里"是最迷惑人的假象。非法 trace 字符串 (比如第三方客户端伪造) 会被 `try/except` 静默忽略, 不阻断消息处理。
+
 ## 10.7 小结
 
 Lumio 的可观测性是按"开发愿意用、运维信得过"双向目标设计的:开发侧只有 `@traced` 一行成本,业务代码不需要 import OTel 包;运维侧有 17 指标 + 3 dashboard + 6 告警的标准化视图。"反馈循环"、"路由元数据精确审计"、"resource version fallback"这些边界条件都固化为代码,确保新同学不会在不知情时再踩同样的坑。

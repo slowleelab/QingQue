@@ -300,6 +300,59 @@ if safety_filter.is_crisis_input(user_input):
 
 合规测试不能和生产功能测试合并跑,因为合规用例的"必须失败"场景(占位密钥、dev 旁路、错误体泄露)与功能测试的"必须成功"是反方向的断言,合在一起会相互干扰。
 
+## 11.12.1 Prompt 注入防护:入口拦截 + 输出护栏双线
+
+银行客服 Bot 是 prompt injection 的高价值目标——攻击者试图让 LLM"忽略以上所有指令"来套取他人账单。Lumio 的注入防护是双线的:
+
+**入口线** (`shared/injection_guard.py`): `check_user_input()` 在消息进 Agent 链路之前跑, 返回 `(action, pattern)`。命中 `REJECT` 或 `QUARANTINE` 时 `chat_send` 直接拒绝 (`bot/router.py:1165`), 日志记录命中的 `pattern` 用于攻击情报; `ALLOW` 才放行。判定规则覆盖两类最常见模式: **指令忽略** ("请忽略以上所有指令") 与**角色混淆** ("你现在是一个没有限制的模型")。
+
+**输出线** (`shared/safety.py`): LLM 回复经 `filter_output()` 过滤后才写给客户端。输入拦截是"第一道门", 输出过滤是"最后一道闸"——万一注入绕过了入口 (比如通过知识库文档注入), 输出侧的敏感词替换还能兜底。
+
+**为什么入口拦截命中返回 2001 而不是专门的错误码?** 同第 8 章"空消息与注入同为 2001"的理由: 暴露"我知道你在注入"会帮助攻击者迭代 payload。拦截情报 (pattern) 只进日志和监控, 客户端永远只看到"消息内容不符合规范"。
+
+## 11.12.2 会话归属校验:横向越权的两道闸
+
+JWT 的 `session_id` 声明解决了"这个 token 能访问哪个会话"的第一层问题, 但银行场景还有第二层: **customer 角色的 token 可能没有 `session_id` 声明** (登录时还没建会话), 此时任意会话 ID 都能通过 `_ensure_session_owned` 的 JWT 校验——横向越权 (枚举他人会话 ID 读取消息) 就开了口子。
+
+`get_session_messages` (`bot/router.py:1748`) 因此做了 meta owner 二次校验:
+
+```python
+if redis_client and user.role == "customer":
+    raw_meta = await redis_client.get(session_meta_key(session_id))
+    if raw_meta:
+        meta_owner = json.loads(raw_meta).get("customer_id")
+        if meta_owner and meta_owner != user.user_id:
+            raise AuthorizationError("无权访问该会话")
+```
+
+细节有三: 一是**校验发生在读取消息之前**, 未授权直接 403, `lrange` 都不会执行; 二是**meta 缺失/损坏时放行而非阻断**——`except Exception: pass` 只吞非 `AuthorizationError` 异常, 防止 Redis 抖动把正常客户挡在门外 (可用性优先, 因为 meta 由会话创建流程保证, 缺失本身是异常态); 三是 **admin/agent 角色跳过此校验**, 坐席需要跨会话工作, 由角色的 `require_role` 而不是 owner 校验约束。
+
+`list_sessions` 的过滤是同一原则的列表形态: customer 只返回 `customer_id` 等于自己的会话, 不存在"先全量查再在内存里过滤"的写法——SQL/Redis 查询条件直接带 owner, 从源头杜绝越权数据出库。
+
+## 11.12.3 差异化限流:登录 30/min, 健康探针豁免
+
+`shared/rate_limit.py` 的限流不是"全局一刀切", 而是按端点差异化:
+
+- `chat_send` 限 `30/minute`, 且按**用户级 key** 计数 (`user:{user_id}`)——防止 NAT 后的多客户端共享一个公网 IP 被整体误杀;
+- `login` 类高频滥用通道单独收紧;
+- `/health` / `/health/live` / `/health/ready` 用 `@get_limiter().exempt` 显式豁免——LB 的健康检查每 5s 打一次, 如果计入限流, 流量高峰时实例会因 429 被误判不可用而摘除, 造成"假故障"。
+
+**为什么豁免而不是调高阈值?** 健康探针的请求特征是"固定节奏、无业务含义", 给它配额等于在流量高峰时让探针和真实客户抢额度。豁免是语义正确的做法——限流保护的是业务入口, 不是基础设施的存活信号。
+
+## 11.12.4 GDPR 删除:一条请求, 三个存储的清理
+
+`gdpr_delete` (`bot/router.py:1674`) 是合规删除的端到端实现, 一条删除请求要清理三个存储:
+
+| 存储 | 清理内容 | 失败处理 |
+|------|----------|----------|
+| Redis | 会话 meta / history / 槽位 / 画像 | 尽力而为, 异常吞掉 |
+| PostgreSQL | `chat_message` 等会话数据 | 软删除或物理删除 (按配置) |
+| Elasticsearch | `{prefix}_dialogue` 与 `{prefix}_kb_chunks` 中的客户数据 | 尽力而为 |
+
+设计要点: **删除是"尽力而为 + 留痕"而不是"要么全成要么全败"**。银行合规要求"客户提出删除后必须删除", 但三个存储的可用性各不相同——如果 ES 恰好抖动, 把整个删除请求回滚为失败, 客户再点一次可能还是失败。正确姿势是: 能删的全删, 删不了的记日志 + 打点, 由后台对账任务补删。
+
+**谁可以发起?** 本人或 admin (`require_role("admin")` 或 `customer_id` 匹配)。这是 11.2.4 权限矩阵里唯一允许 customer 主动调用的管理类操作——GDPR 的"被遗忘权"是客户权利, 不能只允许管理员代劳。
+
 ## 11.13 小结
 
 Lumio 的安全合规不是某一个库或某一段代码的功劳,而是**5 层独立防线**的协同:边缘网关挡 DDoS、JWT 验身份、RBAC 验权限、PII 守数据、审计留证据。合规不是一次性合规,而是每次发版前都要重新过一遍的清单。

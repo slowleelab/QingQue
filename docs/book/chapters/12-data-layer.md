@@ -292,6 +292,52 @@ Kafka 是"留白"设计。`init_kafka.py:17-21` 创建 3 个 topic: `lumio.knowl
 
 ES 与 Milvus 的"互相降级"是 RAG 鲁棒性的关键。检索层在调用前先做健康探测, 失败时自动切换到单路, 召回率会下降但可用性保住。这也是为什么 12.5 节的双写必须对两个引擎都标记 `es_indexed` / `milvus_indexed` 状态——降级路由需要从 PG 读出"哪个引擎对哪些 chunk 是就绪的"。
 
+## 12.7.1 消息双通道:Stream 管可靠性, per-session Queue 管顺序
+
+12.4.3 讲了 `lumio:chat:stream` 的 Consumer Group, 但"消息被消费"和"消息被按顺序处理"是两回事。Lumio 在 Stream 和 Agent 之间还有一层**每会话独占的 asyncio.Queue** (`bot/router.py:328`):
+
+```text
+XADD Stream → XREADGROUP (10 条/批) → create_task 分发
+                                          ↓
+                          per-session Queue (保序)
+                                          ↓
+                          per-session Worker (串行消费)
+```
+
+为什么需要两层? Stream 的 Consumer Group 只能保证"一条消息只被一个 consumer 读到", 不保证"同一个会话的消息被同一个 worker 按序处理"——批量 XREADGROUP 后 10 条消息是 create_task 并发的, 同一会话的两条消息可能被两个协程同时处理, 顺序颠倒。per-session Queue + 独占 Worker 把并发重新收敛为串行: **同一会话的消息严格按入队顺序处理, 不同会话的消息仍然并行**——这就是"per-session 串行 + 全局并发"的银行客服时序要求 (客户必须觉得"我的消息一条接一条", 而不是"三条消息三个 Agent 抢着回")。
+
+这层 Queue 还承担了两个 Stream 做不到的职责:
+
+1. **队列合并**: worker 处理前先 drain 队列, ≤5 条 / ≤4000 字符的消息合并成一次 LLM 调用, 并加上语义标记"（用户连续发送了 N 条消息, 请一次性综合回复）"。超限消息放回队列下一轮处理, 不丢失。
+2. **消息级幂等**: `lumio:processed:{message_id}` 幂等键 (TTL 300s) 挡住 XAUTOCLAIM 重投递的重复执行——Stream 的 at-least-once 语义靠这层幂等变成"实际恰好一次"。
+
+Worker 的退出策略也值得注意: 队列空闲超过 300s (`asyncio.wait_for(q.get(), timeout=300)`) 自动退出并从 `_session_active` 注销, 避免每个会话的协程常驻泄漏; 新消息到来时 `_dispatch_message` 发现会话不在活跃集, 重新创建 worker。
+
+## 12.7.2 会话历史双写:Redis List 是投影, PG 是真相
+
+硬性原则 1 说"Redis 只是 PG 的投影", 会话历史是最典型的例子。每次对话轮次写两处:
+
+- **Redis** `lumio:session:{id}:history` (List): `RPUSH` + `LTRIM 20` 只留最近 20 轮, TTL 1800s——给 Bot 拼 prompt、坐席摘要、断线重连加载上下文用, 要求快;
+- **PG** `chat_message` 表: 每轮消息一行, 带 `processing_status` 状态机 (见下), 永久保存——给合规查询、客服复盘、GDPR 删除用, 要求全。
+
+**为什么 Redis 只留 20 轮?** LLM 上下文窗口有限, 20 轮 (约 3-5k 字符) 是"拼得下 prompt 且不稀释注意力"的经验值; 更早的轮次被裁剪时, 增量摘要 (`conversation_summary` + `last_summarized_turn_id` 追踪) 接管记忆职责——被裁的是原文, 不是语义。
+
+Redis 丢失的恢复路径: 会话重启后从 PG `chat_message` 按 session_id 回放重建历史。这正是"投影"的含义——Redis 里删了重建就是, PG 才是丢不起的。
+
+## 12.7.3 chat_message 的消息状态机:审计字段承载全生命周期
+
+`chat_message` 不只是"存消息内容", 它带了一套 5 态处理状态 (`ChatMessageStatus`):
+
+```text
+queued → processing → done
+                 ↘ skipped (TTL 过期)
+                 ↘ error   (Agent 异常)
+```
+
+每个状态转换都伴随审计字段: `processing_status`、`source` (llm / template / fallback / fast_reply / timeout / merged)、`processing_duration_ms`、`error_message`。这套字段让"消息去哪了"可以纯 SQL 回答: `SELECT count(*) FROM chat_message WHERE session_id=? AND processing_status='skipped'` 就是该会话的丢消息统计, `WHERE source='fast_reply'` 就是满荷兜底的影响面——**审计字段让排障从"翻日志猜"变成"查表数"**。
+
+写入时机值得展开: 消息一进 Stream (`chat_send`) 就写 `queued`, worker 处理前更新, 完成后写 `done`。这条链路让 `chat_send` 返回的 `message_id` 可以随时查询处理进度——客户端轮询 `GET /sessions/{id}/messages` 就能看到"我这条消息到底是完成了、超时了还是出错了", 而不是只知道"发出去"。
+
 ## 12.8 小结
 
 数据层是工程化的"基础设施层", 它不生产业务价值, 但决定系统能跑多稳、跑多快。Lumio 用 6 个中间件分担不同负载, 用 19 张 PG 表 + 12 个迁移固化领域模型, 用 15+ Redis key + CAS Lua + ZSET 超时做实时协调, 用 ES+Milvus 双写 + PG 状态字段做双路召回一致性, 用 MinIO 承接大文件、用 Kafka 预留事件流。理解这套设计, 是后续读懂 RAG 检索(第 5 章)、RAG 摄入(第 9 章)、会话状态机(第 6 章)的基础。
