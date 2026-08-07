@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -162,3 +163,172 @@ async def test_process_streaming_cancelled(monkeypatch):
     monkeypatch.setattr("lumio.services.bot.streaming.get_streaming_client", lambda: _FakeClient())
     events = [e async for e in _process_streaming("s1", "hi", asyncio.Event())]
     assert events[-1]["type"] == "cancelled"
+
+
+# ── 完整消息流 (FIX-9 排队/取消/心跳) ────────────────────────────
+
+
+async def _run_ws(task, ws, timeout=5.0):
+    """运行 WS 协程直到完成或超时, 超时则取消"""
+    done = asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    try:
+        await done
+    except asyncio.TimeoutError:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def test_ws_message_full_flow(monkeypatch, valid_token):
+    """完整消息流: thinking → delta → done"""
+    from lumio.services.bot import ws_router
+
+    async def fake_stream(session_id, user_input, cancel_event, session_manager=None):  # noqa: ARG001
+        yield {"type": "delta", "content": "你好"}
+        yield {"type": "done", "full_text": "你好"}
+
+    ws = _FakeWS([json.dumps({"type": "message", "content": "hi"})], query_params={"token": valid_token})
+    with patch.object(ws_router, "_process_streaming", fake_stream):
+        task = asyncio.create_task(ws_router.chat_websocket(ws, "s1"))
+        await _run_ws(task, ws)
+    types = [m["type"] for m in ws.sent]
+    assert "thinking" in types
+    assert types.count("delta") == 1
+    assert types[-1] == "done"
+
+
+async def test_ws_message_empty_content(valid_token):
+    """空 content → empty_content 错误"""
+    from lumio.services.bot import ws_router
+
+    ws = _FakeWS([json.dumps({"type": "message", "content": "   "})], query_params={"token": valid_token})
+    task = asyncio.create_task(ws_router.chat_websocket(ws, "s1"))
+    await _run_ws(task, ws)
+    assert any(m.get("type") == "error" and m.get("message") == "empty_content" for m in ws.sent)
+
+
+async def test_ws_stream_error_returns_trace_id(valid_token):
+    """流式内部异常 → INTERNAL_ERROR + trace_id (不暴露内部细节)"""
+    from lumio.services.bot import ws_router
+
+    async def boom_stream(session_id, user_input, cancel_event, session_manager=None):  # noqa: ARG001
+        raise RuntimeError("内部 SQL 错误: /etc/passwd")
+
+    ws = _FakeWS([json.dumps({"type": "message", "content": "hi"})], query_params={"token": valid_token})
+    with patch.object(ws_router, "_process_streaming", boom_stream):
+        task = asyncio.create_task(ws_router.chat_websocket(ws, "s1"))
+        await _run_ws(task, ws)
+    errors = [m for m in ws.sent if m.get("type") == "error"]
+    assert errors
+    assert errors[-1]["code"] == "INTERNAL_ERROR"
+    assert "trace_id" in errors[-1]
+    assert "SQL" not in errors[-1]["message"]
+
+
+async def test_ws_cancel_during_streaming(valid_token):
+    """流式期间发 cancel → 立即中断 + cancelled 事件"""
+    from lumio.services.bot import ws_router
+
+    async def slow_stream(session_id, user_input, cancel_event, session_manager=None):  # noqa: ARG001
+        yield {"type": "delta", "content": "第一段"}
+        await asyncio.sleep(0.5)
+        yield {"type": "done", "full_text": "第一段"}
+
+    ws = _FakeWS(
+        [
+            json.dumps({"type": "message", "content": "hi"}),
+            json.dumps({"type": "cancel"}),
+        ],
+        query_params={"token": valid_token},
+    )
+    with patch.object(ws_router, "_process_streaming", slow_stream):
+        task = asyncio.create_task(ws_router.chat_websocket(ws, "s1"))
+        await _run_ws(task, ws)
+    assert any(m.get("type") == "cancelled" for m in ws.sent)
+    # 流式被中断 → 没有 done 事件
+    assert not any(m.get("type") == "done" for m in ws.sent)
+
+
+async def test_ws_ping_during_streaming(valid_token):
+    """流式期间发 ping → pong 响应"""
+    from lumio.services.bot import ws_router
+
+    async def slow_stream(session_id, user_input, cancel_event, session_manager=None):  # noqa: ARG001
+        yield {"type": "delta", "content": "第一段"}
+        await asyncio.sleep(0.5)
+        yield {"type": "done", "full_text": "第一段"}
+
+    ws = _FakeWS(
+        [
+            json.dumps({"type": "message", "content": "hi"}),
+            json.dumps({"type": "ping"}),
+        ],
+        query_params={"token": valid_token},
+    )
+    with patch.object(ws_router, "_process_streaming", slow_stream):
+        task = asyncio.create_task(ws_router.chat_websocket(ws, "s1"))
+        await _run_ws(task, ws)
+    assert any(m.get("type") == "pong" for m in ws.sent)
+
+
+async def test_ws_new_message_queued_during_streaming(valid_token):
+    """FIX-9: 流式期间的新消息排队, 当前流结束后按序处理"""
+    from lumio.services.bot import ws_router
+
+    processed: list[str] = []
+
+    async def fake_stream(session_id, user_input, cancel_event, session_manager=None):  # noqa: ARG001
+        processed.append(user_input)
+        yield {"type": "delta", "content": user_input}
+        await asyncio.sleep(0.2)
+        yield {"type": "done", "full_text": user_input}
+
+    ws = _FakeWS(
+        [
+            json.dumps({"type": "message", "content": "第一条"}),
+            json.dumps({"type": "message", "content": "第二条"}),
+        ],
+        query_params={"token": valid_token},
+    )
+    with patch.object(ws_router, "_process_streaming", fake_stream):
+        task = asyncio.create_task(ws_router.chat_websocket(ws, "s1"))
+        await _run_ws(task, ws)
+    assert processed == ["第一条", "第二条"]  # 按序处理, 未丢弃
+    assert any(m.get("type") == "thinking" and "已收到" in m.get("content", "") for m in ws.sent)
+
+
+async def test_ws_queued_message_failure(valid_token):
+    """排队消息处理失败 → 错误事件, 连接不中断"""
+    from lumio.services.bot import ws_router
+
+    async def fake_stream(session_id, user_input, cancel_event, session_manager=None):  # noqa: ARG001
+        if user_input == "第一条":
+            yield {"type": "delta", "content": "ok"}
+            await asyncio.sleep(0.2)
+            yield {"type": "done", "full_text": "ok"}
+        else:
+            raise RuntimeError("第二条处理失败")
+
+    ws = _FakeWS(
+        [
+            json.dumps({"type": "message", "content": "第一条"}),
+            json.dumps({"type": "message", "content": "第二条"}),
+        ],
+        query_params={"token": valid_token},
+    )
+    with patch.object(ws_router, "_process_streaming", fake_stream):
+        task = asyncio.create_task(ws_router.chat_websocket(ws, "s1"))
+        await _run_ws(task, ws)
+    assert any(m.get("type") == "error" and m.get("message") == "处理失败, 请重试" for m in ws.sent)
+
+
+async def test_ws_ping_heartbeat(valid_token: str):
+    """ping → pong (独立于流式)"""
+    from lumio.services.bot import ws_router
+
+    ws = _FakeWS([json.dumps({"type": "ping"})], query_params={"token": valid_token})
+    task = asyncio.create_task(ws_router.chat_websocket(ws, "s1"))
+    await _run_ws(task, ws)
+    assert any(m.get("type") == "pong" for m in ws.sent)

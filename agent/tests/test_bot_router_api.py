@@ -251,3 +251,51 @@ async def test_list_sessions(app: FastAPI, setup_state) -> None:
         resp = await c.get("/api/sessions")
     assert resp.status_code == 200
     assert resp.json()["sessions"] == []
+
+
+async def test_health_ready(app: FastAPI, setup_state) -> None:
+    """readiness 探针"""
+    async with await _client(app) as c:
+        resp = await c.get("/api/health/ready")
+    assert resp.status_code in (200, 503)
+    assert "dependencies" in resp.json()
+
+
+async def test_chat_send_customer_under_limit(app: FastAPI, setup_state) -> None:
+    """per-customer 会话未超限 → 记录 ZSET + 写入 Stream"""
+    redis = setup_state["redis"]
+    redis.zcard = AsyncMock(return_value=1)  # 上限 3, 未超限
+    async with await _client(app) as c:
+        resp = await c.post(
+            "/api/chat/send",
+            json={"session_id": "", "message": "你好", "customer_id": "cust-1"},
+        )
+    assert resp.status_code == 200
+    redis.zremrangebyscore.assert_awaited()
+    redis.zadd.assert_awaited_once()
+    redis.xadd.assert_awaited_once()
+
+
+async def test_chat_send_idempotency_check_error(app: FastAPI, setup_state) -> None:
+    """幂等检查异常 → 放行 (at-least-once 语义)"""
+    redis = setup_state["redis"]
+
+    async def boom(key):  # noqa: ARG001
+        raise ConnectionError("redis down")
+
+    redis.get = AsyncMock(side_effect=boom)
+    async with await _client(app) as c:
+        resp = await c.post(
+            "/api/chat/send",
+            json={"session_id": "s1", "message": "你好", "client_message_id": "cid-1"},
+        )
+    assert resp.status_code == 200
+    redis.xadd.assert_awaited_once()  # 幂等失败仍写入
+
+
+async def test_chat_send_creates_session_id(app: FastAPI, setup_state) -> None:
+    """无 session_id → 自动生成"""
+    async with await _client(app) as c:
+        resp = await c.post("/api/chat/send", json={"session_id": "", "message": "你好"})
+    assert resp.status_code == 200
+    assert resp.json()["session_id"]
