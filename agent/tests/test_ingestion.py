@@ -5,6 +5,10 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from lumio.services.common.ingestion import (
     chunk_text,
     clean_text,
@@ -113,3 +117,154 @@ class TestParse:
         text = "  hello world  \n  "
         result = parse_text_content(text)
         assert result == "hello world"
+
+
+class TestParseDispatch:
+    """解析器分派 + 异常"""
+
+    def test_dispatch_covers_all_types(self) -> None:
+        """_PARSE_DISPATCH 覆盖全部 KbSourceType 枚举值"""
+        from lumio.services.common.ingestion import _PARSE_DISPATCH
+        from lumio.shared.orm_models import KbSourceType
+
+        for st in KbSourceType:
+            assert st in _PARSE_DISPATCH, f"缺少解析器: {st}"
+
+    def test_markdown_parses_text(self) -> None:
+        from lumio.services.common.ingestion import _parse
+        from lumio.shared.orm_models import KbSourceType
+
+        text = _parse(KbSourceType.MARKDOWN, "# 标题\n正文")
+        assert "标题" in text
+
+    def test_unknown_text_type(self) -> None:
+        from lumio.services.common.ingestion import parse_text_content
+
+        assert "内容" in parse_text_content("内容")
+
+
+class TestCleanTextExtended:
+    """文本清洗补充"""
+
+    def test_removes_page_header_footer(self) -> None:
+        from lumio.services.common.ingestion import clean_text
+
+        assert "第 1 页 / 共 3 页" not in clean_text("第 1 页 / 共 3 页\n正文")
+        assert "Page 2 of 10" not in clean_text("Page 2 of 10\n正文")
+
+    def test_removes_control_chars(self) -> None:
+        from lumio.services.common.ingestion import clean_text
+
+        assert "\x00" not in clean_text("a\x00b")
+
+    def test_folds_spaces_and_newlines(self) -> None:
+        from lumio.services.common.ingestion import clean_text
+
+        assert "  " not in clean_text("a  b")
+        assert "\n\n\n" not in clean_text("a\n\n\n\nb")
+
+    def test_dedup_paragraphs(self) -> None:
+        from lumio.services.common.ingestion import clean_text
+
+        out = clean_text("重复段落\n重复段落\n其他")
+        assert out.count("重复段落") == 1
+
+
+class TestChunkExtended:
+    """分块补充"""
+
+    def test_chunk_with_overlap(self) -> None:
+        from lumio.services.common.ingestion import chunk_text
+
+        text = "。".join([f"句子{i}" for i in range(30)])
+        chunks = chunk_text(text, chunk_size=60, overlap=10)
+        assert len(chunks) >= 2
+        # 重叠: 相邻块有公共内容
+        assert all(len(c) > 0 for c in chunks)
+
+    def test_chunk_short_text(self) -> None:
+        from lumio.services.common.ingestion import chunk_text
+
+        assert chunk_text("短文", chunk_size=1500) == ["短文"]
+
+    def test_chunk_break_point_at_end(self) -> None:
+        from lumio.services.common.ingestion import _find_break_point
+
+        assert _find_break_point("abc", 0, 100) == 3  # target 超长 → 文末
+
+
+class TestEmbedWrite:
+    """嵌入 + 双写"""
+
+    @pytest.mark.asyncio
+    async def test_embed_chunks_batches(self) -> None:
+        from lumio.services.common.ingestion import embed_chunks
+
+        provider = MagicMock()
+        provider.embed = AsyncMock(side_effect=lambda batch: [[0.1] * 4 for _ in batch])
+        result = await embed_chunks(["a", "b", "c", "d", "e"], provider, batch_size=2)
+        assert len(result) == 5
+        assert provider.embed.await_count == 3  # 2+2+1 三批
+
+    @pytest.mark.asyncio
+    async def test_embed_chunks_empty(self) -> None:
+        from lumio.services.common.ingestion import embed_chunks
+
+        provider = MagicMock()
+        provider.embed = AsyncMock()
+        assert await embed_chunks([], provider) == []
+        provider.embed.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_write_to_es_success_and_failure(self) -> None:
+        from lumio.services.common.ingestion import write_to_es
+
+        es = AsyncMock()
+        chunk = {"chunk_id": "c1", "doc_id": "d1", "content": "内容"}
+        count = await write_to_es([chunk], es, index_name="idx")
+        assert count == 1
+        assert es.index.await_count == 1
+
+        es2 = AsyncMock()
+        es2.index.side_effect = RuntimeError("down")
+        count2 = await write_to_es([chunk], es2)
+        assert count2 == 0
+
+    @pytest.mark.asyncio
+    async def test_write_to_milvus_success(self) -> None:
+        from lumio.services.common.ingestion import write_to_milvus
+
+        collection = MagicMock()
+        chunks = [
+            {
+                "chunk_id": "c1",
+                "doc_id": "d1",
+                "content": "x",
+                "embedding": [0.1, 0.2],
+                "keywords": "年费,分期",  # 字符串逗号分隔
+            }
+        ]
+        count = await write_to_milvus(chunks, collection)
+        assert count == 1
+        collection.insert.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_write_to_milvus_failure(self) -> None:
+        from lumio.services.common.ingestion import write_to_milvus
+
+        collection = MagicMock()
+
+        def boom(data):
+            raise RuntimeError("milvus down")
+
+        collection.insert = boom
+        chunks = [{"chunk_id": "c1", "doc_id": "d1", "content": "x", "embedding": [0.1]}]
+        assert await write_to_milvus(chunks, collection) == 0
+
+    @pytest.mark.asyncio
+    async def test_rollback_es_docs(self) -> None:
+        from lumio.services.common.ingestion import _rollback_es_docs
+
+        es = AsyncMock()
+        await _rollback_es_docs(es, ["id1", "id2"])
+        assert es.delete.await_count == 2

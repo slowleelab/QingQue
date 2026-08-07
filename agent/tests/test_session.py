@@ -620,3 +620,192 @@ class TestSessionKeyHelpers:
         # 反射访问不依赖具体 session_id
         assert "lumio:session" in session_meta_key("any")
         assert "lumio:session" in session_history_key("any")
+
+
+# ── flush_pending_persists ──
+
+
+@pytest.mark.asyncio
+async def test_flush_pending_persists_empty() -> None:
+    """无待持久化任务 → 直接返回"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+    await manager.flush_pending_persists()
+
+
+@pytest.mark.asyncio
+async def test_flush_pending_persists_waits() -> None:
+    """有待完成任务 → 等待完成后清空"""
+    import asyncio
+
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+
+    async def _slow() -> None:
+        await asyncio.sleep(0.05)
+
+    task = asyncio.create_task(_slow())
+    manager._pending_persist_tasks.add(task)
+    await manager.flush_pending_persists(timeout=2.0)
+    assert manager._pending_persist_tasks == set()
+    assert task.done()
+
+
+# ── persist_dialogue ──
+
+
+@pytest.mark.asyncio
+async def test_persist_dialogue_no_factory() -> None:
+    """无 db factory → 0"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+    assert await manager.persist_dialogue("s1") == 0
+
+
+@pytest.mark.asyncio
+async def test_persist_dialogue_no_turns() -> None:
+    """无历史 → 0"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+    assert await manager.persist_dialogue("s1", lambda: None) == 0
+
+
+@pytest.mark.asyncio
+async def test_persist_dialogue_success() -> None:
+    """落库成功返回轮次数"""
+    redis = _mock_redis()
+    redis.lrange = AsyncMock(
+        return_value=[
+            _make_turn("s1", content="你好").model_dump_json(),
+            _make_turn("s1", content="再会").model_dump_json(),
+        ]
+    )
+    redis.get = AsyncMock(return_value=json.dumps({"customer_id": "c1", "channel_type": "web"}))
+    manager = SessionManager(redis)
+
+    class _FakeDb:
+        def __init__(self):
+            self.added = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            pass
+
+    db = _FakeDb()
+    count = await manager.persist_dialogue("s1", lambda: db)
+    assert count == 2
+    assert len(db.added) == 2
+    assert db.added[0].customer_id == "c1"
+
+
+@pytest.mark.asyncio
+async def test_persist_dialogue_db_error_soft() -> None:
+    """DB 异常 → 0 不抛出"""
+    redis = _mock_redis()
+    redis.lrange = AsyncMock(return_value=[_make_turn("s1").model_dump_json()])
+    redis.get = AsyncMock(return_value=None)
+    manager = SessionManager(redis)
+
+    class _BoomDb:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def commit(self):
+            raise RuntimeError("db down")
+
+    assert await manager.persist_dialogue("s1", lambda: _BoomDb()) == 0
+
+
+# ── _load_history ──
+
+
+@pytest.mark.asyncio
+async def test_load_history_with_limit() -> None:
+    """limit 参数透传 lrange"""
+    redis = _mock_redis()
+    redis.lrange = AsyncMock(return_value=[_make_turn("s1").model_dump_json()])
+    manager = SessionManager(redis)
+    turns = await manager._load_history("s1", limit=5)
+    assert len(turns) == 1
+    assert redis.lrange.await_args.args[1] == -5
+
+
+@pytest.mark.asyncio
+async def test_load_history_bad_json_skipped() -> None:
+    """坏 JSON 轮次跳过"""
+    redis = _mock_redis()
+    redis.lrange = AsyncMock(return_value=["not-json", _make_turn("s1").model_dump_json()])
+    manager = SessionManager(redis)
+    turns = await manager._load_history("s1")
+    assert len(turns) == 1
+
+
+# ── _ensure_script / merge rules ──
+
+
+@pytest.mark.asyncio
+async def test_ensure_script_cached() -> None:
+    """Lua 脚本 SHA 缓存"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+    sha1 = await manager._ensure_script()
+    sha2 = await manager._ensure_script()
+    assert sha1 == "mock-sha"
+    assert sha2 == "mock-sha"
+    assert redis.script_load.await_count == 1  # 只加载一次
+
+
+def test_apply_merge_suppress_gate() -> None:
+    """suppress_flag 单向门: true 不能被 false 覆盖"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+    merged = manager._apply_merge_rules(
+        {"suppress_flag": True},
+        {"suppress_flag": False},
+    )
+    assert "suppress_flag" not in merged  # 单向门阻止
+
+
+def test_apply_merge_suppress_force_clear() -> None:
+    """suppress_force_clear 允许清 false"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+    merged = manager._apply_merge_rules(
+        {"suppress_flag": True},
+        {"suppress_flag": False, "suppress_force_clear": True},
+    )
+    assert merged.get("suppress_flag") is False
+
+
+def test_apply_merge_intent_stack_capped() -> None:
+    """intent_stack 增量去重 + 上限 10"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+    current = {"intent_stack": [f"i{i}" for i in range(10)]}
+    merged = manager._apply_merge_rules(current, {"intent_stack": ["i0", "new_intent"]})
+    assert "i0" not in merged["intent_stack"] or merged["intent_stack"].count("i0") == 1
+    assert "new_intent" in merged["intent_stack"]
+    assert len(merged["intent_stack"]) <= 10
+
+
+def test_apply_merge_entity_pool_dedup() -> None:
+    """entity_pool 按 type:value 去重"""
+    redis = _mock_redis()
+    manager = SessionManager(redis)
+    current = {"entity_pool": [{"entity_type": "card_type", "value": "platinum"}]}
+    merged = manager._apply_merge_rules(
+        current,
+        {"entity_pool": [{"entity_type": "card_type", "value": "platinum"}, {"entity_type": "city", "value": "北京"}]},
+    )
+    assert len(merged["entity_pool"]) == 2

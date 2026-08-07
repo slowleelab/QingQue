@@ -285,3 +285,136 @@ class TestRetrieve:
         # 降级到 BM25 only, 不抛 NameError
         assert resp.results, "embedding 降级后 BM25 结果应保留"
         assert all(r.chunk_id == "c1" for r in resp.results)
+
+
+class TestSearchBM25Extended:
+    @pytest.mark.asyncio
+    async def test_with_filters(self):
+        """带过滤条件时 query body 含 bool.filter"""
+        mock_es = AsyncMock()
+        mock_es.search.return_value = {"hits": {"hits": []}}
+        await search_bm25(mock_es, "年费", filters={"category": "fee"})
+        body = mock_es.search.call_args.kwargs["body"]
+        assert "bool" in body["query"]
+        assert "filter" in body["query"]["bool"]
+
+    @pytest.mark.asyncio
+    async def test_parent_content_attached(self):
+        """parent_chunk_id 命中时附加 parent_content"""
+        mock_es = AsyncMock()
+
+        async def fake_search(**kwargs):
+            return {
+                "hits": {
+                    "hits": [
+                        {
+                            "_id": "c1",
+                            "_score": 1.0,
+                            "_source": {
+                                "chunk_id": "c1",
+                                "content": "子块",
+                                "doc_id": "d1",
+                                "parent_chunk_id": "p1",
+                                "category": "fee",
+                            },
+                        }
+                    ]
+                }
+            }
+
+        async def fake_mget(*a, **kw):
+            return {"docs": [{"found": True, "_id": "p1", "_source": {"content": "父块内容"}}]}
+
+        mock_es.search = fake_search
+        mock_es.mget = fake_mget
+        result = await search_bm25(mock_es, "年费")
+        assert result[0].metadata["parent_content"] == "父块内容"
+
+    @pytest.mark.asyncio
+    async def test_batch_fetch_parents_es(self):
+        """批量获取 parent: 未命中时跳过"""
+        from lumio.services.common.retrieval import _batch_fetch_parents_es
+
+        mock_es = AsyncMock()
+        mock_es.mget.return_value = {
+            "docs": [{"found": False, "_id": "p1"}, {"found": True, "_id": "p2", "_source": {"content": "x"}}]
+        }
+        contents = await _batch_fetch_parents_es(mock_es, "idx", ["p1", "p2"])
+        assert contents == {"p2": "x"}
+
+
+class TestSearchVectorExtended:
+    @pytest.mark.asyncio
+    async def test_success_with_parents(self):
+        """向量检索成功 + parent 内容附加"""
+        from lumio.services.common.retrieval import search_vector
+
+        class _Hit:
+            def __init__(self, cid, distance, **fields):
+                self.id = cid
+                self.distance = distance
+                self.entity = {"chunk_id": cid, "content": "内容", "doc_id": "d1", **fields}
+
+        class _Result:
+            def __init__(self, hits):
+                self._hits = hits
+
+            def __getitem__(self, i):
+                return self._hits[i]
+
+            def __len__(self):
+                return len(self._hits)
+
+        collection = MagicMock()
+
+        def fake_search(**kwargs):
+            return [_Result([_Hit("c1", 0.9, parent_chunk_id="p1")])]
+
+        def fake_query(**kwargs):
+            return [_Hit("p1", 0.5, content="父内容")]
+
+        collection.search = fake_search
+        collection.query = fake_query
+
+        result = await search_vector(collection, [0.1] * 4, top_k=5)
+        assert len(result) == 1
+        assert result[0].chunk_id == "c1"
+        assert result[0].score == 0.9
+
+    @pytest.mark.asyncio
+    async def test_exception_returns_empty(self):
+        """向量检索异常 → 空列表"""
+        from lumio.services.common.retrieval import search_vector
+
+        collection = MagicMock()
+
+        def fake_search(**kwargs):
+            raise RuntimeError("milvus down")
+
+        collection.search = fake_search
+        result = await search_vector(collection, [0.1] * 4)
+        assert result == []
+
+
+class TestDateToEpoch:
+    def test_valid(self):
+        from lumio.services.common.retrieval import _date_to_epoch
+
+        assert _date_to_epoch("2026-08-01") is not None
+
+    def test_invalid(self):
+        from lumio.services.common.retrieval import _date_to_epoch
+
+        assert _date_to_epoch("not-a-date") is None
+        assert _date_to_epoch(None) is None
+
+
+class TestCacheKey:
+    def test_cache_key_stable(self):
+        from lumio.services.common.retrieval import _build_cache_key
+
+        k1 = _build_cache_key("查询", {"category": "fee"}, 5)
+        k2 = _build_cache_key("查询", {"category": "fee"}, 5)
+        assert k1 == k2
+        k3 = _build_cache_key("查询", {"category": "fee"}, 10)
+        assert k1 != k3

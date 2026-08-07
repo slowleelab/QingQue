@@ -160,7 +160,10 @@ disallow_untyped_defs = false
 [tool.coverage.run]
 source = ["lumio"]
 branch = true
-omit = ["tests/*"]
+omit = [
+    "tests/*",
+    "lumio/services/bot/eval/*",  # 评估/红队测试基础设施, 非生产代码
+]
 
 [tool.coverage.report]
 fail_under = 60

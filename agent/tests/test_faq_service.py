@@ -241,3 +241,328 @@ class TestExpireOverdue:
         assert expired_faq.approval_status == "SUPERSEDED"
         assert expired_faq.is_current_version is False
         assert count == 1
+
+
+class TestFaqCrud:
+    """FAQ CRUD 单元测试 (mock session)"""
+
+    def _make_session(self, execute_result=None, rows=None):
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = rows or []
+        if execute_result is not None:
+            result.scalar.return_value = execute_result
+
+        class _FakeSession:
+            def __init__(self):
+                self.added = []
+                self.committed = False
+                self.refreshed = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+            async def commit(self):
+                self.committed = True
+
+            async def refresh(self, obj):
+                self.refreshed.append(obj)
+
+            def add(self, obj):
+                self.added.append(obj)
+
+        return _FakeSession()
+
+    @pytest.mark.asyncio
+    async def test_create_faq(self) -> None:
+        """创建 FAQ: DRAFT + doc_group 生成"""
+        from lumio.services.common.faq_service import create_faq
+
+        fake = self._make_session()
+        sf = MagicMock(return_value=fake)
+        faq = await create_faq(sf, question="年费多少", answer="首年免年费", category="fee")
+        assert faq.approval_status == "DRAFT"
+        assert faq.doc_group.startswith("faq_")
+        assert fake.committed is True
+        assert len(fake.refreshed) == 1
+
+    @pytest.mark.asyncio
+    async def test_create_faq_with_optional_fields(self) -> None:
+        """可选字段透传"""
+        from lumio.services.common.faq_service import create_faq
+
+        fake = self._make_session()
+        sf = MagicMock(return_value=fake)
+        faq = await create_faq(
+            sf,
+            question="q",
+            answer="a",
+            category="fee",
+            card_types=["platinum"],
+            keywords=["年费"],
+            created_by="admin",
+        )
+        assert faq.card_types == ["platinum"]
+        assert faq.keywords == ["年费"]
+        assert faq.created_by == "admin"
+
+    @pytest.mark.asyncio
+    async def test_list_faqs(self) -> None:
+        """列表 + 总数"""
+        from lumio.services.common.faq_service import list_faqs
+
+        faq = MagicMock()
+        faq.id = "11111111-2222-3333-4444-555555555555"
+        faq.question = "年费"
+        faq.category = "fee"
+        faq.approval_status = "PUBLISHED"
+        faq.version = 1
+        faq.is_current_version = True
+        faq.card_types = []
+        faq.effective_date = None
+        faq.expiry_date = None
+        faq.created_at = None
+
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [faq]
+
+        class _FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, stmt, *a, **kw):
+                if "count" in str(stmt) or "func" in str(stmt):
+                    r = MagicMock()
+                    r.scalar.return_value = 1
+                    return r
+                return result
+
+        sf = MagicMock(return_value=_FakeSession())
+        faqs, total = await list_faqs(sf, category="fee", approval_status="PUBLISHED")
+        assert total == 1
+        assert faqs[0]["question"] == "年费"
+        assert faqs[0]["approval_status"] == "PUBLISHED"
+
+    @pytest.mark.asyncio
+    async def test_get_faq_found(self) -> None:
+        """按 ID 获取"""
+        from lumio.services.common.faq_service import get_faq
+
+        faq = MagicMock()
+        faq.id = "11111111-2222-3333-4444-555555555555"
+        faq.question = "q"
+        faq.answer = "a"
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = faq
+
+        class _FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+        sf = MagicMock(return_value=_FakeSession())
+        found = await get_faq(sf, "11111111-2222-3333-4444-555555555555")
+        assert found["question"] == "q"  # get_faq 返回序列化 dict
+        assert found["answer"] == "a"
+
+    @pytest.mark.asyncio
+    async def test_get_faq_missing(self) -> None:
+        """不存在 → None"""
+        from lumio.services.common.faq_service import get_faq
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+
+        class _FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+        sf = MagicMock(return_value=_FakeSession())
+        assert await get_faq(sf, "missing") is None
+
+    @pytest.mark.asyncio
+    async def test_update_faq(self) -> None:
+        """更新字段 + 版本递增"""
+        from lumio.services.common.faq_service import update_faq
+
+        faq = MagicMock()
+        faq.question = "旧"
+        faq.answer = "旧答"
+        faq.version = 1
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = faq
+
+        class _FakeSession:
+            def __init__(self):
+                self.committed = False
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+            async def commit(self):
+                self.committed = True
+
+        sf = MagicMock(return_value=_FakeSession())
+        updated = await update_faq(sf, "id-1", question="新", answer="新答")
+        assert updated is True  # 返回 bool
+        assert faq.question == "新"
+        assert faq.answer == "新答"
+
+    @pytest.mark.asyncio
+    async def test_update_faq_missing_returns_none(self) -> None:
+        """更新不存在的 FAQ → None"""
+        from lumio.services.common.faq_service import update_faq
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+
+        class _FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+        sf = MagicMock(return_value=_FakeSession())
+        assert await update_faq(sf, "missing") is False
+
+    @pytest.mark.asyncio
+    async def test_delete_faq_soft_delete(self) -> None:
+        """软删除: is_deleted=True"""
+        from lumio.services.common.faq_service import delete_faq
+
+        faq = MagicMock()
+        faq.is_deleted = False
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = faq
+
+        class _FakeSession:
+            def __init__(self):
+                self.committed = False
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+            async def commit(self):
+                self.committed = True
+
+        sf = MagicMock(return_value=_FakeSession())
+        assert await delete_faq(sf, "id-1") is True
+        assert faq.is_deleted is True
+
+    @pytest.mark.asyncio
+    async def test_delete_faq_missing(self) -> None:
+        """删除不存在 → False"""
+        from lumio.services.common.faq_service import delete_faq
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+
+        class _FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+        sf = MagicMock(return_value=_FakeSession())
+        assert await delete_faq(sf, "missing") is False
+
+    @pytest.mark.asyncio
+    async def test_transition_approval_valid(self) -> None:
+        """合法状态流转"""
+        from lumio.services.common.faq_service import transition_faq_approval
+
+        faq = MagicMock()
+        faq.approval_status = "DRAFT"
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = faq
+
+        class _FakeSession:
+            def __init__(self):
+                self.committed = False
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+            async def commit(self):
+                self.committed = True
+
+        sf = MagicMock(return_value=_FakeSession())
+        result = await transition_faq_approval(sf, "id-1", "IN_REVIEW", actor_id="admin", actor_role="admin")
+        assert result == {"status": "ok", "faq_id": "id-1", "approval_status": "IN_REVIEW"}
+        assert faq.approval_status == "IN_REVIEW"
+
+    @pytest.mark.asyncio
+    async def test_transition_approval_invalid_raises(self) -> None:
+        """非法状态流转抛异常"""
+        from lumio.services.common.faq_service import transition_faq_approval
+
+        faq = MagicMock()
+        faq.approval_status = "DRAFT"
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = faq
+
+        class _FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def execute(self, *a, **kw):
+                return result
+
+        sf = MagicMock(return_value=_FakeSession())
+        from lumio.shared.exceptions import LumioError
+
+        with pytest.raises(LumioError):
+            await transition_faq_approval(sf, "id-1", "PUBLISHED", actor_id="admin", actor_role="admin")

@@ -261,3 +261,191 @@ class TestAssistEngine:
             alert_engine=alert,
         )
         assert result is not None
+
+
+class TestAssistEngineDegradation:
+    """降级分支测试"""
+
+    @pytest.fixture
+    def alert_engine(self) -> MagicMock:
+        mock = MagicMock()
+        mock.check_compliance = MagicMock(return_value=[])
+        return mock
+
+    @pytest.mark.asyncio
+    async def test_no_ai_executor_degraded(self, alert_engine: MagicMock) -> None:
+        """ai_executor 未配置 → 降级但仍有风控推送"""
+        from lumio.services.common.assist_engine import run_assist_engine
+
+        result = await run_assist_engine(
+            session_id="s1",
+            message="hi",
+            intent="bill_query",
+            confidence=0.9,
+            trace_id="t1",
+            state_snapshot={"last_confidence": 0.9},
+            ai_executor=None,
+            alert_engine=alert_engine,
+        )
+        assert result is not None
+        assert result["type"] == "assist_push"
+
+    @pytest.mark.asyncio
+    async def test_ai_breaker_open(self, alert_engine: MagicMock) -> None:
+        """AI 熔断打开 → 降级"""
+        from lumio.services.common.assist_engine import run_assist_engine
+        from lumio.services.common.circuit_breaker import CircuitBreaker
+
+        breaker = CircuitBreaker(name="ai", failure_threshold=0.05, recovery_timeout=60)
+        breaker.record_failure()  # 窗口需 ≥2 条才评估
+        breaker.record_failure()  # 2/2 失败率 100% ≥ 5% → 打开
+
+        ai_exec = MagicMock()
+        ai_exec.run = AsyncMock()
+
+        result = await run_assist_engine(
+            session_id="s1",
+            message="hi",
+            intent="bill_query",
+            confidence=0.9,
+            trace_id="t1",
+            state_snapshot={"last_confidence": 0.9},
+            ai_executor=ai_exec,
+            alert_engine=alert_engine,
+            breakers={"ai": breaker, "risk": None, "mkt": None},
+        )
+        ai_exec.run.assert_not_awaited()
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_e1_timeout_degraded(self, alert_engine: MagicMock) -> None:
+        """E1 超时 → timeout 降级 (不阻塞风控)"""
+        from lumio.services.common.assist_engine import run_assist_engine
+
+        ai_exec = MagicMock()
+
+        async def slow_run(**kwargs):
+            import asyncio
+
+            await asyncio.sleep(5)  # 超过 SLA
+            return {}
+
+        ai_exec.run = slow_run
+        result = await run_assist_engine(
+            session_id="s1",
+            message="hi",
+            intent="bill_query",
+            confidence=0.9,
+            trace_id="t1",
+            state_snapshot={"last_confidence": 0.9},
+            ai_executor=ai_exec,
+            alert_engine=alert_engine,
+        )
+        assert result is not None
+        assert result["type"] == "assist_push"
+
+    @pytest.mark.asyncio
+    async def test_e1_exception_degraded(self, alert_engine: MagicMock) -> None:
+        """E1 异常 → safe_fallback 降级"""
+        from lumio.services.common.assist_engine import run_assist_engine
+
+        ai_exec = MagicMock()
+        ai_exec.run = AsyncMock(side_effect=RuntimeError("boom"))
+        result = await run_assist_engine(
+            session_id="s1",
+            message="hi",
+            intent="bill_query",
+            confidence=0.9,
+            trace_id="t1",
+            state_snapshot={"last_confidence": 0.9},
+            ai_executor=ai_exec,
+            alert_engine=alert_engine,
+        )
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_no_alert_engine_risk_passes(self) -> None:
+        """无告警引擎 → 风控 PASS"""
+        from lumio.services.common.assist_engine import run_assist_engine
+
+        ai_exec = MagicMock()
+        ai_exec.run = AsyncMock(
+            return_value={"ui_schema": {"scripts": []}, "latency_ms": 10, "degraded": False, "degradation_type": ""}
+        )
+        result = await run_assist_engine(
+            session_id="s1",
+            message="hi",
+            intent="bill_query",
+            confidence=0.9,
+            trace_id="t1",
+            state_snapshot={"last_confidence": 0.9},
+            ai_executor=ai_exec,
+            alert_engine=None,
+        )
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_marketing_activated(self, alert_engine: MagicMock) -> None:
+        """营销激活: 正面情绪 + 高置信度"""
+        from lumio.services.common.assist_engine import run_assist_engine
+
+        ai_exec = MagicMock()
+        ai_exec.run = AsyncMock(
+            return_value={
+                "ui_schema": {"scripts": [{"script_id": "s1"}]},
+                "latency_ms": 10,
+                "degraded": False,
+                "degradation_type": "",
+            }
+        )
+        result = await run_assist_engine(
+            session_id="s1",
+            message="积分怎么换",
+            intent="reward_query",
+            confidence=0.9,
+            trace_id="t1",
+            state_snapshot={
+                "last_confidence": 0.9,
+                "emotion_vector": {"label": "positive", "score": 0.9},
+                "suppress_flag": False,
+                "d2_cooldown_remaining": 0,
+            },
+            ai_executor=ai_exec,
+            alert_engine=alert_engine,
+            sentiment="positive",
+            sentiment_score=0.9,
+        )
+        assert result is not None
+        # reward_query+positive 命中积分营销规则
+        assert result["payload"]["fusion_type"] in ("service_marketing", "marketing_service")
+
+    @pytest.mark.asyncio
+    async def test_push_tracker_records(self, alert_engine: MagicMock) -> None:
+        """推送被 tracker 记录 (供展示决策抑制重复)"""
+        from lumio.services.common.assist_engine import PushTracker, run_assist_engine
+
+        ai_exec = MagicMock()
+        ai_exec.run = AsyncMock(
+            return_value={
+                "ui_schema": {"scripts": [{"script_id": "s1"}]},
+                "latency_ms": 10,
+                "degraded": False,
+                "degradation_type": "",
+            }
+        )
+        tracker = PushTracker()
+        kwargs = dict(
+            session_id="s1",
+            message="hi",
+            intent="bill_query",
+            confidence=0.9,
+            trace_id="t1",
+            state_snapshot={"last_confidence": 0.9},
+            ai_executor=ai_exec,
+            alert_engine=alert_engine,
+            push_tracker=tracker,
+        )
+        first = await run_assist_engine(**kwargs)
+        assert first is not None
+        # 推送后 tracker 记录了 ai 推送时间 (供 interval 抑制)
+        assert "ai" in tracker.last_push_at
