@@ -44,10 +44,9 @@ services:
     # 迁移 + 种子；任何一步失败则非零退出，便于发现
     # 覆盖 entrypoint，避免触发应用 lifespan
     entrypoint: ["/bin/sh", "-c"]
-    command: >
-      echo '==> 数据库迁移' && alembic upgrade head &&
-      echo '==> 灌入种子知识库' && python scripts/seed_knowledge.py &&
-      echo '==> Demo 初始化完成' 
+    # 必须用数组形式: 字符串 command 会被 compose 分词, sh -c 只执行第一个 token
+    command:
+      - "echo '==> 数据库迁移' && alembic upgrade head && echo '==> 灌入种子知识库' && python scripts/seed_knowledge.py && echo '==> Demo 初始化完成'"
     networks:
       - lumio-net
     restart: "no"
