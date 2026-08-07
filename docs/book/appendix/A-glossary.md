@@ -53,8 +53,8 @@ tags: ["glossary", "术语"]
 | 名称 | 含义 |
 |---|---|
 | **LumioAgent** | Bot 主入口类, 6 步决策树 (bot_agent.py:92) |
-| **IntentLabel** | 意图标签: FAQ, BILL, TRANSACTION, LIMIT, INSTALLMENT, REWARD, CARD_LOSS, COMPLAINT, TRANSFER_AGENT, CHITCHAT |
-| **SlotTracker** | 槽位追踪, 跨轮持久化到 Redis (`lumio:slot:{session_id}`) |
+| **IntentLabel** | 意图标签 (10 个): FAQ 常见问题 / BILL_QUERY 账单查询 / TRANSACTION_QUERY 交易查询 / LIMIT_QUERY 额度查询 / INSTALLMENT_INQUIRY 分期咨询 / REWARD_QUERY 积分查询 / CARD_LOSS 挂失 / COMPLAINT 投诉 / TRANSFER_AGENT 转人工 / CHITCHAT 闲聊 |
+| **SlotTracker** | 槽位追踪, 跨轮持久化到 Redis (`lumio:slot:{session_id}`). 槽位 = 完成某业务意图所需的关键信息项, 如分期要"金额 + 期数"; 必填槽缺失时 Bot 逐轮追问补齐 |
 | **consumer_loop** | Redis Stream 消费者, 15s 一次指标采集 (router.py:732) |
 | **session_worker** | per-session 串行消费协程 (router.py:289) |
 | **dispatch_message** | 按 session_id 路由到 per-session Queue (router.py:270) |

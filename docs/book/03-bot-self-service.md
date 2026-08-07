@@ -406,7 +406,7 @@ async def _handle_business(self, session_id, user_input, intent):
 
 工具类走 MCP 工具循环, 详见 [第 17 章 工具调用与确认状态机](chapters/17-tool-calling-and-confirmation.md). 本节仅列关键摘要:
 
-- **5 工具意图**: BILL_QUERY / TRANSACTION_QUERY / LIMIT_QUERY / INSTALLMENT_INQUIRY / REWARD_QUERY
+- **5 工具意图**: BILL_QUERY (账单查询) / TRANSACTION_QUERY (交易查询) / LIMIT_QUERY (额度查询) / INSTALLMENT_INQUIRY (分期咨询) / REWARD_QUERY (积分查询)
 - **渐进式暴露**: `select_tools_for_intent` 按意图+置信度裁剪, 默认关闭 (零回归)
 - **4 分支循环**: 无 tool_call / 护栏拒绝 / 敏感 pending / 非敏感执行
 - **5 态确认**: pending / confirm / cancel / unclear / expired, 详细状态机见 17.4 节
@@ -459,7 +459,9 @@ stateDiagram-v2
 
 > **本章保留摘要, 槽位与上下文注入的联动见 [第 15 章 上下文工程](chapters/15-context-engineering.md)** + [附录 A.4.1 上下文工程术语](appendix/A-glossary.md#a41-上下文工程术语-第-15-章).
 
-`agent/lumio/services/bot/slot_tracker.py` 实现**多轮槽位填充**. 例如"调额到 5 万":
+**先讲个业务场景**: 客户到柜台办"信用卡分期", 柜员得先填一张申请表: "分多少金额?" "分几期?" 客户不可能一次把信息说全, 柜员只能一项一项问. **槽位 (slot) 就是这张申请表上的信息项** — 完成某个业务意图所需的关键信息, 一项就是一个槽. 客户一次说全 → 直接办; 说一半 → 机器人追问缺的那几项; 跨多轮补齐 → 才触发业务动作. 这套"一项一项收信息"的机制, 叫**槽位填充** (slot filling). 槽位还分两种: **必填槽** (缺了必须追问, 否则业务办不下去) 和**可选槽** (缺了不追问, 用默认值或直接跳过).
+
+`agent/lumio/services/bot/slot_tracker.py` 实现**多轮槽位填充**. 以"办分期"为例 — 客户说"我想办分期", 一次说不全"分多少、分几期"两个必填信息:
 
 ```python
 # 简化
@@ -478,21 +480,23 @@ class SlotTracker:
         return len(await self._get_missing(session_id, intent)) == 0
 ```
 
-**关键设计**: 客户可能说"我想调额" → 缺 `amount` / `card_id` 槽 → Bot 问"调多少?" → "5 万" → 还缺 `card_id` → "尾号 1234 那张" → 齐了 → 触发工具调用 (但仍是敏感工具, 走确认状态机).
+**关键设计**: 客户说"我想办分期" → 缺 `amount` (分期金额) / `period` (分期期数) 两个必填槽 → Bot 按预设话术问"请问您想分期的金额是多少?" → 客户答"5000" → `amount` 已填, 还缺 `period` → 再问"您希望分几期?" → 客户答"分 12 期" → 齐了 → 触发分期工具调用 (分期申请是敏感写操作, 仍走 [5 态确认状态机](chapters/17-tool-calling-and-confirmation.md#174-5-态确认状态机)). 槽位数据跨轮持久化在 Redis `lumio:slot:{session_id}`, 客户中途岔开问别的问题再回来, 已填的槽不丢.
 
-**7 意图 × 10 槽位映射表**:
+**7 意图 × 10 槽位映射表** (意图与槽位均标中文含义):
 
-| 意图 | 必填槽 | 可选槽 |
-|---|---|---|
-| INSTALLMENT_INQUIRY | amount / period | — |
-| BILL_QUERY | — | period |
-| LIMIT_QUERY | — | card_type |
-| CARD_LOSS | card_tail | phone_number |
-| COMPLAINT | issue_detail | — |
-| TRANSACTION_QUERY | — | period / amount |
-| REWARD_QUERY | — | card_type |
+| 意图 | 意图含义 | 必填槽 | 可选槽 |
+|---|---|---|---|
+| INSTALLMENT_INQUIRY | 分期咨询 (办分期 / 查分期) | amount (分期金额) / period (分期期数) | — |
+| BILL_QUERY | 账单查询 | — | period (账单周期) |
+| LIMIT_QUERY | 额度查询 / 提额 | — | card_type (卡种) |
+| CARD_LOSS | 卡片挂失 | card_tail (卡号后四位) | phone_number (预留手机号) |
+| COMPLAINT | 投诉 | issue_detail (问题详情) | — |
+| TRANSACTION_QUERY | 交易明细查询 | — | period (查询时段) / amount (交易金额) |
+| REWARD_QUERY | 积分查询 | — | card_type (卡种) |
 
-实体抽取 (entity_pool) 自动联动: `PHONE → phone_number` / `DATE → period` 等 7 映射. 完整实体→槽位映射 + 三段式 prompt 注入 (已收集/待收集/追问提示) 见 [第 15 章](chapters/15-context-engineering.md).
+**注意**: 槽位名是程序里的**通用字段标识**, 具体含义随意图变化 — 同是 `amount`, 在分期咨询里是"分期金额", 在交易查询里是"交易金额"; 同是 `period`, 在账单查询里是"账单周期", 在交易查询里是"查询时段". 必填槽缺失时 Bot 主动追问 (追问话术定义在代码 `SlotDef.prompt`), 可选槽缺失不追问. 另注: `CARD_LOSS` 虽定义了验证槽位, 但当前实现里挂失是高风险操作, 直接转人工坐席验证, 不走槽位填充.
+
+实体抽取 (entity_pool) 自动联动: `PHONE → phone_number` (手机号) / `DATE → period` (时间) 等 7 映射. 完整实体→槽位映射 + 三段式 prompt 注入 (已收集/待收集/追问提示) 见 [第 15 章](chapters/15-context-engineering.md).
 
 ## 3.7 3 级降级: 不拒客
 

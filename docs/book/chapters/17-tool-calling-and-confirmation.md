@@ -56,16 +56,16 @@ Lumio 的解决: **4 层防护**.
 # tool_selection.py:24-32
 TOOL_INTENTS: frozenset[IntentLabel] = frozenset(
     {
-        IntentLabel.BILL_QUERY,           # "bill_query"
-        IntentLabel.TRANSACTION_QUERY,    # "transaction_query"
-        IntentLabel.LIMIT_QUERY,          # "limit_query"
-        IntentLabel.INSTALLMENT_INQUIRY,  # "installment_inquiry"
-        IntentLabel.REWARD_QUERY,         # "reward_query"
+        IntentLabel.BILL_QUERY,           # 账单查询 "bill_query"
+        IntentLabel.TRANSACTION_QUERY,    # 交易查询 "transaction_query"
+        IntentLabel.LIMIT_QUERY,          # 额度查询 "limit_query"
+        IntentLabel.INSTALLMENT_INQUIRY,  # 分期咨询 "installment_inquiry"
+        IntentLabel.REWARD_QUERY,         # 积分查询 "reward_query"
     }
 )
 ```
 
-**5 工具意图** 正好是 `IntentLabel` 11 个值中**需要工具**的子集. 其它 6 个 (FAQ / CARD_LOSS / COMPLAINT / TRANSFER_AGENT / CHITCHAT) 走 RAG / 转人工 / 闲聊, 不调工具.
+**5 工具意图** 正好是 `IntentLabel` 10 个值中**需要工具**的子集. 其它 5 个 (FAQ 常见问题 / CARD_LOSS 挂失 / COMPLAINT 投诉 / TRANSFER_AGENT 转人工 / CHITCHAT 闲聊) 走 RAG / 转人工 / 闲聊, 不调工具.
 
 ### 17.2.2 意图→工具映射表 (5 意图 × 17 工具)
 
@@ -75,22 +75,22 @@ TOOL_INTENTS: frozenset[IntentLabel] = frozenset(
 # config.py:417
 intent_tool_map: dict[str, list[str]] = Field(
     default_factory=lambda: {
-        "bill_query": [
+        "bill_query": [           # 账单查询
             "query_card_bill", "query_bill_detail",
             "query_annual_fee", "repay_credit_card",
         ],
-        "transaction_query": [
+        "transaction_query": [    # 交易查询
             "query_transactions", "report_transaction_dispute",
         ],
-        "limit_query": [
+        "limit_query": [          # 额度查询
             "query_credit_limit", "query_limit_adjust_history",
             "adjust_temp_credit_limit", "apply_permanent_limit",  # 调额 (写操作)
         ],
-        "installment_inquiry": [
+        "installment_inquiry": [  # 分期咨询
             "query_installment_offer", "query_installment_status",
             "apply_bill_installment", "cancel_installment",  # 分期申请 (写操作)
         ],
-        "reward_query": [
+        "reward_query": [         # 积分查询
             "query_points", "query_card_benefits", "redeem_points",
         ],
     }

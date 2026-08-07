@@ -1790,7 +1790,7 @@ async def _handle_business(self, session_id, user_input, intent):
 <h3 id="3.5.3-_handle_tool-工具类-(bot_agent.py:341-401)">3.5.3 <code>_handle_tool</code> 工具类 (bot_agent.py:341-401)</h3>
 <p>工具类走 MCP 工具循环, 详见 <a href="chapters/17-tool-calling-and-confirmation.md">第 17 章 工具调用与确认状态机</a>. 本节仅列关键摘要:</p>
 <ul>
-<li><strong>5 工具意图</strong>: BILL_QUERY / TRANSACTION_QUERY / LIMIT_QUERY / INSTALLMENT_INQUIRY / REWARD_QUERY</li>
+<li><strong>5 工具意图</strong>: BILL_QUERY (账单查询) / TRANSACTION_QUERY (交易查询) / LIMIT_QUERY (额度查询) / INSTALLMENT_INQUIRY (分期咨询) / REWARD_QUERY (积分查询)</li>
 <li><strong>渐进式暴露</strong>: <code>select_tools_for_intent</code> 按意图+置信度裁剪, 默认关闭 (零回归)</li>
 <li><strong>4 分支循环</strong>: 无 tool_call / 护栏拒绝 / 敏感 pending / 非敏感执行</li>
 <li><strong>5 态确认</strong>: pending / confirm / cancel / unclear / expired, 详细状态机见 17.4 节</li>
@@ -1835,7 +1835,8 @@ async def _handle_pending_action(self, session_id, user_input, pending):
 <blockquote>
 <p><strong>本章保留摘要, 槽位与上下文注入的联动见 <a href="chapters/15-context-engineering.md">第 15 章 上下文工程</a></strong> + <a href="appendix/A-glossary.md#a41-上下文工程术语-第-15-章">附录 A.4.1 上下文工程术语</a>.</p>
 </blockquote>
-<p><code>agent/lumio/services/bot/slot_tracker.py</code> 实现<strong>多轮槽位填充</strong>. 例如"调额到 5 万":</p>
+<p><strong>先讲个业务场景</strong>: 客户到柜台办"信用卡分期", 柜员得先填一张申请表: "分多少金额?" "分几期?" 客户不可能一次把信息说全, 柜员只能一项一项问. <strong>槽位 (slot) 就是这张申请表上的信息项</strong> — 完成某个业务意图所需的关键信息, 一项就是一个槽. 客户一次说全 → 直接办; 说一半 → 机器人追问缺的那几项; 跨多轮补齐 → 才触发业务动作. 这套"一项一项收信息"的机制, 叫<strong>槽位填充</strong> (slot filling). 槽位还分两种: <strong>必填槽</strong> (缺了必须追问, 否则业务办不下去) 和<strong>可选槽</strong> (缺了不追问, 用默认值或直接跳过).</p>
+<p><code>agent/lumio/services/bot/slot_tracker.py</code> 实现<strong>多轮槽位填充</strong>. 以"办分期"为例 — 客户说"我想办分期", 一次说不全"分多少、分几期"两个必填信息:</p>
 <pre><code class="language-python"># 简化
 class SlotTracker:
     &quot;&quot;&quot;槽位追踪, 跨轮持久化到 Redis lumio:slot:{session_id}&quot;&quot;&quot;
@@ -1851,12 +1852,13 @@ class SlotTracker:
     async def is_complete(self, session_id: str, intent: str) -&gt; bool:
         return len(await self._get_missing(session_id, intent)) == 0
 </code></pre>
-<p><strong>关键设计</strong>: 客户可能说"我想调额" → 缺 <code>amount</code> / <code>card_id</code> 槽 → Bot 问"调多少?" → "5 万" → 还缺 <code>card_id</code> → "尾号 1234 那张" → 齐了 → 触发工具调用 (但仍是敏感工具, 走确认状态机).</p>
-<p><strong>7 意图 × 10 槽位映射表</strong>:</p>
+<p><strong>关键设计</strong>: 客户说"我想办分期" → 缺 <code>amount</code> (分期金额) / <code>period</code> (分期期数) 两个必填槽 → Bot 按预设话术问"请问您想分期的金额是多少?" → 客户答"5000" → <code>amount</code> 已填, 还缺 <code>period</code> → 再问"您希望分几期?" → 客户答"分 12 期" → 齐了 → 触发分期工具调用 (分期申请是敏感写操作, 仍走 <a href="chapters/17-tool-calling-and-confirmation.md#174-5-态确认状态机">5 态确认状态机</a>). 槽位数据跨轮持久化在 Redis <code>lumio:slot:{session_id}</code>, 客户中途岔开问别的问题再回来, 已填的槽不丢.</p>
+<p><strong>7 意图 × 10 槽位映射表</strong> (意图与槽位均标中文含义):</p>
 <table>
 <thead>
 <tr>
 <th>意图</th>
+<th>意图含义</th>
 <th>必填槽</th>
 <th>可选槽</th>
 </tr>
@@ -1864,42 +1866,50 @@ class SlotTracker:
 <tbody>
 <tr>
 <td>INSTALLMENT_INQUIRY</td>
-<td>amount / period</td>
+<td>分期咨询 (办分期 / 查分期)</td>
+<td>amount (分期金额) / period (分期期数)</td>
 <td>—</td>
 </tr>
 <tr>
 <td>BILL_QUERY</td>
+<td>账单查询</td>
 <td>—</td>
-<td>period</td>
+<td>period (账单周期)</td>
 </tr>
 <tr>
 <td>LIMIT_QUERY</td>
+<td>额度查询 / 提额</td>
 <td>—</td>
-<td>card_type</td>
+<td>card_type (卡种)</td>
 </tr>
 <tr>
 <td>CARD_LOSS</td>
-<td>card_tail</td>
-<td>phone_number</td>
+<td>卡片挂失</td>
+<td>card_tail (卡号后四位)</td>
+<td>phone_number (预留手机号)</td>
 </tr>
 <tr>
 <td>COMPLAINT</td>
-<td>issue_detail</td>
+<td>投诉</td>
+<td>issue_detail (问题详情)</td>
 <td>—</td>
 </tr>
 <tr>
 <td>TRANSACTION_QUERY</td>
+<td>交易明细查询</td>
 <td>—</td>
-<td>period / amount</td>
+<td>period (查询时段) / amount (交易金额)</td>
 </tr>
 <tr>
 <td>REWARD_QUERY</td>
+<td>积分查询</td>
 <td>—</td>
-<td>card_type</td>
+<td>card_type (卡种)</td>
 </tr>
 </tbody>
 </table>
-<p>实体抽取 (entity_pool) 自动联动: <code>PHONE → phone_number</code> / <code>DATE → period</code> 等 7 映射. 完整实体→槽位映射 + 三段式 prompt 注入 (已收集/待收集/追问提示) 见 <a href="chapters/15-context-engineering.md">第 15 章</a>.</p>
+<p><strong>注意</strong>: 槽位名是程序里的<strong>通用字段标识</strong>, 具体含义随意图变化 — 同是 <code>amount</code>, 在分期咨询里是"分期金额", 在交易查询里是"交易金额"; 同是 <code>period</code>, 在账单查询里是"账单周期", 在交易查询里是"查询时段". 必填槽缺失时 Bot 主动追问 (追问话术定义在代码 <code>SlotDef.prompt</code>), 可选槽缺失不追问. 另注: <code>CARD_LOSS</code> 虽定义了验证槽位, 但当前实现里挂失是高风险操作, 直接转人工坐席验证, 不走槽位填充.</p>
+<p>实体抽取 (entity_pool) 自动联动: <code>PHONE → phone_number</code> (手机号) / <code>DATE → period</code> (时间) 等 7 映射. 完整实体→槽位映射 + 三段式 prompt 注入 (已收集/待收集/追问提示) 见 <a href="chapters/15-context-engineering.md">第 15 章</a>.</p>
 <h2 id="3.7-3-级降级:-不拒客">3.7 3 级降级: 不拒客</h2>
 <p><strong>业务背景</strong>: 每年信用卡账单日, 全行客户同时涌入查账单 — 流量是平时的 10 倍. 更糟的是, 大模型服务可能恰好在这时被挤爆 (它比我们更忙). 这时候如果 Bot 直接返回"系统繁忙, 请稍后再试", 等于把客户拒之门外 — 银行客服的 KPI 是"接起率", 客户打不进电话是要上新闻的.</p>
 <p><strong>设计原则: 服务可以变差, 但不能拒绝</strong>. 模型忙 → 用模板话术; 模板也没有 → 引导转人工; 人工也满 → 至少告诉客户"排队中". 层层兜底, 保证客户永远得到"回应", 而不是"拒绝".</p>
@@ -8092,36 +8102,36 @@ def query_entity_relations(entity: str, query_text: str) -&gt; list[dict]:
 <pre><code class="language-python"># tool_selection.py:24-32
 TOOL_INTENTS: frozenset[IntentLabel] = frozenset(
     {
-        IntentLabel.BILL_QUERY,           # &quot;bill_query&quot;
-        IntentLabel.TRANSACTION_QUERY,    # &quot;transaction_query&quot;
-        IntentLabel.LIMIT_QUERY,          # &quot;limit_query&quot;
-        IntentLabel.INSTALLMENT_INQUIRY,  # &quot;installment_inquiry&quot;
-        IntentLabel.REWARD_QUERY,         # &quot;reward_query&quot;
+        IntentLabel.BILL_QUERY,           # 账单查询 &quot;bill_query&quot;
+        IntentLabel.TRANSACTION_QUERY,    # 交易查询 &quot;transaction_query&quot;
+        IntentLabel.LIMIT_QUERY,          # 额度查询 &quot;limit_query&quot;
+        IntentLabel.INSTALLMENT_INQUIRY,  # 分期咨询 &quot;installment_inquiry&quot;
+        IntentLabel.REWARD_QUERY,         # 积分查询 &quot;reward_query&quot;
     }
 )
 </code></pre>
-<p><strong>5 工具意图</strong> 正好是 <code>IntentLabel</code> 11 个值中<strong>需要工具</strong>的子集. 其它 6 个 (FAQ / CARD_LOSS / COMPLAINT / TRANSFER_AGENT / CHITCHAT) 走 RAG / 转人工 / 闲聊, 不调工具.</p>
+<p><strong>5 工具意图</strong> 正好是 <code>IntentLabel</code> 10 个值中<strong>需要工具</strong>的子集. 其它 5 个 (FAQ 常见问题 / CARD_LOSS 挂失 / COMPLAINT 投诉 / TRANSFER_AGENT 转人工 / CHITCHAT 闲聊) 走 RAG / 转人工 / 闲聊, 不调工具.</p>
 <h3 id="17.2.2-意图→工具映射表-(5-意图-×-17-工具)">17.2.2 意图→工具映射表 (5 意图 × 17 工具)</h3>
 <p><code>config.py:417-435</code> 配置:</p>
 <pre><code class="language-python"># config.py:417
 intent_tool_map: dict[str, list[str]] = Field(
     default_factory=lambda: {
-        &quot;bill_query&quot;: [
+        &quot;bill_query&quot;: [           # 账单查询
             &quot;query_card_bill&quot;, &quot;query_bill_detail&quot;,
             &quot;query_annual_fee&quot;, &quot;repay_credit_card&quot;,
         ],
-        &quot;transaction_query&quot;: [
+        &quot;transaction_query&quot;: [    # 交易查询
             &quot;query_transactions&quot;, &quot;report_transaction_dispute&quot;,
         ],
-        &quot;limit_query&quot;: [
+        &quot;limit_query&quot;: [          # 额度查询
             &quot;query_credit_limit&quot;, &quot;query_limit_adjust_history&quot;,
             &quot;adjust_temp_credit_limit&quot;, &quot;apply_permanent_limit&quot;,  # 调额 (写操作)
         ],
-        &quot;installment_inquiry&quot;: [
+        &quot;installment_inquiry&quot;: [  # 分期咨询
             &quot;query_installment_offer&quot;, &quot;query_installment_status&quot;,
             &quot;apply_bill_installment&quot;, &quot;cancel_installment&quot;,  # 分期申请 (写操作)
         ],
-        &quot;reward_query&quot;: [
+        &quot;reward_query&quot;: [         # 积分查询
             &quot;query_points&quot;, &quot;query_card_benefits&quot;, &quot;redeem_points&quot;,
         ],
     }
@@ -9039,11 +9049,11 @@ TOOL_GUARD_DENIALS = Counter(
 </tr>
 <tr>
 <td><strong>IntentLabel</strong></td>
-<td>意图标签: FAQ, BILL, TRANSACTION, LIMIT, INSTALLMENT, REWARD, CARD_LOSS, COMPLAINT, TRANSFER_AGENT, CHITCHAT</td>
+<td>意图标签 (10 个): FAQ 常见问题 / BILL_QUERY 账单查询 / TRANSACTION_QUERY 交易查询 / LIMIT_QUERY 额度查询 / INSTALLMENT_INQUIRY 分期咨询 / REWARD_QUERY 积分查询 / CARD_LOSS 挂失 / COMPLAINT 投诉 / TRANSFER_AGENT 转人工 / CHITCHAT 闲聊</td>
 </tr>
 <tr>
 <td><strong>SlotTracker</strong></td>
-<td>槽位追踪, 跨轮持久化到 Redis (<code>lumio:slot:{session_id}</code>)</td>
+<td>槽位追踪, 跨轮持久化到 Redis (<code>lumio:slot:{session_id}</code>). 槽位 = 完成某业务意图所需的关键信息项, 如分期要"金额 + 期数"; 必填槽缺失时 Bot 逐轮追问补齐</td>
 </tr>
 <tr>
 <td><strong>consumer_loop</strong></td>
