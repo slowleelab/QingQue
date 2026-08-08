@@ -1490,7 +1490,7 @@ def test_settings_override(monkeypatch):
 <p><strong>阶段 ① 提交 — "接了再说"</strong>
 客户发"上个月账单多少钱", 服务<strong>只做登记就返回"已收到"</strong>, 不现场算. 就像银行柜台的叫号机: 先取号, 再等叫号, 而不是堵在柜台前等业务办完. 好处: 请求瞬间返回, 服务能同时收下海量消息, 不被最慢的一次 AI 调用拖住.</p>
 <p><strong>阶段 ② 分发 — "按号排队"</strong>
-后台有个"叫号员" (Consumer Group) 把消息从 Redis 里读出来, 按客户会话分到各自的队列. <strong>每个会话一个队列、一个处理员</strong> — 这是全章最重要的一句话: 同一个客户连发的 10 条消息, 处理顺序和发送顺序完全一致, 不会出现"第 3 条先被回答、第 2 条后到"的乱序事故.</p>
+后台有个"叫号员" (Consumer Group, 读作"消费组", 是什么见 3.2.3) 把消息从 Redis 里读出来, 按客户会话分到各自的队列. <strong>每个会话一个队列、一个处理员</strong> — 这是全章最重要的一句话: 同一个客户连发的 10 条消息, 处理顺序和发送顺序完全一致, 不会出现"第 3 条先被回答、第 2 条后到"的乱序事故.</p>
 <p><strong>阶段 ③ 决策 — "AI 开始干活"</strong>
 <code>LumioAgent</code> 决策器先看两件事: ① 这个会话有没有<strong>挂着没确认的操作</strong> (比如上轮要办挂失, 等客户说"确认") — 有就先处理确认; ② 没有的话, 先判断客户想干嘛 (查知识 / 办业务 / 闲聊), 再分派给对应流程. 查知识 = 去知识库检索条文 + 让大模型组织语言; 办业务 = 调银行工具 (但敏感操作只"提议", 等客户点头才真办).</p>
 <p><strong>阶段 ④ 通知 — "算好了, 喊你"</strong>
@@ -1580,16 +1580,50 @@ if active &gt;= get_settings().bot.max_sessions_per_customer:
 <li>仅限制<strong>新会话</strong> (body 未带 session_id); 已带 session_id 的续聊不受影响</li>
 <li>上限可配: <code>BOT_MAX_SESSIONS_PER_CUSTOMER</code> (默认 3)</li>
 </ul>
+<h3 id="3.2.3-概念先修:Redis、Stream、消费组到底是什么">3.2.3 概念先修:Redis、Stream、消费组到底是什么</h3>
+<blockquote>
+<p>本节写给<strong>不写代码的读者</strong> (业务、项目经理、测试)。后面的 3.3 / 3.4 会大量使用 Redis、Stream、Worker 这些词, 先把它们长什么样讲清楚, 后面读起来就不会迷路。开发读者可以跳过本节, 直接看 3.3 的实现细节。</p>
+</blockquote>
+<p><strong>Redis 是什么</strong> — 一句话: 一个"所有人共享的公共储物柜" (内存数据库)。任何一台服务机器都能往里存东西、取东西, 存取都很快 (毫秒级), 但数据放在内存里, 机器重启数据会消失 (所以只放"临时状态", 永久数据都在 PostgreSQL 里)。它和数据库表格的区别: 表格是"存完查询", 储物柜是"放进去、取出来、传个话", 强调的是速度和共享, 不是复杂的检索。</p>
+<p><strong>Stream 是什么</strong> — 一句话: 储物柜里的一叠"按顺序编号的业务单据" (消息队列)。任何服务都能往这叠单据的<strong>末尾</strong>加一张 (写消息), 也能从<strong>开头</strong>按顺序取 (读消息)。一张单据长这样:</p>
+<pre><code class="language-text">单据编号: 1697000000000-0          ← 编号 = 时间戳 + 序号, 保证全系统唯一且有序
+单据内容: { 会话ID: &quot;sess-123&quot;, 消息: &quot;上个月账单多少钱&quot;, 客户ID: &quot;cust-9&quot; }
+</code></pre>
+<p>这叠单据有三个规则:
+1. <strong>只能末尾追加、按序读取</strong> — 就像银行的排队取号, 号码不会乱;
+2. <strong>有堆叠上限 (MAXLEN 10000)</strong> — 超过 1 万张就把最旧的扔掉, 防止储物柜被单据塞爆 (内存有界);
+3. <strong>谁都能往里放, 谁都能往外取</strong> — 这是系统能水平扩展 (加机器) 的根基: 3 台机器共用这一叠单据, 而不是每台机器各存各的。</p>
+<p><strong>消费组 (Consumer Group) 是什么</strong> — 一句话: 一组处理员 (3 台机器上的消费进程) 共用的<strong>一本"取单登记本"</strong>。这叠单据由整组处理员共享, 登记本保证:</p>
+<ul>
+<li><strong>同一张单据只被一个处理员取走</strong> — 不会出现"3 台机器同时处理同一条消息";</li>
+<li>处理员取走单据后, 必须在登记本上<strong>打勾 (XACK)</strong> 表示"这张办完了";</li>
+<li>打了勾的单据才算结束; 没打勾的会被登记在"未完成清单 (PEL)"里, 超过 60 秒还没打勾, 说明取单的处理员可能宕机了, 其他处理员可以<strong>接管 (XAUTOCLAIM)</strong> 重新处理;</li>
+<li>正因为"没打勾就可能被重新投递", 处理端必须<strong>幂等</strong> — 同一张单据重复处理也不能产生两次效果 (好比同一笔刷卡请求重复送达, 银行只扣一次款)。</li>
+</ul>
+<pre><code class="language-mermaid">flowchart LR
+    C[客户发消息] --&gt;|XADD 追加单据| S[(单据堆&lt;br/&gt;Redis Stream)]
+    S --&gt;|XREADGROUP 取单| G[消费组登记本&lt;br/&gt;同一张只被取一次]
+    G --&gt; W1[处理员 1&lt;br/&gt;机器 A]
+    G --&gt; W2[处理员 2&lt;br/&gt;机器 B]
+    G --&gt; W3[处理员 3&lt;br/&gt;机器 C]
+    W1 --&gt;|XACK 打勾| S
+    W2 -.宕机 60s 未打勾.-&gt; S
+    S --&gt;|XAUTOCLAIM 接管| W3
+</code></pre>
+<p><strong>这张图怎么读</strong>: 客户消息先变成单据进堆 → 消费组登记本把单据派给某个处理员 (只派一次) → 处理员办完打勾; 谁 60 秒没打勾, 系统认定他挂了, 把单据转给别的处理员。<strong>注意</strong>: 消费组只保证"不丢、不重取", 不保证"同一个客户的单据按顺序处理"——3 台机器并行取单时, 客户连发的 3 条消息可能被 3 个处理员同时取走。顺序问题由 3.4 的 per-session Worker 解决。</p>
 <h2 id="3.3-Redis-Stream-设计">3.3 Redis Stream 设计</h2>
 <p><strong>先回答"为什么需要消息流"</strong>: 银行客服是<strong>多实例部署</strong> — 可能 3 台机器同时在跑 Bot 服务. 客户的消息发到哪台? 如果每台机器各自为政, 客户连发 3 条消息可能被 3 台机器同时处理, 回答乱套. 解决方式: 所有消息先进一个<strong>公共的"消息池"</strong> (Redis Stream), 任何实例从池子里取消息处理 — 谁有空谁取, 单条消息只被取走一次. 这就是"消息流 + 消费组"模式.</p>
 <p><code>agent/lumio/services/bot/router.py:68-194</code> 集中实现 Redis Stream 的 4 个关键概念.</p>
 <h3 id="3.3.1-Consumer-Group-—-&quot;取号叫号&quot;">3.3.1 Consumer Group — "取号叫号"</h3>
+<blockquote>
+<p>不写代码的读者: 这段代码的作用只有一句 — <strong>在 Redis 里创建"取单登记本"</strong> (如果单据堆还不存在就顺带建一个空堆)。后面的 XREADGROUP / XACK / XAUTOCLAIM 都是在这个登记本上操作。术语对照见本章末尾的"3.13 黑话速查表"。</p>
+</blockquote>
 <pre><code class="language-python"># router.py:68-77
 XGROUP_CREATE_SCRIPT = &quot;&quot;&quot;
 XGROUP CREATE lumio:chat:stream bot-group $ MKSTREAM
 &quot;&quot;&quot;
 </code></pre>
-<p><strong>Consumer Group</strong> <code>bot-group</code> 是 Redis 5.0+ 引入的多消费者协调机制. 多个 Worker 实例共享一个组, 每条消息<strong>只被一个 Worker 消费</strong> (at-least-once). 这等价于 Kafka 的 partition + consumer group, 但实现更轻.</p>
+<p><strong>Consumer Group</strong> <code>bot-group</code> 是 Redis 5.0+ 引入的多消费者协调机制. 多个 Worker 实例共享一个组, 每条消息<strong>只被一个 Worker 消费</strong> (at-least-once, "至少一次": 保证不丢, 但可能重复 — 见 3.3.2). 这等价于 Kafka 的 partition + consumer group, 但实现更轻.</p>
 <p><strong>打个比方</strong>: 消息池 = 银行叫号屏, 消费组 = 柜台的 10 个窗口. 每个客户 (消息) 被叫到一个窗口, 不会同时出现在两个窗口. 3 台机器上的 Worker 就是窗口, 谁空闲谁接待下一位.</p>
 <h3 id="3.3.2-PEL-(Pending-Entries-List)-+-XAUTOCLAIM-—-&quot;窗口突然关了怎么办&quot;">3.3.2 PEL (Pending Entries List) + XAUTOCLAIM — "窗口突然关了怎么办"</h3>
 <p><strong>业务场景</strong>: 窗口 (Worker) 正在处理客户消息时, 机器宕机了 — 这条消息算"处理完"还是"没处理"? 如果算处理完, 消息丢了, 客户白等; 如果算没处理, 谁来接手?</p>
@@ -1621,8 +1655,16 @@ async def _claim_stale(self):
 <h2 id="3.4-per-session-Worker:-串行消费">3.4 per-session Worker: 串行消费</h2>
 <p><strong>业务场景</strong>: 客户在对话框里连发 3 条消息 — "在吗?" → "我的卡丢了" → "怎么挂失?". 这 3 条几乎同时到达. 如果被 3 个 Worker 并行处理, 回答顺序可能变成"怎么挂失"的答案先到、"我的卡丢了"后到 — 客户看到的对话完全错乱. 更糟的是, 第 3 条消息的意图依赖前两条的上下文 ("怎么挂失"承接"卡丢了"), 顺序一乱, AI 理解就错.</p>
 <p><strong>解法</strong>: 给每个会话配一个<strong>专属处理员</strong> (per-session Worker), 该会话的消息永远只由它按顺序处理 — 像银行柜台一对一的服务专员, 一个客户全程一个专员接待, 谁先来谁先办.</p>
-<p><code>router.py:289-340</code> <code>_session_worker</code> 是个<strong>长跑协程</strong>, 每个 session_id 独占一个 Worker:</p>
-<pre><code class="language-python"># 简化版
+<p><strong>"Worker"到底是什么 — 写给不写代码的读者</strong>: Worker 不是一台机器, 也不是一个独立程序, 而是<strong>运行在 Bot 服务进程里的一个"工作台"</strong>。一个进程里可以同时开几千个工作台 (技术上叫<strong>协程</strong>, 你可以把它理解成"一个能随时暂停/恢复的小任务", 比开一个真线程轻量得多), 每个工作台只认领一个会话:</p>
+<ul>
+<li>工作台手边有一个<strong>收件盒</strong> (<code>asyncio.Queue</code>), 只收自己那个客户的新消息, 先进先出;</li>
+<li>工作台从收件盒取一条 → 交给 AI 处理 → 处理完在单据堆登记本上<strong>打勾 (XACK)</strong> → 再取下一条;</li>
+<li>收件盒空等 300 秒 (5 分钟) → 工作台自动下班 (释放资源); 客户再发消息时, 系统现场再开一个工作台 (自动创建)。</li>
+</ul>
+<p><strong>为什么不是"3 台机器抢着处理"?</strong> 上一节 3.2.3 说过, 消费组只保证"不重取", 不保证"按顺序" — 客户连发 3 条, 3 台机器可能同时取走, 回答乱序。有了专属工作台: 同一个客户的 3 条消息<strong>只进这一个收件盒</strong>, 永远按发送顺序一条一条处理; 而不同客户的消息仍然由各自的工作台并行处理, 互不阻塞。这就是"<strong>同一个客户串行, 不同客户并行</strong>"——银行客服的硬性时序要求: 客户必须觉得"我的话一条接一条被回复", 而不是"三条消息三个 AI 抢着回"。</p>
+<p><code>router.py:289-340</code> <code>_session_worker</code> 就是上面说的"工作台"的实现, 每个 session_id 独占一个 Worker:</p>
+<pre><code class="language-python"># 简化版 — 不写代码的读者可以跳过, 记住三句话即可:
+# ① 从收件盒取一条; ② 处理 + 打勾; ③ 5 分钟没消息就下班
 async def _session_worker(self, session_id: str) -&gt; None:
     &quot;&quot;&quot;per-session 串行消费, 300s 空闲自动退出&quot;&quot;&quot;
     queue: asyncio.Queue = self._session_queues[session_id]
@@ -1657,7 +1699,8 @@ merged_message = (
 <p><strong>对刚才场景的回答</strong>: 客户连发"在吗? / 我的卡丢了 / 怎么挂失?" — Worker 正在处理第 1 条时, 第 2、3 条进入队列. 处理第 1 条前先"看一眼队列", 把后面两条一起合并成一次调用: 大模型一次性看到三句连续的话, 完整理解"客户卡丢了要挂失", 一次回答到位. 客户不用等三条消息轮番处理.</p>
 <p><strong>这算"打断"吗?</strong> 算一种<strong>软打断</strong>: 用户最新的话不会被旧回答覆盖, 而是和新消息一起被综合处理. 真正的"硬打断" (正在生成的回答被取消) 在 WebSocket 流式通道实现 (ws_router.py 的 cancel 协议), 见后续章节.</p>
 <h3 id="3.4.2-快速兜底:-domain-键对齐-+-冷却">3.4.2 快速兜底: domain 键对齐 + 冷却</h3>
-<p>Semaphore 满荷时走 <code>&lt;5ms</code> 正则快速兜底话术 (<code>_FAST_REPLIES</code>). RuleLoader 返回的是
+<p><strong>"Semaphore 满荷"是什么意思?</strong> Semaphore (信号量) 是系统的一个"<strong>全局同时处理上限</strong>": 同一时刻最多 10 条消息在真正调用 AI, 防止高峰把所有机器打满。上限用完了就叫"满荷"。<strong>满荷 ≠ 拒绝客户</strong> — 系统不排队死等, 而是立刻用预先写好的话术先回应 (挂失 → "正在优先处理", 账单 → "稍后返回"), 让客户先得到"回应"而不是"排队", 5 秒冷却期内同一会话不重复兜底, 避免连续发模板话术。</p>
+<p>满荷时走 <code>&lt;5ms</code> 正则快速兜底话术 (<code>_FAST_REPLIES</code>). RuleLoader 返回的是
 domain (<code>card</code>/<code>bill</code>/<code>limit</code>), 与话术键名 (<code>lost_card</code>/<code>bill_query</code>) 不一致 → 通过别名映射对齐:</p>
 <pre><code class="language-python">_DOMAIN_TO_FAST_KEY = {&quot;card&quot;: &quot;lost_card&quot;, &quot;complaint&quot;: &quot;complaint&quot;,
                        &quot;bill&quot;: &quot;bill_query&quot;, &quot;limit&quot;: &quot;limit_query&quot;, ...}
@@ -1665,7 +1708,7 @@ domain (<code>card</code>/<code>bill</code>/<code>limit</code>), 与话术键名
 <p><strong>冷却期</strong>: <code>BOT_FAST_REPLY</code> 后写 <code>lumio:fast_reply:{session_id}</code> 时间戳
 (<code>fast_reply_cooldown=5s</code>) — 冷却期内同一会话不再二次快速兜底, 避免连续模板话术.</p>
 <h2 id="3.5-LumioAgent-6-步决策树">3.5 <code>LumioAgent</code> 6 步决策树</h2>
-<p><strong>业务背景</strong>: 消息到了 Worker, 现在要"真正思考"了. 但"思考"不等于"什么都交给大模型" — 银行场景里, 有些话不能乱说 (挂失要转人工), 有些事不能乱做 (调额要确认), 有些问题不能乱答 (知识要查库). 所以 <code>LumioAgent</code> 是一个<strong>规则优先的决策器</strong>: 能用规则判断的绝不让模型自由发挥, 模型只负责"分类"和"生成"两件最需要它的事.</p>
+<p><strong>业务背景</strong>: 消息到了 Worker, 现在要"真正思考"了. 但"思考"不等于"什么都交给大模型" — 银行场景里, 有些话不能乱说 (挂失要转人工), 有些事不能乱做 (调额要确认), 有些问题不能乱答 (知识要查库). 所以 <code>LumioAgent</code> 是一个<strong>规则优先的决策器</strong>: 能用规则判断的绝不让模型自由发挥, 模型只负责"分类"和"生成"两件最需要它的事. 下文代码块写给开发读者; 业务/项目经理/测试读者看上面的 6 步表格 + 每步的"关键设计"即可, 不读代码也不影响理解。</p>
 <p><strong>用一个真实对话走一遍 6 步</strong>: 客户说"我想把额度提到 8 万".</p>
 <table>
 <thead>
@@ -2112,7 +2155,192 @@ async def upload_document(file: UploadFile, request: Request):
 <li><code>test_chat_poll.py</code> (e2e, CI 排除): 长轮询验证</li>
 <li><code>test_session_lifecycle_e2e.py</code> (e2e, CI 排除): 会话生命周期</li>
 </ul>
-<h2 id="3.12-本章小结">3.12 本章小结</h2>
+<h2 id="3.12-黑话速查表-(业务-/-项目经理-/-测试对照)">3.12 黑话速查表 (业务 / 项目经理 / 测试对照)</h2>
+<blockquote>
+<p>本章所有技术名词的"一句话人话解释"。开发读者可跳过; 其他读者读到不懂的词回来查这一节即可。更完整的跨章术语见 <a href="appendix/A-glossary.md">附录 A 术语表</a>。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>术语</th>
+<th>一句话解释</th>
+<th>章节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Redis</td>
+<td>所有服务共享的"公共储物柜" (内存数据库), 存取毫秒级, 重启丢失 (只放临时状态)</td>
+<td>3.2.3</td>
+</tr>
+<tr>
+<td>Stream</td>
+<td>储物柜里一叠"按顺序编号的业务单据" (消息队列), 末尾追加、按序读取、上限 1 万条</td>
+<td>3.2.3</td>
+</tr>
+<tr>
+<td>消费组 (Consumer Group)</td>
+<td>一组处理员共用的"取单登记本": 同一张单据只被一个处理员取走</td>
+<td>3.2.3 / 3.3.1</td>
+</tr>
+<tr>
+<td>XADD</td>
+<td>往单据堆末尾放一张新单据 (写消息)</td>
+<td>3.2</td>
+</tr>
+<tr>
+<td>XREADGROUP</td>
+<td>处理员从单据堆按顺序取一张 (登记本保证不重取)</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td>XACK</td>
+<td>处理员打勾"这张办完了"</td>
+<td>3.3.2 / 3.4</td>
+</tr>
+<tr>
+<td>PEL</td>
+<td>登记本上"取走但没打勾"的未完成清单</td>
+<td>3.3.2</td>
+</tr>
+<tr>
+<td>XAUTOCLAIM</td>
+<td>单据 60 秒没人打勾 → 判定原处理员宕机, 其他处理员接管重处理</td>
+<td>3.3.2</td>
+</tr>
+<tr>
+<td>MAXLEN</td>
+<td>单据堆上限 (1 万条), 超过扔最旧的 (内存有界)</td>
+<td>3.3.3</td>
+</tr>
+<tr>
+<td>at-least-once</td>
+<td>"至少一次": 保证消息不丢, 但可能重复投递</td>
+<td>3.3.2</td>
+</tr>
+<tr>
+<td>幂等</td>
+<td>同一请求重复处理也只产生一次效果 (像同一笔刷卡重复送达只扣一次款)</td>
+<td>3.2.1 / 3.3.2</td>
+</tr>
+<tr>
+<td>TTL</td>
+<td>数据的有效期, 到期自动消失 (如结果缓存 2 分钟、幂等键 5 分钟)</td>
+<td>3.1 / 3.2.1</td>
+</tr>
+<tr>
+<td>per-session Worker</td>
+<td>每个会话专属的"工作台" (一个协程): 同客户消息严格按发送顺序处理, 不同客户并行</td>
+<td>3.4</td>
+</tr>
+<tr>
+<td>协程</td>
+<td>轻量级小任务 (工作台), 一个进程能同时开几千个, 比线程便宜得多</td>
+<td>3.4</td>
+</tr>
+<tr>
+<td>asyncio.Queue</td>
+<td>工作台手边的"收件盒", 先进先出</td>
+<td>3.4</td>
+</tr>
+<tr>
+<td>Semaphore (信号量)</td>
+<td>系统全局"同时处理中"的上限 (默认 10), 用完了叫"满荷"</td>
+<td>3.4.2 / 3.7</td>
+</tr>
+<tr>
+<td>快速兜底</td>
+<td>满荷时不排队死等, 用预先写好的话术先回应客户</td>
+<td>3.4.2</td>
+</tr>
+<tr>
+<td>冷却期</td>
+<td>同一会话 5 秒内不重复给快速兜底话术 (避免连续模板话)</td>
+<td>3.4.2</td>
+</tr>
+<tr>
+<td>长轮询</td>
+<td>客户端问"好了吗", 服务器"等有结果再答" (最长等 30 秒)</td>
+<td>3.1</td>
+</tr>
+<tr>
+<td>Pub/Sub</td>
+<td>广播: 结果好了"喊一声", 在听的人立刻应答</td>
+<td>3.1</td>
+</tr>
+<tr>
+<td>死信队列</td>
+<td>重试 3 次仍失败的消息集中地, 管理端可查看/重放 (不无声丢失)</td>
+<td>3.3.2 / 第 8 章</td>
+</tr>
+<tr>
+<td>LLM</td>
+<td>大语言模型, 只负责"判断意图"和"组织回答"两件事</td>
+<td>3.5</td>
+</tr>
+<tr>
+<td>意图 (intent)</td>
+<td>模型判断"客户想干嘛": 查账单/挂失/投诉/闲聊</td>
+<td>3.5</td>
+</tr>
+<tr>
+<td>路由</td>
+<td>按意图把消息分派到对应流程: 查知识 / 办业务 / 调工具 / 闲聊</td>
+<td>3.5</td>
+</tr>
+<tr>
+<td>RAG</td>
+<td>先检索知识库相关条文, 再让模型结合条文回答 (不凭空编)</td>
+<td>3.5.1 / 第 5 章</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>调用银行工具的统一通道 (查账单/提额等 22 个工具)</td>
+<td>3.5.3 / 第 7 章</td>
+</tr>
+<tr>
+<td>pending_action</td>
+<td>待客户确认的敏感操作 (存 Redis 跨轮不丢, 5 分钟过期)</td>
+<td>3.5.4 / 第 17 章</td>
+</tr>
+<tr>
+<td>槽位 (slot)</td>
+<td>办业务需要收集的信息项 (分期金额、期数、卡号后四位…)</td>
+<td>3.6</td>
+</tr>
+<tr>
+<td>实体 (entity)</td>
+<td>从客户话里抽出的关键信息 (卡号、金额、日期)</td>
+<td>3.6</td>
+</tr>
+<tr>
+<td>ZSET</td>
+<td>带分数的有序清单 (这里记每个客户当前活跃的会话数)</td>
+<td>3.2.2</td>
+</tr>
+<tr>
+<td>客户画像</td>
+<td>从历史对话推断的客户标签 (卡种/VIP 等级/风险偏好)</td>
+<td>3.9 / 第 16 章</td>
+</tr>
+<tr>
+<td>降级</td>
+<td>模型/检索不可用时用次优内容回应 (HTTP 仍 200, 客户无感)</td>
+<td>3.7 / 第 8 章</td>
+</tr>
+<tr>
+<td>熔断</td>
+<td>上游连续失败 N 次后自动"断开"不再调用, 定期探测恢复</td>
+<td>3.7 / 第 4 章</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td>常驻连接, 服务器可随时主动推送 (长轮询的升级版, 增强项)</td>
+<td>3.1 / ws_router</td>
+</tr>
+</tbody>
+</table>
+<h2 id="3.13-本章小结">3.13 本章小结</h2>
 <p>Bot 自助问答服务是 Lumio 流量最大的入口. 回到开头的银行场景, 现在你能完整回答"一条客户消息从发出到收到回答, 系统都做了什么":</p>
 <ol>
 <li><strong>接了再说</strong> — 异步提交, 消息进 Redis Stream, 客户立刻收到"已收到"</li>
